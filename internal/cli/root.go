@@ -21,7 +21,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 	root := &urfave.Command{
 		Name:        "bump",
 		Usage:       "Repo-local scheduling, without a platform",
-		Description: "Bootstrap: inspect configuration and initialize a project. Job execution and scheduling are not implemented yet.",
+		Description: "Validate and list project jobs, inspect configuration, and initialize a project. Job execution and scheduling are not implemented yet.",
 		Version:     fmt.Sprintf("%s (commit %s, built %s)", build.Version, build.Commit, build.BuildTime),
 		Writer:      out, ErrWriter: errOut,
 		EnableShellCompletion: true,
@@ -35,7 +35,8 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		},
 		Action: status,
 		Commands: []*urfave.Command{
-			{Name: "status", Usage: "Show project configuration and bootstrap status", Action: status},
+			{Name: "status", Usage: "Show project jobs and next scheduled times without running them", Action: status},
+			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
 			{Name: "init", Usage: "Create bump.yaml without overwriting existing files", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "local", Usage: "Create private .bump.yaml instead; add it to .gitignore"},
 			}, Action: initialize},
@@ -172,20 +173,6 @@ func noArgs(cmd *urfave.Command) error {
 	return nil
 }
 
-func status(_ context.Context, cmd *urfave.Command) error {
-	cfg, err := load(cmd)
-	if err != nil {
-		return err
-	}
-	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"status": "bootstrap", "config": cfg})
-	}
-	fmt.Fprintf(cmd.Writer, "Bump · %s\nTimezone: %s\nConfig files: %d\n", cfg.Project, cfg.Timezone, len(cfg.Sources))
-	fmt.Fprintln(cmd.Writer, "Scheduling is not implemented yet. No jobs or services were started.")
-	fmt.Fprintln(cmd.Writer, "Next: bump init · bump config · bump --help")
-	return nil
-}
-
 func showConfig(_ context.Context, cmd *urfave.Command) error {
 	cfg, err := load(cmd)
 	if err != nil {
@@ -212,9 +199,9 @@ func checkConfig(_ context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"valid": true, "config": cfg})
+		return emit(cmd, map[string]any{"valid": true, "config": cfg, "jobs": len(cfg.Jobs)})
 	}
-	fmt.Fprintf(cmd.Writer, "Configuration valid · %s\n", cfg.Project)
+	fmt.Fprintf(cmd.Writer, "Configuration valid · %s · %d jobs\n", cfg.Project, len(cfg.Jobs))
 	return nil
 }
 
@@ -248,7 +235,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	} else if err != nil {
 		return err
 	} else {
-		_, writeErr := io.WriteString(file, "# Bump bootstrap settings. Jobs will be added in a later release.\n# Ignore .bump.yaml and .bump/ in your repository.\nversion: 1\n# timezone: Local\n")
+		_, writeErr := io.WriteString(file, "# Bump settings. Listing jobs does not execute them.\n# Ignore .bump.yaml and .bump/ in your repository.\nversion: 1\n# timezone: Local\n# jobs:\n#   tests:\n#     schedule: weekdays at 9am\n#     run: task test\n")
 		closeErr := file.Close()
 		if err := errors.Join(writeErr, closeErr); err != nil {
 			return err

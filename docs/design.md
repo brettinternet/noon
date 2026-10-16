@@ -190,8 +190,8 @@ environment variables (below), so a prompt can say "summarize commits since
 
 ### Schedules
 
-The pure `internal/schedule` parser and next-occurrence calculation are implemented;
-job configuration and CLI scheduling are not yet wired to them. `Parse` returns an immutable
+The pure `internal/schedule` parser, job configuration validation, and CLI next-run
+previews are implemented; actual scheduling and execution are not. `Parse` returns an immutable
 schedule with normalized `String`, `Next(after, loc)`, and `Interval` methods. `Next` is strictly
 after the supplied instant; interval phase remains the planner's responsibility. `ParseDuration`
 accepts nonnegative integer components in `s`, `m`, `h`, and `d`, rejecting overflow.

@@ -35,10 +35,11 @@ type Input struct {
 
 // Config is a read-only snapshot. Sources are ordered from lowest to highest priority.
 type Config struct {
-	Project  string   `json:"project"`
-	Timezone string   `json:"timezone"`
-	StateDir string   `json:"state_dir"`
-	Sources  []string `json:"sources"`
+	Project  string         `json:"project"`
+	Timezone string         `json:"timezone"`
+	StateDir string         `json:"state_dir"`
+	Sources  []string       `json:"sources"`
+	Jobs     map[string]Job `json:"-"`
 }
 
 // Load applies defaults, user settings, project settings, and invocation overrides.
@@ -48,12 +49,12 @@ func Load(input Input) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cfg := Config{Project: project, Timezone: "Local", StateDir: filepath.Join(project, ".bump"), Sources: []string{}}
+	cfg := Config{Project: project, Timezone: "Local", StateDir: filepath.Join(project, ".bump"), Sources: []string{}, Jobs: make(map[string]Job)}
 	if input.File != nil {
 		if *input.File == "" {
 			return Config{}, errors.New("config path must not be empty")
 		}
-		if err := cfg.applyFile(resolvePath(input.CWD, *input.File), false); err != nil {
+		if err := cfg.applyFile(resolvePath(input.CWD, *input.File), false, "shared"); err != nil {
 			return Config{}, err
 		}
 	} else {
@@ -62,8 +63,14 @@ func Load(input Input) (Config, error) {
 			paths = append(paths, filepath.Join(input.UserConfigDir, "bump", "config.yaml"))
 		}
 		paths = append(paths, filepath.Join(project, "bump.yaml"), filepath.Join(project, ".bump.yaml"))
-		for _, path := range paths {
-			if err := cfg.applyFile(path, true); err != nil {
+		for i, path := range paths {
+			kind := "shared"
+			if input.UserConfigDir != "" && i == 0 {
+				kind = "user"
+			} else if i == len(paths)-1 {
+				kind = "local"
+			}
+			if err := cfg.applyFile(path, true, kind); err != nil {
 				return Config{}, err
 			}
 		}
@@ -127,7 +134,11 @@ func ProjectDir(input Input) (string, error) {
 	}
 }
 
-func (cfg *Config) applyFile(path string, optional bool) error {
+func (cfg *Config) applyFile(path string, optional bool, kind string) error {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
 	file, err := os.Open(path)
 	if optional && errors.Is(err, os.ErrNotExist) {
 		// A dangling symlink is a broken config, not an absent optional file.
@@ -151,34 +162,46 @@ func (cfg *Config) applyFile(path string, optional bool) error {
 	if err != nil {
 		return fmt.Errorf("config %s: %w", path, err)
 	}
-	if value, ok := values["timezone"]; ok {
+	if node, ok := values["timezone"]; ok {
+		value := node.Value
 		if err := validTimezone(value); err != nil {
 			return fmt.Errorf("config %s: %w", path, err)
 		}
 		cfg.Timezone = value
 	}
-	if value, ok := values["state_dir"]; ok {
+	if node, ok := values["state_dir"]; ok {
+		value := node.Value
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("config %s: state_dir must not be empty", path)
 		}
 		cfg.StateDir = resolvePath(filepath.Dir(path), value)
 	}
+	if jobs, ok := values["jobs"]; ok {
+		if kind == "user" {
+			return jobError(path, jobs, "jobs", "allowed only in bump.yaml, .bump.yaml, or --config files")
+		}
+		if err := cfg.applyJobs(path, kind, jobs); err != nil {
+			return err
+		}
+	}
 	cfg.Sources = append(cfg.Sources, path)
 	return nil
 }
 
-// parse intentionally accepts only this small bootstrap schema. Unknown fields,
+// parse accepts only the implemented settings and job schema. Unknown fields,
 // aliases, duplicate keys, nulls, and trailing documents cannot silently hide errors.
-func parse(data []byte) (map[string]string, error) {
+func parse(data []byte) (map[string]*yaml.Node, error) {
 	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
 	var doc yaml.Node
 	if err := decoder.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("expected one YAML mapping: %w", err)
+		// Decoder diagnostics can quote raw environment values (for example an
+		// unknown anchor). Never forward them to human or JSON output.
+		return nil, errors.New("invalid YAML: expected one mapping; check syntax and do not use aliases")
 	}
 	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil, errors.New("expected a YAML mapping")
 	}
-	values := make(map[string]string)
+	values := make(map[string]*yaml.Node)
 	root := doc.Content[0]
 	for i := 0; i < len(root.Content); i += 2 {
 		key, value := root.Content[i], root.Content[i+1]
@@ -193,6 +216,8 @@ func parse(data []byte) (map[string]string, error) {
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!int" || value.Value != "1" {
 				return nil, errors.New("version must be 1")
 			}
+		case "jobs":
+			// Nested job validation retains source lines and YAML paths.
 		case "timezone", "state_dir":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				return nil, fmt.Errorf("%s must be a string", key.Value)
@@ -200,7 +225,7 @@ func parse(data []byte) (map[string]string, error) {
 		default:
 			return nil, fmt.Errorf("unknown field %q", key.Value)
 		}
-		values[key.Value] = value.Value
+		values[key.Value] = value
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {

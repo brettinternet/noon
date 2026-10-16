@@ -1,0 +1,26 @@
+version: 1
+timezone: America/Chicago
+
+jobs:
+  tests:
+    description: Full test suite on weekdays
+    schedule: weekdays at 9am
+    run: [go, test, ./...]
+    cwd: .
+    env:
+      GOFLAGS: "-count=1"
+    timeout: 10m
+    overlap: skip
+    missed: run_once
+    enabled: true
+  report:
+    description: Manual report using a shell string
+    run: "git log -5 --oneline"
+    timeout: none
+  reminder:
+    description: Disabled interval example
+    schedule: every 6h
+    run: "printf 'Take a break\n'"
+    overlap: queue
+    missed: skip
+    enabled: false

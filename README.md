@@ -6,9 +6,9 @@ A Go CLI for recurring commands and agent work, designed for your machine first
 and containers when needed. CLI now; optional TUI later. No required web UI,
 Python, Node, cloud service, or agent provider.
 
-**Status: bootstrap.** Working today: project discovery, layered settings,
-non-destructive initialization, validation, human/JSON output, and development
-tooling. Job execution, scheduling, cron import, hooks, MCP, service installation,
+**Status: inspection.** Working today: project discovery, layered settings,
+non-destructive initialization, strict job validation, job listing with next-run
+previews, human/JSON output, and development tooling. Job execution, scheduling, cron import, hooks, MCP, service installation,
 and TUI are designed but **not implemented**. There is no background daemon yet.
 
 ## Try it
@@ -20,6 +20,7 @@ task cli:build
 
 bin/bump                 # useful repo summary; starts nothing
 bin/bump init            # create bump.yaml; preserve it if it exists
+bin/bump list            # validated jobs and next-run previews; executes nothing
 bin/bump config          # effective settings and source files
 bin/bump config check    # validate without writing anything
 bin/bump --json status
@@ -33,6 +34,10 @@ defaults → user config → `bump.yaml` → `.bump.yaml` → environment → CL
 ```yaml
 version: 1
 timezone: Local
+jobs:
+  tests:
+    schedule: weekdays at 9am
+    run: [go, test, ./...]
 ```
 
 ```sh
@@ -53,9 +58,8 @@ errors, and 1 for other failures.
 
 Designed, not built yet ([design](docs/design.md), [decisions](backlog/decisions)):
 
-- Jobs in `bump.yaml` (shared) or `.bump.yaml` (private): shell strings or exact
-  argv, or prompts for the agent CLI you already use. Schedules are cron or plain
-  forms like `weekdays at 9am` and `every 6h`.
+- Command job definitions in `bump.yaml` (shared) or `.bump.yaml` (private) and
+  schedule parsing already work; execution and agent prompts are still planned.
 - `bump run NAME` runs a job in the foreground with no daemon.
 - One per-user `bump serve` runs every enabled repo's schedules;
   `bump service install` keeps it alive across reboots. Docker runs the same

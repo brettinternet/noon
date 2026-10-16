@@ -4,6 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io/fs"
+	"reflect"
+	"slices"
+	"time"
+
+	"github.com/brettinternet/bump/internal/app"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +28,8 @@ func sandbox(t *testing.T) string {
 		}
 	}
 	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "user"))
 	t.Chdir(root)
 	return root
@@ -169,5 +177,128 @@ func TestInspectionDoesNotWriteOrExecute(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("inspection created files: %v", entries)
+	}
+}
+
+// Guard against executing a manifest during inspection, leaking secrets, or
+// accidentally changing the machine-readable contract.
+func TestListJSON(t *testing.T) {
+	root := sandbox(t)
+	data := "timezone: America/Chicago\njobs:\n  zmanual:\n    run: [touch, SHOULD_NOT_EXIST]\n  adaily:\n    schedule: every day at 9am\n    run: touch SHOULD_NOT_EXIST\n    env: {TOKEN: never-print-this-value, OTHER: also-private}\n  bdisabled:\n    schedule: every 1h\n    enabled: false\n    run: 'true'\n  cinterval:\n    schedule: every 1h\n    run: 'true'\n"
+	if err := os.WriteFile(filepath.Join(root, "bump.yaml"), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func() map[string]string {
+		t.Helper()
+		files := map[string]string{}
+		if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				files[path] = "<directory>"
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			files[path] = string(data)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return files
+	}
+	before := snapshot()
+	code, result := invoke(t, "list", "--json")
+	if code != 0 || result["schema_version"] != float64(1) {
+		t.Fatalf("%d %+v", code, result)
+	}
+	project := result["project"].(map[string]any)
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 3 || len(project) != 2 || project["path"] != canonical || project["timezone"] != "America/Chicago" {
+		t.Fatal(result)
+	}
+	jobs := result["jobs"].([]any)
+	if len(jobs) != 4 {
+		t.Fatal(jobs)
+	}
+	wantKeys := strings.Fields("name description schedule next_at run cwd env_keys timeout overlap missed enabled source shared overrides digest")
+	slices.Sort(wantKeys)
+	for i, name := range []string{"adaily", "bdisabled", "cinterval", "zmanual"} {
+		job := jobs[i].(map[string]any)
+		keys := make([]string, 0, len(job))
+		for key := range job {
+			keys = append(keys, key)
+		}
+		slices.Sort(keys)
+		if !reflect.DeepEqual(keys, wantKeys) || job["name"] != name || job["cwd"] != canonical || job["source"] != filepath.Join(canonical, "bump.yaml") || job["shared"] != true || job["overrides"] != false || job["timeout"] != "1h" || job["overlap"] != "skip" || job["missed"] != "run_once" || !strings.HasPrefix(job["digest"].(string), "sha256:") {
+			t.Fatalf("job shape: %+v", job)
+		}
+		if i == 1 || i == 3 {
+			if job["next_at"] != nil {
+				t.Fatal(job)
+			}
+		} else {
+			if _, err := time.Parse(time.RFC3339, job["next_at"].(string)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if jobs[3].(map[string]any)["schedule"] != nil || !reflect.DeepEqual(jobs[3].(map[string]any)["run"], []any{"touch", "SHOULD_NOT_EXIST"}) || jobs[0].(map[string]any)["run"] != "touch SHOULD_NOT_EXIST" || !reflect.DeepEqual(jobs[0].(map[string]any)["env_keys"], []any{"OTHER", "TOKEN"}) {
+		t.Fatal(jobs)
+	}
+
+	// The shared operation supplies deterministic timezone and interval behavior.
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	view, err := app.Inspect(config.Input{CWD: root}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Jobs[0].NextAt.Format(time.RFC3339) != "2026-01-01T09:00:00-06:00" || view.Jobs[2].NextAt.Format(time.RFC3339) != "2025-12-31T19:00:00-06:00" {
+		t.Fatal(view)
+	}
+	for _, args := range [][]string{{"list", "--json"}, {"ls"}, {}, {"status"}, {"config", "--json"}, {"config", "check", "--json"}} {
+		var out, stderr bytes.Buffer
+		if code := cli.Run(context.Background(), append([]string{"bump"}, args...), config.BuildOpts{}, &out, &stderr); code != 0 {
+			t.Fatalf("%v: %s", args, &stderr)
+		}
+		for _, secret := range []string{"never-print-this-value", "also-private"} {
+			if strings.Contains(out.String()+stderr.String(), secret) {
+				t.Fatalf("%v leaked secret", args)
+			}
+		}
+	}
+	if after := snapshot(); !reflect.DeepEqual(before, after) {
+		t.Fatalf("inspection changed files: before=%v after=%v", before, after)
+	}
+
+	// Invalid aliases must not leak raw environment values through YAML's
+	// decoder error, even though parsing fails before a job node is available.
+	invalid := "jobs:\n  tests:\n    run: 'true'\n    env:\n      TOKEN: *never-print-this-value\n"
+	if err := os.WriteFile(filepath.Join(root, "bump.yaml"), []byte(invalid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"config", "check"}, {"list", "--json"}} {
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), append([]string{"bump"}, args...), config.BuildOpts{}, &out, &stderr)
+		if code != 1 || strings.Contains(out.String()+stderr.String(), "never-print-this-value") || !strings.Contains(out.String()+stderr.String(), "invalid YAML") {
+			t.Fatalf("%v: exit=%d stdout=%s stderr=%s", args, code, &out, &stderr)
+		}
+	}
+	// Unknown repository keys cannot inject terminal escape sequences into
+	// the source/path diagnostic during ordinary inspection.
+	invalid = "jobs:\n  tests:\n    run: 'true'\n    \"\\e[2J\\e[Hspoof\": ignored\n"
+	if err := os.WriteFile(filepath.Join(root, "bump.yaml"), []byte(invalid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	code = cli.Run(context.Background(), []string{"bump", "config", "check"}, config.BuildOpts{}, &out, &stderr)
+	if code != 1 || strings.ContainsRune(stderr.String(), '\x1b') || !strings.Contains(stderr.String(), "unknown field") {
+		t.Fatalf("unsafe diagnostic: exit=%d stderr=%q", code, stderr.String())
 	}
 }

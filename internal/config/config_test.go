@@ -111,7 +111,7 @@ func TestLoadRejectsAmbiguousOrInvalidYAML(t *testing.T) {
 	for _, data := range []string{
 		"", "null", "[]", "timezone: UTC\ntimezone: Local\n", "timezone: null\n",
 		"timezone: 42\n", "timezone: ''\n", "timezone: Invalid/Zone\n",
-		"timezone: &zone UTC\nstate_dir: *zone\n", "timezon: UTC\n", "jobs: {}\n",
+		"timezone: &zone UTC\nstate_dir: *zone\n", "timezon: UTC\n", "jobs: []\n",
 		"version: 2\n", "version: '1'\n", "state_dir: ''\n", "{}\n---\n{}\n",
 	} {
 		t.Run(data, func(t *testing.T) {
