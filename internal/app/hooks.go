@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,17 +32,26 @@ type hookPayload struct {
 		Path string `json:"path"`
 		Name string `json:"name"`
 	} `json:"project"`
-	Run Run `json:"run"`
+	Run            Run     `json:"run"`
+	PreviousStatus *string `json:"previous_status"`
 }
 
 // FinishRunWithHook records the run's terminal result and, when configured,
 // executes its matching hook after that durable transition.
 func FinishRunWithHook(state *store.Store, run store.Run, project string, job config.Job, hookEnvironment []string, outcome store.Outcome) (*HookResult, error) {
 	event, command := matchingHook(outcome.Status, job)
+	var previousStatus string
+	var lookupErr error
 	if command != nil {
-		outcome.HookEvent = event
+		// Snapshot while this run still owns the running slot, not after FinishRun
+		// permits a subsequent execution to complete.
+		previousStatus, lookupErr = state.PreviousStatus(run.ProjectID, run.Job, run.ID)
+		if lookupErr == nil {
+			outcome.HookEvent = event
+		}
 	}
-	if err := state.FinishRun(run.ID, run.ProjectID, run.Job, outcome); err != nil {
+	finishErr := state.FinishRun(run.ID, run.ProjectID, run.Job, outcome)
+	if err := errors.Join(lookupErr, finishErr); err != nil {
 		return nil, err
 	}
 	if command == nil {
@@ -52,6 +62,9 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 		return nil, err
 	}
 	payload := hookPayload{SchemaVersion: 1, Run: RunFromStore(state, stored)}
+	if previousStatus != "" {
+		payload.PreviousStatus = &previousStatus
+	}
 	payload.Project.Path = project
 	payload.Project.Name = filepath.Base(project)
 	stdin, err := json.Marshal(payload)
@@ -72,6 +85,7 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 	}
 	env = setHookEnvironment(env, "NOON_TRIGGER", stored.Trigger)
 	env = setHookEnvironment(env, "NOON_STATUS", stored.Status)
+	env = setHookEnvironment(env, "NOON_PREVIOUS_STATUS", previousStatus)
 	exitCode := 125
 	if stored.ExitCode.Valid {
 		exitCode = int(stored.ExitCode.Int64)

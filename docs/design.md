@@ -431,7 +431,18 @@ See the [agent guide](../docs/agents.md) for implemented CLI/MCP log workflows a
 - **Hooks**: `on_success` and `on_failure` commands get a versioned JSON run summary on
   stdin plus `NOON_*` variables. 30s timeout, 64 KiB captured output, recorded on the run, no hooks
   for hook failures. The marker offset separates job and hook log sections. Desktop notifications
-  and chat posts are examples, not built-ins.
+  and chat posts are examples, not built-ins. Hooks receive `NOON_PREVIOUS_STATUS` (unset
+  without retained eligible history) and top-level `previous_status` (string or explicit null,
+  schema version 1); the nested shared run JSON is unchanged. One snapshot is captured before
+  the terminal transition releases the running slot and reused for both outputs. It selects the
+  same canonical project/job's latest retained `succeeded`, `failed`, or `timed_out` result,
+  ordered by finished_at then ID descending, excluding only the current ID, not higher queued
+  IDs; digest changes and prior hook configuration do not reset history. Inherited/job-configured
+  previous-status values are cleared. Only a matching hook needs the lookup; on query error Noon
+  still attempts durable job completion, reports the state error, and does not start the hook.
+  [Desktop wrappers](hooks.md) group failed/timed_out as unhealthy, notify on first failure and
+  recovery, and keep first success quiet. Missing/pruned history counts as healthy for that
+  policy; pruning can repeat an outage notification and failed hooks are never retried.
 - **Triggers**: Git hooks and agent hooks call `noon run NAME --detach --key ID [--data JSON]`.
   CLI data accepts a JSON value, `@FILE`, or stdin `-`, up to 256 KiB; MCP `run_job` accepts an
   optional JSON `data` value with the same limit. A queued run and its event file are committed in

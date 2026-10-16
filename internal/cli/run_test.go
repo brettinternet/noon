@@ -408,6 +408,7 @@ func TestHooks(t *testing.T) {
 printf 'call\n' >> "$HOOK_CAPTURE.calls"
 cat > "$HOOK_CAPTURE.json"
 printf '%s\n' "$NOON_JOB" "$NOON_STATUS" "$NOON_EXIT_CODE" "$NOON_LOG_FILE" > "$HOOK_CAPTURE.env"
+printf '%s\n' "${NOON_PREVIOUS_STATUS-unset}" > "$HOOK_CAPTURE.previous"
 `)
 	outputHook := writeScript("output-hook", `head -c 70000 /dev/zero | tr '\000' X
 `)
@@ -434,6 +435,8 @@ wait
     run: 'true'
   failure:
     run: [sh, -c, 'exit 7']
+  flip:
+    run: 'test -e ok'
   timed_job:
     run: [sh, -c, 'sleep 5']
     timeout: 1s
@@ -537,12 +540,71 @@ wait
 		return run
 	}
 
+	// One snapshot must agree in both outputs and never leak inherited/job values.
+	t.Setenv("NOON_PREVIOUS_STATUS", "inherited-leak")
+	for i, want := range []string{"", "failed", "failed"} {
+		if i == 2 {
+			if err := os.WriteFile(filepath.Join(root, "ok"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		capture := setCapture(fmt.Sprintf("flip-%d", i))
+		code, status := 1, "failed"
+		if i == 2 {
+			code, status = 0, "succeeded"
+		}
+		result := runJSON("flip", code)
+		nested := captureSummary(capture, "flip", status, strconv.Itoa(code))
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(mustRead(t, capture+".json")), &payload); err != nil {
+			t.Fatal(err)
+		}
+		value, present := payload["previous_status"]
+		if !present || (want == "" && value != nil) || (want != "" && value != want) {
+			t.Fatalf("previous_status=%v present=%v want=%q", value, present, want)
+		}
+		wantEnv := want
+		if wantEnv == "" {
+			wantEnv = "unset"
+		}
+		if got := mustRead(t, capture+".previous"); got != wantEnv+"\n" {
+			t.Fatalf("previous env=%q want=%q", got, wantEnv)
+		}
+		if _, ok := nested["previous_status"]; ok {
+			t.Fatal("hook-only context leaked into nested run")
+		}
+		if len(nested) != len(result) {
+			t.Fatal("hook run shape differs from shared run JSON")
+		}
+		for key := range result {
+			if _, ok := nested[key]; !ok {
+				t.Fatalf("hook run missing shared field %s", key)
+			}
+		}
+	}
+
+	// Config cannot inject reserved hook metadata in the first place.
+	invalidManifest := strings.Replace(manifest, "  flip:\n", "  flip:\n    env: {NOON_PREVIOUS_STATUS: job-leak}\n", 1)
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(invalidManifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var invalidOut, invalidErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "run", "flip"}, config.BuildOpts{}, &invalidOut, &invalidErr); code == 0 || !strings.Contains(invalidErr.String(), "NOON_ is reserved") {
+		t.Fatalf("reserved previous status accepted: exit=%d stderr=%s", code, invalidErr.String())
+	}
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	capture := setCapture("success-record")
 	run := runJSON("success", 0)
 	if run["status"] != "succeeded" {
 		t.Fatalf("successful run status=%v", run["status"])
 	}
 	input := captureSummary(capture, "success", "succeeded", "0")
+	if got := mustRead(t, capture+".previous"); got != "unset\n" {
+		t.Fatalf("inherited previous status leaked: %q", got)
+	}
 	if input["hook"].(map[string]any)["event"] != "on_success" {
 		t.Fatalf("success ran the wrong hook: %+v", input["hook"])
 	}

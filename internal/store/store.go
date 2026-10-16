@@ -418,6 +418,22 @@ func (s *Store) LastSuccess(projectID int64, job string) (string, bool, error) {
 	return value.String, value.Valid, nil
 }
 
+// PreviousStatus returns the latest retained eligible result before the caller
+// finishes its running slot. IDs alone do not order completion of queued runs.
+func (s *Store) PreviousStatus(projectID int64, job string, runID int64) (string, error) {
+	var status string
+	err := s.db.QueryRow(`SELECT status FROM runs
+WHERE project_id=? AND job=? AND id!=? AND status IN ('succeeded','failed','timed_out')
+ORDER BY finished_at DESC, id DESC LIMIT 1`, projectID, job, runID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read previous job status: %w", err)
+	}
+	return status, nil
+}
+
 // CreateRun records the running row and event before the child is started.
 func (s *Store) CreateRun(input NewRun) (Run, error) {
 	created := FormatTime(input.Now)

@@ -120,6 +120,64 @@ func createTestRun(t *testing.T, s *Store, project int64, job string) Run {
 }
 
 func TestStore(t *testing.T) {
+	t.Run("previous result follows completion order and retained eligible identity", func(t *testing.T) {
+		s, project := testStore(t)
+		now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+		other, err := s.RegisterProject(t.TempDir(), now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Seed a delayed queued ID before the manual runs that complete ahead of it.
+		insert := func(projectID int64, job, status string, finished time.Time) int64 {
+			t.Helper()
+			result, err := s.db.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, created_at, finished_at)
+VALUES(?, ?, ?, 'manual', 'old-definition', ?, ?)`, projectID, job, status, FormatTime(now), FormatTime(finished))
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := result.LastInsertId()
+			if err != nil {
+				t.Fatal(err)
+			}
+			return id
+		}
+		current := insert(project, "flip", "queued", now)
+		check := func(want string) {
+			t.Helper()
+			if got, err := s.PreviousStatus(project, "flip", current); err != nil || got != want {
+				t.Fatalf("previous=%q err=%v, want %q", got, err, want)
+			}
+		}
+		check("")
+		insert(project, "flip", "failed", now.Add(time.Second))
+		check("failed")
+		insert(project, "flip", "succeeded", now) // higher ID, earlier completion
+		check("failed")
+		insert(project, "flip", "timed_out", now.Add(time.Second)) // timestamp tie
+		check("timed_out")
+		insert(other, "flip", "succeeded", now.Add(time.Hour))
+		insert(project, "other", "succeeded", now.Add(time.Hour))
+		for _, status := range []string{"cancelled", "interrupted", "skipped", "missed", "expired", "queued", "running"} {
+			insert(project, "flip", status, now.Add(time.Hour))
+			check("timed_out")
+		}
+		// Exclude only the current ID, even if queried after its completion.
+		if _, err := s.db.Exec("UPDATE runs SET status='succeeded', finished_at=? WHERE id=?", FormatTime(now.Add(time.Hour)), current); err != nil {
+			t.Fatal(err)
+		}
+		check("timed_out")
+		if _, err := s.db.Exec("DELETE FROM runs WHERE project_id=? AND job=? AND id!=?", project, "flip", current); err != nil {
+			t.Fatal(err)
+		}
+		check("") // pruned eligible history is unknown, not another identity
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.PreviousStatus(project, "flip", current); err == nil {
+			t.Fatal("lookup error reported as missing history")
+		}
+	})
+
 	t.Run("migrate and reopen; secure WAL store; absent open is read-only", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "state")
 		if _, err := OpenExisting(dir); !errors.Is(err, ErrNoDatabase) {

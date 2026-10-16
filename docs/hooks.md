@@ -19,11 +19,26 @@ on_failure: [/Users/me/.local/bin/noon-notify]
 Hooks run after Noon durably records the terminal run status and outside scheduler concurrency
 limits. They use the job's working directory and environment, plus `NOON_STATUS`, `NOON_EXIT_CODE`, and
 `NOON_LOG_FILE` (an absolute path, omitted when no run log exists). The JSON `run.log.path` is the
-same path and null when unavailable. Stdin is one JSON object:
+same path and null when unavailable.
+
+`NOON_PREVIOUS_STATUS` is the raw previous eligible result (`succeeded`, `failed`, or
+`timed_out`), unset when none remains in retained history. Inherited and job-configured values
+are removed even when it is unset. History uses the same canonical project and job name,
+regardless of definition digest or whether the earlier run had a hook; all other statuses are
+ignored. Noon takes one snapshot immediately before the current run's terminal transition,
+while it still owns its running slot, and reuses it for environment and stdin. Results are
+ordered by `finished_at` descending, then ID descending; only the current run is excluded.
+A delayed queued run can therefore see a higher-ID manual run that completed before it.
+Lookup happens only for a matching hook. A state lookup error still attempts to record the
+job's actual result, reports the error, and skips the hook rather than inventing missing history.
+
+Stdin is one JSON object; top-level `previous_status` is a string or explicit null under
+schema version 1, not a field in shared CLI/MCP run JSON:
 
 ```json
 {
   "schema_version": 1,
+  "previous_status": null,
   "project": {"path": "/path/to/project", "name": "project"},
   "run": {
     "id": 12,
@@ -62,6 +77,15 @@ before the marker; that separator remains part of the job section. Read just one
 event, status, and exit code. `noon logs RUN --follow` continues following while a hook is running.
 Hook output is subject to the existing per-job log retention.
 
+## First failure and recovery notifications
+
+The two desktop wrappers below implement notification policy, not core Noon behavior.
+Configure both hooks: notify on the first unhealthy result and on recovery to healthy.
+They group `failed` and `timed_out` as one outage; switching between them does not notify.
+A first success stays quiet. Unknown/pruned history is treated as healthy, so pruning can
+make an old outage appear new. This is not guaranteed delivery: failed hooks are not retried.
+Notifying on every raw-status change would be a different optional policy.
+
 ## macOS notification
 
 Save an AppleScript handler and an executable wrapper. The job and status are passed as argv, not
@@ -77,6 +101,9 @@ end run
 ```sh
 #!/bin/sh
 # ~/.local/bin/noon-notify
+case "${NOON_PREVIOUS_STATUS-}" in failed|timed_out) previous=unhealthy ;; *) previous=healthy ;; esac
+case "$NOON_STATUS" in failed|timed_out) current=unhealthy ;; *) current=healthy ;; esac
+[ "$previous" != "$current" ] || exit 0
 exec osascript "$HOME/.local/bin/noon-notify.applescript" "$NOON_JOB" "$NOON_STATUS"
 ```
 
@@ -92,6 +119,9 @@ Install `notify-send` and use a wrapper that passes values as quoted arguments:
 ```sh
 #!/bin/sh
 # ~/.local/bin/noon-notify
+case "${NOON_PREVIOUS_STATUS-}" in failed|timed_out) previous=unhealthy ;; *) previous=healthy ;; esac
+case "$NOON_STATUS" in failed|timed_out) current=unhealthy ;; *) current=healthy ;; esac
+[ "$previous" != "$current" ] || exit 0
 exec notify-send "$NOON_JOB" "$NOON_STATUS"
 ```
 
