@@ -1,10 +1,10 @@
 ---
 id: NOON-7
 title: Trigger jobs from Git and agent hooks with payloads
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 16:16'
 labels:
   - integration
   - security
@@ -55,15 +55,37 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^TestTriggers$' -count=1 -v` exits 0 and prints `--- PASS: TestTriggers`, covering every case listed under Tests
-- [ ] #2 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "cat \\"$NOON_EVENT_FILE\\""\n' > "$noon_ac_project/noon.yaml" && echo '{"sha":"abc"}' | env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t --data -` exits 0 and prints the event JSON object, whose `source` is `cli` and whose `data` equals `{"sha":"abc"}`
+- [x] #1 `task cli:test -- -run '^TestTriggers$' -count=1 -v` exits 0 and prints `--- PASS: TestTriggers`, covering every case listed under Tests
+- [x] #2 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "cat \\"$NOON_EVENT_FILE\\""\n' > "$noon_ac_project/noon.yaml" && echo '{"sha":"abc"}' | env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t --data -` exits 0 and prints the event JSON object, whose `source` is `cli` and whose `data` equals `{"sha":"abc"}`
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Extend config/store with digested cooldown, atomic queued cooldown checks, persisted depth and bounded event files following log retention. 2. Wire CLI, MCP and execution metadata through shared payload validation and recursion guards; preserve queued authorization and key ordering. 3. Add critical TestTriggers and store/MCP regression coverage after implementation; verify hook examples and document implemented behavior. 4. Run both acceptance commands, independent risk-focused verification and task ci; commit, merge to main, finalize provider state and clean up the owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Worklease claim 0f9def78f7ece00e8e20954e795548d0 acquired by loop 53909a3c-e1ac-40d5-a491-b52b62d6687d. Owned implementation checkout .worktrees/feat-noon-7-triggers on feat/noon-7-triggers, creation commit 9dea7ff871f6d963aacde6f439824eed0b0e39bb; receipt .git/worktrees/feat-noon-7-triggers/agent-creation.json. Modified-file expansion: docs/design.md may be updated to describe settled cooldown, depth and MCP payload contracts consistently with the required DoD.
+
+Implementation and independent verifier passed: atomic event publication, retention/migrations, cooldown ordering, recursion propagation and MCP payload checks; no code defects. Parent corrected Codex Stop example to send Noon status to stderr and emit {} on stdout, as required by current https://developers.openai.com/codex/hooks. Claude format confirmed at https://code.claude.com/docs/en/hooks. All four documented Git/agent hook commands executed successfully in isolated /tmp/noon-7-hooks.wTs9yJ with isolated HOME and no hooks installed; queued runs 2–5, Codex stdout {}. AC#1: task cli:test -- -run ^TestTriggers$ -count=1 -v -> exit 0, --- PASS: TestTriggers (independent verifier). AC#2: combined shell fixture command blocked by dynamic-shell guard; executed the same build, fixture contents and isolated invocation as separate operations: task cli:build; echo {"sha":"abc"} piped to env -i PATH="$PATH" HOME=/tmp/noon-7-ac-home.QECXhP bin/noon -C /tmp/noon-7-ac-project.hbrEH2 run t --data - -> exit 0, {"schema_version":1,"source":"cli","received_at":"2026-10-16T16:02:42.495Z","data":{"sha":"abc"}}. No acceptance behavior changed. Executor task ci passed; final committed-tree CI remains. LSP diagnostics for internal/app/triggers.go clean. All source changes within contract plus previously justified docs/design.md; no tests removed, skipped or weakened.
+
+Delivered commit 601c667ecd4e64825349de6024a9b11b8b14a55d (feat: add job trigger payloads and safeguards), fast-forward merged to main. task ci on committed implementation passed on main: gitleaks, govulncheck, formatting, vet, staticcheck, full tests, race tests, build and smoke. Worktrunk verified owned checkout/branch against creation receipt, removed both with post-remove hook; workspace wCN contained only its idle shell. No blockers or next implementation steps remain. Local temporary acceptance/smoke fixtures retained outside repository; no hooks/services installed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented bounded CLI/MCP event payloads, durable depth propagation and recursion guards, atomic cooldown/key handling, event retention and verified trigger examples. TestTriggers, isolated stdin event acceptance, independent verification and full task ci passed. Implementation 601c667 merged locally to main; owned worktree and branch removed.
+<!-- SECTION:FINAL_SUMMARY:END -->
