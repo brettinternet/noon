@@ -4,7 +4,7 @@ title: Give lifecycle hooks the job's previous status
 status: Done
 assignee: []
 created_date: '2026-10-16 22:07'
-updated_date: '2026-10-16 22:42'
+updated_date: '2026-10-16 22:45'
 labels:
   - hooks
   - store
@@ -88,6 +88,8 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 Design refinement: QueueRun allocates IDs before dispatch, so lower-ID history can miss the actual prior execution. FinishRun releases the same-job running slot before hook execution, so take one pre-transition snapshot. setHookEnvironment already unsets absent metadata; align with that rather than promise an exported empty string. Keep raw status in core, but group failed/timed_out in the first-failure/recovery wrappers. No implementation or passing acceptance is claimed.
 
 AC#1: task cli:test -- -run '^(TestHooks|TestStore)$' -count=1 -v -> exit 0, both PASS. Covers env/null agreement, inherited clearing, rejection of job-configured reserved metadata, unchanged nested JSON shape, identity/status filtering, missing/pruned history, completion ordering and timestamp ties including higher IDs before a delayed queued ID. AC#2: exact command executed as sh /tmp/noon-31-ac2.sh from implementation root -> exit 0; failure/failure/success and none failed / failed failed / failed succeeded verified. AC#3: rg -n 'NOON_PREVIOUS_STATUS|previous_status' docs/hooks.md docs/design.md -> exit 0; contracts documented. Both extracted desktop wrappers passed 8 first-failure/recovery scenarios with fake osascript/notify-send via bun /tmp/noon-31-wrappers.js; no network/notifications. Full task ci passed before and after implementation commit 2d3d376 (security, vulnerabilities, formatting/vet/staticcheck, tests, race, smoke); LSP clean. One independent reviewer pass: no validated findings; capture-before-FinishRun and error completion semantics reviewed. Six implementation paths match contract, no tests weakened. Existing configuration rejects all NOON_ env keys, so job-configured leak coverage asserts rejection rather than relaxing that safety rule. Delivery: 2d3d376 fast-forward merged into main; session-owned worktree/branch removed via Worktrunk. No blockers or further item-scoped steps; no push requested.
+
+Post-integration verification: task ci passed on main at 949dcc7. First main run hit an unrelated existing TestServeQueued/running_cancellation_kills_the_process_group EOF at queue_test.go:113: fixture waits for PID file existence before reading its contents. No source changes made; focused subtest passed 10 consecutive runs and full CI rerun passed including race tests. Owned Herdr workspace wE4 disappearance verified; pre-existing feat/tui-design worktree/workspace preserved as unrelated. Final evidence-only commit follows.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
