@@ -1,0 +1,22 @@
+version: "3"
+
+tasks:
+  init:
+    cmd: mise exec go -- go mod download
+  build:
+    desc: Build bin/bump
+    cmds:
+      - mkdir -p bin
+      - mise exec go -- go build -o bin/bump ./cmd/bump
+  run:
+    desc: Run bump from source
+    cmd: mise exec go -- go run ./cmd/bump {{.CLI_ARGS}}
+  fix:
+    cmd: find cmd internal -type f -name '*.go' -exec mise exec go -- gofmt -w {} +
+  check:
+    cmds:
+      - test -z "$(find cmd internal -type f -name '*.go' -exec mise exec go -- gofmt -l {} +)"
+      - mise exec go -- go vet ./...
+      - mise exec staticcheck -- staticcheck ./...
+  test:
+    cmd: mise exec go -- go test ./... {{.CLI_ARGS}}

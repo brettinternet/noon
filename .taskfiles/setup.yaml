@@ -1,0 +1,11 @@
+version: "3"
+
+tasks:
+  init:
+    cmds:
+      - mise trust
+      - mise install
+      - mise exec lefthook -- lefthook install
+  upgrade:
+    desc: Update pinned tools; review changes and run task ci
+    cmd: mise upgrade --bump --local

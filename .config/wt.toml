@@ -1,0 +1,4 @@
+# No services start implicitly. Review these hooks before creating a worktree.
+[[pre-start]]
+tools = "mise trust && mise install"
+setup = "mise exec -- task init"

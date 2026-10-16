@@ -1,0 +1,69 @@
+version: "3"
+
+includes:
+  setup: .taskfiles/setup.yaml
+  cli: .taskfiles/cli.yaml
+
+tasks:
+  default:
+    silent: true
+    cmd: task -l
+  init:
+    desc: Install pinned tools, Go modules, and Git hooks
+    aliases: [setup]
+    cmds:
+      - task: setup:init
+      - task: cli:init
+  check:staged:
+    desc: Format staged Go and scan the staged snapshot for secrets
+    cmd: mise exec lefthook -- lefthook run pre-commit
+  fix:staged:
+    desc: Format and re-stage Go files
+    cmd: mise exec lefthook -- lefthook run pre-commit --tag fix
+  check:
+    desc: Check formatting, Go source, and changelog generation
+    cmds:
+      - task: cli:check
+      - mise exec git-cliff -- git-cliff > /dev/null
+  fix:
+    desc: Format Go source
+    cmd: { task: cli:fix }
+  test:
+    desc: Run tests
+    cmd: { task: cli:test }
+  race:
+    desc: Run tests with the race detector
+    cmd: mise exec go -- go test -race ./...
+  security:
+    desc: Scan Git history and reachable Go vulnerabilities
+    cmds:
+      - mise exec gitleaks -- gitleaks git --redact --verbose --no-banner
+      - mise exec go:golang.org/x/vuln/cmd/govulncheck -- govulncheck ./...
+  smoke:
+    desc: Exercise the built binary in an isolated environment
+    cmds:
+      - task: cli:build
+      - sh scripts/smoke.sh
+  ci:
+    desc: Full local and CI gate
+    cmds:
+      - task: security
+      - task: check
+      - task: test
+      - task: race
+      - task: smoke
+  changelog:
+    desc: Generate changelog from conventional commits
+    cmd: mise exec git-cliff -- git-cliff --output CHANGELOG.md
+  backlog:
+    desc: List ready, unclaimed work
+    cmd: mise exec -- backlog task list --ready --status "To Do" --plain
+  docker:build:
+    desc: Build the local bump development image
+    cmd: docker build -t bump:dev .
+  docker:smoke:
+    desc: Check the container bootstrap without running jobs
+    cmds:
+      - task: docker:build
+      - docker run --rm bump:dev --version
+      - docker run --rm --read-only bump:dev --json config check
