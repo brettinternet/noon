@@ -4,10 +4,11 @@ title: 'Add, remove, pause, and resume jobs from the CLI'
 status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 13:18'
+updated_date: '2026-10-16 14:33'
 labels:
   - config
   - cli
+  - reviewed
 dependencies:
   - NOON-5
   - NOON-16
@@ -107,6 +108,8 @@ AC#1: task cli:test -- -run '^(TestEditJobs|TestAddJobs|TestPauseResume)$' -coun
 Delivery: implementation commit 3aef02a68b1d9334c1d30d3c3769ba338dfbdf9d passed task ci on the committed tree (security/vulnerability scans, gofmt/vet/staticcheck, tests, race, build and smoke). Fast-forward merged into main. Worktrunk removed owned noon-20 worktree and branch; Herdr workspace wCA confirmed absent afterward. No retained task worktrees, no push, no unresolved blocker or resumable implementation step. Existing tests retained with schema-version expectations advanced and empty-input behavior explicitly updated to the required contract; none skipped or weakened to bypass a failure. Docs and help describe implemented behavior.
 
 Final integrated main validation: task ci passed at b1391c6. First main run hit an unchanged runner test timeout waiting for a grandchild PID; its focused test passed five consecutive runs, and the full gate passed unchanged on retry. No test changes were made for this transient failure.
+
+Review (post-merge): AddJob/RemoveJob splicing, verify-before-write, atomic writes and modes, explicit_config refusal, selective approval, and pause/resume transactions match the contract; probed CRLF-free edge inputs (doc start marker, trailing field comments, top-level comments before later keys, missing final newline) and all verified. Fixed in f7d106c: (1) EnableAddedJob re-enabled a disabled project but reset only the added job's watermark, so with the scheduler stopped during disable, noon add made other jobs catch up on stale occurrences; it now resets all job_state on activation like EnableProject (regression in TestEnableAddedJobIsSelectiveAndResetsState, fails before the fix). (2) add --in/--at queued runs with requested_by empty instead of cli. (3) pause/resume printed nothing on success and an unknown job was a usage error (exit 2); they now print a confirmation and return not_found (exit 1) like run/history. Low, not fixed: a column-1 comment between jobs is removed with the preceding job; a comment-only file is refused rather than treated as empty; noon add on a project enabled with --config silently switches its recorded selection to automatic. AC1, AC2, and task ci rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
