@@ -1,9 +1,10 @@
 ---
 id: BUMP-14
 title: Adopt one CLI error and exit-code contract
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
+updated_date: '2026-10-16 02:30'
 labels:
   - cli
 dependencies: []
@@ -45,17 +46,41 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^TestJSONFailuresAreSingleObjects$' -count=1 -v` exits 0 and prints `--- PASS: TestJSONFailuresAreSingleObjects`; the test asserts every case returns exactly one JSON object with non-empty `error.code` and `error.message`, exit 2 for the unknown-flag, unexpected-argument, and empty-value cases, and exit 1 with code `config` for the missing explicit config file
-- [ ] #2 `task cli:test -- -run '^TestValueFlagsAreNotMistakenForJSON$' -count=1 -v` exits 0: an invocation whose string flag value is literally `--json` (for example `--timezone --json`) is not treated as a JSON request
-- [ ] #3 `task cli:build && bin/bump --bogus; echo "exit=$?"` prints a `bump: ` line on stderr and `exit=2`; `bin/bump --json --config missing.yaml config check; echo "exit=$?"` prints one JSON object whose `error.code` is `config`, then `exit=1`
-- [ ] #4 `task smoke` exits 0
+- [x] #1 `task cli:test -- -run '^TestJSONFailuresAreSingleObjects$' -count=1 -v` exits 0 and prints `--- PASS: TestJSONFailuresAreSingleObjects`; the test asserts every case returns exactly one JSON object with non-empty `error.code` and `error.message`, exit 2 for the unknown-flag, unexpected-argument, and empty-value cases, and exit 1 with code `config` for the missing explicit config file
+- [x] #2 `task cli:test -- -run '^TestValueFlagsAreNotMistakenForJSON$' -count=1 -v` exits 0: an invocation whose string flag value is literally `--json` (for example `--timezone --json`) is not treated as a JSON request
+- [x] #3 `task cli:build && bin/bump --bogus; echo "exit=$?"` prints a `bump: ` line on stderr and `exit=2`; `bin/bump --json --config missing.yaml config check; echo "exit=$?"` prints one JSON object whose `error.code` is `config`, then `exit=1`
+- [x] #4 `task smoke` exits 0
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Inspect CLI parsing and error rendering. 2. Add typed errors and command-derived JSON detection; update regression tests, smoke, and README. 3. Run acceptance checks and CI, review, commit, merge, and clean up.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: task cli:test -- -run '^TestJSONFailuresAreSingleObjects$' -count=1 -v -> exit 0, PASS; single-object envelope, usage/config exit codes, empty environment values verified.
+AC#2: task cli:test -- -run '^TestValueFlagsAreNotMistakenForJSON$' -count=1 -v -> exit 0, PASS for all current value flags including -C.
+AC#3: task cli:build && bin/bump --bogus; echo "exit=$?" -> bump: diagnostic, exit=2. bin/bump --json --config missing.yaml config check; echo "exit=$?" -> one config error object, exit=1.
+AC#4: task smoke -> exit 0, config and usage error objects and exit codes verified.
+Pre-commit task ci passed (vet, Staticcheck, tests, race, secrets, vulnerabilities, smoke). LSP root.go clean. One scoped diff review found no concrete defects. All changes within contract; no tests removed, skipped, or weakened. README documents implemented behavior; existing design Experience contract remains consistent.
+
+Delivered commit 78faa977455da3ea336dda545be3b37df5c3cc23, fast-forward merged into main. task ci passed on that final implementation commit. Worktrunk removed the verified session-owned worktree and branch; its Herdr workspace was removed. No blockers or remaining implementation steps; no push requested.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented typed CLI errors, usage exit 2 versus operational exit 1, structured JSON errors with optional hints, and command-tree-derived value-flag detection. All four acceptance checks and full CI passed; committed and merged into main, isolated checkout cleaned up.
+<!-- SECTION:FINAL_SUMMARY:END -->
