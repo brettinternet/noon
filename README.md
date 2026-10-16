@@ -136,10 +136,11 @@ Existing local users: stop all old/new processes and back up your data; move `~/
 noninteractive inspection should use `noon status`. It refreshes the current project's
 jobs and runs every second, follows active logs through bounded reads, and supports RE2
 log search with three lines of context. Use `j`/`k` or arrows to move, `enter` to open
-runs, `l` to open a log, `f` to cycle run status filters, `/` to search, `s` to cycle
-job/hook/all log sections, `g`/`G` to jump to the top/bottom of the log, `r` to queue
-the selected job now, and `p` to pause or resume it. `c` asks for confirmation before
-cancelling a run; `esc` returns, `?` shows help, and `q` exits. The TUI never edits jobs
+runs, `l` to open a log, `f` to cycle run status filters, `/` to search, `n`/`N` to step
+through matches, `s` to cycle job/hook/all log sections, `w` to toggle line wrapping,
+`g`/`G` to jump to the top/bottom of the log, `r` to queue the selected job now, and `p`
+to pause or resume it. `c` asks for confirmation before cancelling a run; `esc` returns,
+`?` lists every shortcut, and `q` exits. The TUI never edits jobs
 or enables or approves a project. The terminal is restored on exit, panic, or SIGTERM.
 
 ## Logs

@@ -5,14 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
+	"os"
 	"regexp"
-	"strconv"
+	"slices"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/config"
@@ -20,9 +21,12 @@ import (
 
 const (
 	refreshInterval   = time.Second
+	animateInterval   = 120 * time.Millisecond
 	logPageBytes      = 64 << 10
+	logTailLines      = 10000
 	maxFollowLogBytes = 1 << 20
 	maxLogBufferBytes = 2*maxFollowLogBytes + 128<<10
+	searchContext     = 3
 )
 
 type screen int
@@ -34,19 +38,31 @@ const (
 	helpScreen
 )
 
-type refreshMsg struct{}
+type tone int
 
-var statusFilters = [][]string{
-	{},
-	{"failed", "timed_out", "interrupted"},
-	{"running", "queued"},
+const (
+	toneInfo tone = iota
+	toneSuccess
+	toneWarning
+	toneError
+)
+
+type (
+	refreshMsg struct{}
+	animateMsg struct{}
+)
+
+// statusFilters cycle the runs view through NOON-26 status selections.
+var statusFilters = []struct {
+	label, title, empty string
+	statuses            []string
+}{
+	{"all", "all runs", "No runs yet", nil},
+	{"failures", "failed, timed out, or interrupted runs", "No failed, timed out, or interrupted runs", []string{"failed", "timed_out", "interrupted"}},
+	{"active", "running or queued runs", "No running or queued runs", []string{"running", "queued"}},
 }
 
-var statusFilterNames = []string{
-	"all",
-	"failed,timed_out,interrupted",
-	"running,queued",
-}
+var logSections = []string{"job", "hook", "all"}
 
 // Model contains the TUI's view state. All state reads and mutations go
 // through internal/app, the same operations used by the CLI and MCP clients.
@@ -54,6 +70,7 @@ type Model struct {
 	input    config.Input
 	stateDir string
 	project  string
+	home     string
 
 	dashboard app.DashboardView
 	screen    screen
@@ -61,30 +78,53 @@ type Model struct {
 	width     int
 	height    int
 
+	theme      theme
+	profile    colorprofile.Profile
+	dark       bool
+	background color.Color
+	spinFrame  int
+	animating  bool
+
 	selectedJob     int
 	selectedJobName string
+	jobOffset       int
 	runsJob         string
 	runs            []app.Run
 	selectedRun     int
 	selectedRunID   int64
+	runOffset       int
 	statusFilter    int
+	helpScroll      int
 
 	message         string
+	messageTone     tone
 	confirmCancelID int64
-	logReturn       screen
-	logRun          app.Run
-	logSection      string
-	logSearch       string
-	searchPrompt    bool
-	searchInput     string
-	logText         string
-	logCursor       int64
-	logSize         int64
-	logScroll       int
-	logFollowed     bool
-	followNotice    bool
-	logNotice       string
-	autoScroll      bool
+
+	logReturn    screen
+	logRun       app.Run
+	logSection   string
+	logSearch    string
+	searchRE     *regexp.Regexp
+	searchPrompt bool
+	searchInput  []rune
+	searchCursor int
+	matchCursor  int
+	matchedLines int
+	logText      string
+	logVersion   int
+	logRowCache  logRowCache
+	logPartial   bool
+	logWrap      bool
+	logCursor    int64
+	logSize      int64
+	logScroll    int
+	logFollowed  bool
+	logOrphaned  bool
+	followNotice bool
+	autoScroll   bool
+
+	logNotice     string
+	logNoticeTone tone
 }
 
 // NewModel loads the current project dashboard without creating application
@@ -94,10 +134,12 @@ func NewModel(input config.Input) (*Model, error) {
 	if err != nil {
 		return nil, app.ConfigError(err)
 	}
+	home, _ := os.UserHomeDir()
 	model := &Model{
-		input: input, stateDir: cfg.StateDir, project: cfg.Project,
-		screen: jobsScreen, width: 80, height: 24,
+		input: input, stateDir: cfg.StateDir, project: cfg.Project, home: home,
+		screen: jobsScreen, width: 80, height: 24, dark: true, logWrap: true,
 	}
+	model.theme = newTheme(model.profile, model.dark, model.background)
 	if err := model.refreshDashboard(); err != nil {
 		return nil, err
 	}
@@ -110,6 +152,10 @@ func refreshTick() tea.Cmd {
 	return tea.Tick(refreshInterval, func(time.Time) tea.Msg { return refreshMsg{} })
 }
 
+func animateTick() tea.Cmd {
+	return tea.Tick(animateInterval, func(time.Time) tea.Msg { return animateMsg{} })
+}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -120,11 +166,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.height < 1 {
 			m.height = 24
 		}
-		m.logScroll = clamp(m.logScroll, 0, m.maxLogScroll())
+		m.clampScroll()
+		return m, nil
+	case tea.ColorProfileMsg:
+		m.profile = message.Profile
+		m.theme = newTheme(m.profile, m.dark, m.background)
+		if m.theme.mono {
+			return m, nil
+		}
+		// Ask once the terminal can show color, so palettes match its background.
+		return m, tea.RequestBackgroundColor
+	case tea.BackgroundColorMsg:
+		m.dark, m.background = message.IsDark(), message.Color
+		m.theme = newTheme(m.profile, m.dark, m.background)
 		return m, nil
 	case refreshMsg:
 		m.refresh()
-		return m, refreshTick()
+		return m, tea.Batch(refreshTick(), m.startAnimation())
+	case animateMsg:
+		if !m.hasActivity() {
+			m.animating = false
+			return m, nil
+		}
+		m.spinFrame++
+		return m, animateTick()
+	case tea.PasteMsg:
+		if m.searchPrompt {
+			text, _, _ := strings.Cut(message.Content, "\n")
+			m.insertSearch(strings.TrimSuffix(text, "\r"))
+		}
+		return m, nil
 	case tea.KeyPressMsg:
 		return m.updateKey(message)
 	default:
@@ -132,385 +203,300 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// startAnimation runs the spinner tick only while a visible run is active.
+func (m *Model) startAnimation() tea.Cmd {
+	if m.animating || !m.hasActivity() {
+		return nil
+	}
+	m.animating = true
+	return animateTick()
+}
+
+func (m *Model) hasActivity() bool {
+	switch m.screen {
+	case jobsScreen:
+		for _, job := range m.dashboard.Jobs {
+			if job.LastRun != nil && activeRun(*job.LastRun) {
+				return true
+			}
+		}
+	case runsScreen:
+		for _, run := range m.runs {
+			if activeRun(run) {
+				return true
+			}
+		}
+	case logScreen:
+		return activeRun(m.logRun) && !m.logOrphaned
+	}
+	return false
+}
+
+// keyName normalizes terminals that report shifted letters as modifiers.
+func keyName(message tea.KeyPressMsg) string {
+	name := message.String()
+	if rest, ok := strings.CutPrefix(name, "shift+"); ok && len(rest) == 1 && rest[0] >= 'a' && rest[0] <= 'z' {
+		return strings.ToUpper(rest)
+	}
+	return name
+}
+
 func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	key := message.Key()
-	text := key.Text
-	if text == "" && key.Code >= 0x20 && key.Code <= unicode.MaxRune {
-		text = string(key.Code)
+	key := keyName(message)
+	if key == "ctrl+c" {
+		return m, tea.Quit
 	}
-	if text == "G" || key.ShiftedCode == 'G' {
-		text = "G"
-	}
-	keystroke := message.String()
-
 	if m.searchPrompt {
-		switch {
-		case key.Code == tea.KeyEscape || key.Code == tea.KeyEsc:
-			m.searchPrompt = false
-			m.searchInput = ""
-			if m.logSearch != "" {
-				m.logSearch = ""
-				m.message = ""
-				m.loadLogTail(true)
-			} else {
-				m.message = "Search cancelled."
-			}
-		case key.Code == tea.KeyEnter || key.Code == tea.KeyReturn:
-			m.runSearch()
-		case key.Code == tea.KeyBackspace || key.Code == tea.KeyDelete:
-			m.searchInput = dropLastRune(m.searchInput)
-		case keystroke == "ctrl+c":
-			return m, tea.Quit
-		case text != "":
-			m.searchInput += text
-		}
+		m.editSearch(message, key)
 		return m, nil
 	}
-
 	if m.confirmCancelID != 0 {
-		switch strings.ToLower(text) {
-		case "y":
+		switch key {
+		case "y", "Y":
 			m.cancelRun(m.confirmCancelID)
-		case "n":
+		case "n", "N", "esc":
+			m.flash(toneInfo, fmt.Sprintf("Kept run %d.", m.confirmCancelID))
 			m.confirmCancelID = 0
-			m.message = "Cancellation cancelled."
-		case "esc":
-			m.confirmCancelID = 0
-			m.message = "Cancellation cancelled."
-		default:
-			if key.Code == tea.KeyEscape || key.Code == tea.KeyEsc {
-				m.confirmCancelID = 0
-				m.message = "Cancellation cancelled."
-			}
 		}
 		return m, nil
 	}
-
-	if keystroke == "ctrl+c" {
+	switch key {
+	case "q":
 		return m, tea.Quit
-	}
-	if m.screen == helpScreen {
-		if text == "q" {
-			return m, tea.Quit
-		}
-		switch text {
-		case "?", "esc":
+	case "?":
+		if m.screen == helpScreen {
 			m.screen = m.helpFrom
-		}
-		if key.Code == tea.KeyEscape || key.Code == tea.KeyEsc {
-			m.screen = m.helpFrom
+		} else {
+			m.helpFrom, m.screen, m.helpScroll = m.screen, helpScreen, 0
 		}
 		return m, nil
-	}
-	if text == "q" {
-		return m, tea.Quit
-	}
-	if text == "?" {
-		m.helpFrom, m.screen = m.screen, helpScreen
-		return m, nil
-	}
-
-	if key.Code == tea.KeyEscape || key.Code == tea.KeyEsc || text == "esc" {
+	case "esc", "h", "left", "backspace":
 		m.goBack()
 		return m, nil
 	}
-
 	switch m.screen {
 	case jobsScreen:
-		switch {
-		case text == "j" || key.Code == tea.KeyDown:
-			m.moveJob(1)
-		case text == "k" || key.Code == tea.KeyUp:
-			m.moveJob(-1)
-		case key.Code == tea.KeyEnter || key.Code == tea.KeyReturn:
-			m.openRuns()
-		case text == "l":
-			m.openLastLog()
-		case text == "r":
-			m.queueSelectedJob()
-		case text == "p":
-			m.togglePause()
-		}
+		m.jobsKey(key)
 	case runsScreen:
-		switch {
-		case text == "j" || key.Code == tea.KeyDown:
-			m.moveRun(1)
-		case text == "k" || key.Code == tea.KeyUp:
-			m.moveRun(-1)
-		case text == "f":
-			m.statusFilter = (m.statusFilter + 1) % len(statusFilters)
-			m.selectedRunID = 0
-			m.message = ""
-			m.refreshRuns()
-		case key.Code == tea.KeyEnter || key.Code == tea.KeyReturn || text == "l":
-			m.openSelectedLog()
-		case text == "r":
-			m.queueSelectedJob()
-		case text == "p":
-			m.togglePause()
-		case text == "c":
-			m.askCancel()
-		}
+		m.runsKey(key)
 	case logScreen:
-		switch {
-		case text == "j" || key.Code == tea.KeyDown:
-			m.scrollLog(1)
-		case text == "k" || key.Code == tea.KeyUp:
-			m.scrollLog(-1)
-		case text == "g":
-			m.loadLogTop()
-		case text == "G":
-			m.logSearch = ""
-			m.message = ""
-			m.loadLogTail(false)
-		case text == "/":
-			m.searchPrompt = true
-			m.searchInput = ""
-			m.message = ""
-		case text == "s":
-			m.cycleLogSection()
-		case text == "c":
-			m.askCancel()
-		case text == "r":
-			m.queueSelectedJob()
-		case text == "p":
-			m.togglePause()
-		}
-	}
-	return m, nil
-}
-
-func (m *Model) View() tea.View {
-	lines := make([]string, 0, m.height)
-	switch m.screen {
-	case jobsScreen:
-		lines = m.jobView()
-	case runsScreen:
-		lines = m.runsView()
-	case logScreen:
-		lines = m.logView()
+		m.logKey(key)
 	case helpScreen:
-		lines = m.helpView()
-	}
-	if len(lines) > m.height {
-		lines = lines[:m.height]
-	}
-	for i := range lines {
-		lines[i] = fit(displayText(lines[i]), m.width)
-	}
-	view := tea.NewView(strings.Join(lines, "\n"))
-	view.AltScreen = true
-	return view
-}
-
-func (m *Model) jobView() []string {
-	lines := []string{m.projectHeader(), "", "JOB  SCHEDULE  NEXT  LAST  STATE"}
-	if len(m.dashboard.Jobs) == 0 {
-		lines = append(lines, "No jobs configured.")
-	} else {
-		rows := m.visibleRows(6)
-		start := clamp(m.selectedJob-rows+1, 0, max(0, len(m.dashboard.Jobs)-rows))
-		end := min(len(m.dashboard.Jobs), start+rows)
-		for i := start; i < end; i++ {
-			job := m.dashboard.Jobs[i]
-			marker := "  "
-			if i == m.selectedJob {
-				marker = "> "
-			}
-			schedule := "manual"
-			if job.Schedule != nil {
-				schedule = *job.Schedule
-			}
-			next := "—"
-			if job.Paused {
-				next = "paused"
-			} else if !job.Enabled {
-				next = "disabled"
-			} else if job.Schedule != nil && job.NextAt != nil {
-				next = job.NextAt.Format("Mon 15:04")
-			}
-			last := "never"
-			if job.LastRun != nil {
-				last = job.LastRun.Status + " " + app.RelativeTime(job.LastRun.StartedAt, time.Now())
-			}
-			lines = append(lines, fmt.Sprintf("%s%-12s %-14s %-10s %-16s %s", marker, job.Name, schedule, next, last, jobState(m.dashboard.Project, job)))
+		if delta, ok := listMove(key, m.helpBodyHeight()); ok {
+			m.helpScroll = clamp(m.helpScroll+delta, 0, m.maxHelpScroll())
 		}
 	}
-	lines = append(lines, "", m.statusLine(), "j/k move · enter runs · l log · r run now · p pause · ? help · q quit")
-	return lines
+	return m, m.startAnimation()
 }
 
-func (m *Model) runsView() []string {
-	lines := []string{m.projectHeader(), fmt.Sprintf("Runs for %s · status: %s", m.runsJob, statusFilterNames[m.statusFilter]), "", "RUN  STATUS       TRIGGER  STARTED  DURATION  EXIT"}
-	if len(m.runs) == 0 {
-		lines = append(lines, "No matching runs.")
-	} else {
-		rows := m.visibleRows(7)
-		start := clamp(m.selectedRun-rows+1, 0, max(0, len(m.runs)-rows))
-		end := min(len(m.runs), start+rows)
-		for i := start; i < end; i++ {
-			run := m.runs[i]
-			marker := "  "
-			if i == m.selectedRun {
-				marker = "> "
-			}
-			exit := "—"
-			if run.ExitCode != nil {
-				exit = strconv.Itoa(*run.ExitCode)
-			}
-			lines = append(lines, fmt.Sprintf("%s%-5d %-12s %-8s %-10s %-9s %s", marker, run.ID, run.Status, run.Trigger, app.RelativeTime(run.StartedAt, time.Now()), app.DurationText(run.DurationMS), exit))
+// listMove maps vim, less, and arrow navigation keys to a cursor delta.
+func listMove(key string, page int) (int, bool) {
+	page = max(1, page)
+	switch key {
+	case "j", "down", "ctrl+n":
+		return 1, true
+	case "k", "up", "ctrl+p":
+		return -1, true
+	case "ctrl+d":
+		return max(1, page/2), true
+	case "ctrl+u":
+		return -max(1, page/2), true
+	case "ctrl+f", "pgdown":
+		return page, true
+	case "ctrl+b", "pgup":
+		return -page, true
+	case "g", "home":
+		return -1 << 30, true
+	case "G", "end":
+		return 1 << 30, true
+	}
+	return 0, false
+}
+
+func (m *Model) jobsKey(key string) {
+	if delta, ok := listMove(key, m.jobsLayout().rows); ok {
+		m.moveJob(delta)
+		return
+	}
+	switch key {
+	case "enter", "right":
+		m.openRuns()
+	case "l":
+		m.openLastLog()
+	case "r":
+		m.queueSelectedJob()
+	case "p":
+		m.togglePause()
+	}
+}
+
+func (m *Model) runsKey(key string) {
+	if delta, ok := listMove(key, m.runsLayout().rows); ok {
+		m.moveRun(delta)
+		return
+	}
+	switch key {
+	case "enter", "right", "l":
+		m.openSelectedLog()
+	case "f", "tab":
+		m.setStatusFilter(m.statusFilter + 1)
+	case "shift+tab":
+		m.setStatusFilter(m.statusFilter - 1)
+	case "c":
+		m.askCancel()
+	case "r":
+		m.queueSelectedJob()
+	case "p":
+		m.togglePause()
+	}
+}
+
+func (m *Model) logKey(key string) {
+	page := m.logBodyHeight()
+	switch key {
+	case "g", "home":
+		m.loadLogTop()
+		return
+	case "G", "end":
+		m.clearSearch()
+		m.clearFlash()
+		m.loadLogTail(false)
+		return
+	case "space":
+		key = "pgdown"
+	case "b":
+		key = "pgup"
+	case "ctrl+e":
+		key = "down"
+	case "ctrl+y":
+		key = "up"
+	}
+	if delta, ok := listMove(key, page); ok {
+		m.scrollLog(delta)
+		return
+	}
+	switch key {
+	case "/":
+		m.searchPrompt, m.searchInput, m.searchCursor = true, nil, 0
+		m.clearFlash()
+	case "n":
+		m.jumpMatch(1)
+	case "N":
+		m.jumpMatch(-1)
+	case "s", "tab":
+		m.cycleLogSection(1)
+	case "shift+tab":
+		m.cycleLogSection(-1)
+	case "w":
+		m.toggleWrap()
+	case "c":
+		m.askCancel()
+	case "r":
+		m.queueSelectedJob()
+	case "p":
+		m.togglePause()
+	}
+}
+
+// editSearch is a small readline-style editor for the RE2 prompt.
+func (m *Model) editSearch(message tea.KeyPressMsg, key string) {
+	input, cursor := m.searchInput, m.searchCursor
+	switch key {
+	case "enter":
+		m.runSearch()
+	case "esc":
+		m.searchPrompt, m.searchInput, m.searchCursor = false, nil, 0
+	case "backspace", "ctrl+h":
+		if len(input) == 0 {
+			m.searchPrompt = false
+			return
 		}
-	}
-	lines = append(lines, "", m.statusLine(), "j/k move · enter/l log · f filter · c cancel · r run now · p pause · esc back · ? help · q quit")
-	return lines
-}
-
-func (m *Model) logView() []string {
-	run := m.logRun
-	lines := []string{
-		m.projectHeader(),
-		fmt.Sprintf("Run %d · %s · section: %s", run.ID, run.Status, m.logSection),
-		"Log: " + logPath(run),
-		"Hook: " + hookState(run),
-		"",
-	}
-	logLines := splitLogLines(m.logText)
-	visible := m.visibleRows(8)
-	start := clamp(m.logScroll, 0, max(0, len(logLines)-visible))
-	end := min(len(logLines), start+visible)
-	lines = append(lines, logLines[start:end]...)
-	for len(lines) < m.height-3 {
-		lines = append(lines, "")
-	}
-	lines = append(lines, m.statusLine(), "j/k scroll · g/G top/bottom · / search · s section · esc back · ? help · q quit")
-	if m.searchPrompt {
-		lines[len(lines)-1] = "Search RE2: /" + m.searchInput + "_  · enter search · esc cancel"
-	}
-	return lines
-}
-
-func (m *Model) helpView() []string {
-	return []string{
-		"Noon terminal UI",
-		"",
-		"Jobs: j/k or arrows select; enter opens runs; l opens the latest log.",
-		"Runs: j/k or arrows select; enter/l opens the log; f cycles status filters.",
-		"Logs: j/k scroll; g/G jump to the first/last view; / searches with RE2 and 3 lines of context.",
-		"Logs: s cycles job → hook → all; esc returns to the previous screen or search tail.",
-		"Mutations: r queues the selected job now; p toggles pause; c asks before cancelling a run.",
-		"The TUI never adds, edits, enables, or approves jobs.",
-		"",
-		m.statusLine(),
-		"esc or ? back · q quit",
-	}
-}
-
-func (m *Model) projectHeader() string {
-	name := m.dashboard.Project.Name
-	if name == "" {
-		name = "project"
-	}
-	state := m.dashboard.Scheduler.State
-	if state == "" {
-		state = "offline"
-	}
-	return fmt.Sprintf("%s · scheduler %s · %s", name, state, m.dashboard.Project.Path)
-}
-
-func (m *Model) statusLine() string {
-	parts := make([]string, 0, len(m.dashboard.Notices)+4)
-	if m.confirmCancelID != 0 {
-		parts = append(parts, fmt.Sprintf("Cancel run %d? Press y to confirm or n to keep it.", m.confirmCancelID))
-	}
-	if m.message != "" {
-		parts = append(parts, m.message)
-	}
-	if m.logNotice != "" {
-		parts = append(parts, m.logNotice)
-	}
-	if m.followNotice {
-		parts = append(parts, "[noon: output past 1 MiB is shown when the run ends]")
-	}
-	for _, notice := range m.dashboard.Notices {
-		parts = append(parts, noticeText(notice, m.dashboard.Next))
-	}
-	if m.searchPrompt {
-		parts = append(parts, "Enter a Go RE2 pattern")
-	}
-	if len(parts) == 0 {
-		return "Ready."
-	}
-	line := parts[0]
-	for _, part := range parts[1:] {
-		candidate := line + " · " + part
-		if utf8.RuneCountInString(candidate) > m.width {
-			break
+		if cursor > 0 {
+			m.searchInput = append(input[:cursor-1:cursor-1], input[cursor:]...)
+			m.searchCursor--
 		}
-		line = candidate
-	}
-	return fit(line, m.width)
-}
-
-func noticeText(notice app.Notice, next string) string {
-	switch notice.Code {
-	case "not_enabled":
-		return "Not enabled · noon enable"
-	case "needs_approval":
-		return "Needs approval · noon enable"
-	case "scheduler_offline":
-		return "Scheduler offline · " + next
-	case "config_error":
-		return "Config error · noon config check"
+	case "delete", "ctrl+d":
+		if cursor < len(input) {
+			m.searchInput = append(input[:cursor:cursor], input[cursor+1:]...)
+		}
+	case "left", "ctrl+b":
+		m.searchCursor = max(0, cursor-1)
+	case "right", "ctrl+f":
+		m.searchCursor = min(len(input), cursor+1)
+	case "home", "ctrl+a":
+		m.searchCursor = 0
+	case "end", "ctrl+e":
+		m.searchCursor = len(input)
+	case "ctrl+u":
+		m.searchInput, m.searchCursor = append([]rune(nil), input[cursor:]...), 0
+	case "ctrl+k":
+		m.searchInput = input[:cursor:cursor]
+	case "ctrl+w", "alt+backspace":
+		start := cursor
+		for start > 0 && input[start-1] == ' ' {
+			start--
+		}
+		for start > 0 && input[start-1] != ' ' {
+			start--
+		}
+		m.searchInput = append(input[:start:start], input[cursor:]...)
+		m.searchCursor = start
+	case "space":
+		m.insertSearch(" ")
 	default:
-		return notice.Message
+		if text := message.Key().Text; text != "" && message.Key().Mod&(tea.ModCtrl|tea.ModAlt) == 0 {
+			m.insertSearch(text)
+		}
 	}
 }
 
-func jobState(project app.DashboardProject, job app.Job) string {
-	switch {
-	case !job.Enabled:
-		return "disabled"
-	case job.Paused:
-		return "paused"
-	case job.Schedule != nil && !project.Enabled:
-		return "not enabled"
-	case job.Approval == "needs_approval":
-		return "needs approval"
-	default:
-		return "ready"
+func (m *Model) insertSearch(text string) {
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return
 	}
+	input := make([]rune, 0, len(m.searchInput)+len(runes))
+	input = append(input, m.searchInput[:m.searchCursor]...)
+	input = append(input, runes...)
+	input = append(input, m.searchInput[m.searchCursor:]...)
+	m.searchInput = input
+	m.searchCursor += len(runes)
 }
 
-func logPath(run app.Run) string {
-	if run.Log.Path == nil {
-		return "unavailable"
-	}
-	return *run.Log.Path
+func (m *Model) flash(kind tone, text string) {
+	m.message, m.messageTone = text, kind
 }
 
-func hookState(run app.Run) string {
-	if run.Hook == nil {
-		return "none"
-	}
-	value := run.Hook.Event + " " + run.Hook.Status
-	if run.Hook.ExitCode != nil {
-		value += " · exit " + strconv.Itoa(*run.Hook.ExitCode)
-	}
-	return value
-}
-
-func (m *Model) visibleRows(fixed int) int { return max(1, m.height-fixed) }
+func (m *Model) clearFlash() { m.message = "" }
 
 func (m *Model) refresh() {
 	if err := m.refreshDashboard(); err != nil {
-		m.message = displayText(err.Error())
+		m.flash(toneError, errorMessage(err))
 	}
 	if m.screen == runsScreen {
 		m.refreshRuns()
 	}
-	if m.screen == logScreen {
+	if m.screen == logScreen && m.shouldPollLog() {
 		m.pollLog()
 	}
+}
+
+// shouldPollLog keeps reading runs that are or may become active. A finished
+// run opened after it ended pages forward only as the reader nears the end of
+// the loaded text, so idle views do not reread or trim the log.
+func (m *Model) shouldPollLog() bool {
+	if m.logRun.ID == 0 {
+		return false
+	}
+	if m.logFollowed || activeRun(m.logRun) || m.logRun.Status == "queued" {
+		return true
+	}
+	return m.wantsNextLogPage(m.logScroll)
+}
+
+func (m *Model) wantsNextLogPage(scroll int) bool {
+	height := m.logBodyHeight()
+	return m.logSearch == "" && m.logCursor < m.logSize && scroll+2*height >= len(m.logRows().rows)
 }
 
 func (m *Model) refreshDashboard() error {
@@ -535,6 +521,7 @@ func (m *Model) refreshDashboard() error {
 		m.selectedJob = clamp(m.selectedJob, 0, len(view.Jobs)-1)
 		m.selectedJobName = view.Jobs[m.selectedJob].Name
 	}
+	m.jobOffset = scrollOffset(m.jobOffset, m.selectedJob, len(view.Jobs), m.jobsLayout().rows)
 	return nil
 }
 
@@ -544,9 +531,9 @@ func (m *Model) refreshRuns() {
 		return
 	}
 	previousID := m.selectedRunID
-	runs, err := app.RunsWithStatuses(m.stateDir, m.project, m.runsJob, statusFilters[m.statusFilter], 50)
+	runs, err := app.RunsWithStatuses(m.stateDir, m.project, m.runsJob, statusFilters[m.statusFilter].statuses, 50)
 	if err != nil {
-		m.message = displayText(err.Error())
+		m.flash(toneError, errorMessage(err))
 		return
 	}
 	m.runs = runs
@@ -565,6 +552,34 @@ func (m *Model) refreshRuns() {
 		m.selectedRun = clamp(m.selectedRun, 0, len(runs)-1)
 		m.selectedRunID = runs[m.selectedRun].ID
 	}
+	m.runOffset = scrollOffset(m.runOffset, m.selectedRun, len(runs), m.runsLayout().rows)
+}
+
+// scrollOffset keeps a selection visible with a little context, moving the
+// window only when the selection approaches an edge.
+func scrollOffset(offset, selected, total, rows int) int {
+	rows = max(1, rows)
+	if total <= rows {
+		return 0
+	}
+	margin := min(2, (rows-1)/2)
+	if selected-margin < offset {
+		offset = selected - margin
+	}
+	if selected+margin >= offset+rows {
+		offset = selected + margin - rows + 1
+	}
+	return clamp(offset, 0, total-rows)
+}
+
+func (m *Model) clampScroll() {
+	m.jobOffset = scrollOffset(m.jobOffset, m.selectedJob, len(m.dashboard.Jobs), m.jobsLayout().rows)
+	m.runOffset = scrollOffset(m.runOffset, m.selectedRun, len(m.runs), m.runsLayout().rows)
+	if m.autoScroll {
+		m.logScroll = m.maxLogScroll()
+	}
+	m.logScroll = clamp(m.logScroll, 0, m.maxLogScroll())
+	m.helpScroll = clamp(m.helpScroll, 0, m.maxHelpScroll())
 }
 
 func (m *Model) moveJob(delta int) {
@@ -573,7 +588,8 @@ func (m *Model) moveJob(delta int) {
 	}
 	m.selectedJob = clamp(m.selectedJob+delta, 0, len(m.dashboard.Jobs)-1)
 	m.selectedJobName = m.dashboard.Jobs[m.selectedJob].Name
-	m.message = ""
+	m.jobOffset = scrollOffset(m.jobOffset, m.selectedJob, len(m.dashboard.Jobs), m.jobsLayout().rows)
+	m.clearFlash()
 }
 
 func (m *Model) moveRun(delta int) {
@@ -582,27 +598,35 @@ func (m *Model) moveRun(delta int) {
 	}
 	m.selectedRun = clamp(m.selectedRun+delta, 0, len(m.runs)-1)
 	m.selectedRunID = m.runs[m.selectedRun].ID
-	m.message = ""
+	m.runOffset = scrollOffset(m.runOffset, m.selectedRun, len(m.runs), m.runsLayout().rows)
+	m.clearFlash()
+}
+
+func (m *Model) setStatusFilter(index int) {
+	m.statusFilter = (index%len(statusFilters) + len(statusFilters)) % len(statusFilters)
+	m.selectedRunID, m.runOffset = 0, 0
+	m.clearFlash()
+	m.refreshRuns()
 }
 
 func (m *Model) openRuns() {
 	job := m.currentJob()
 	if job == nil {
-		m.message = "No job selected."
+		m.flash(toneInfo, "No job selected.")
 		return
 	}
 	m.runsJob = job.Name
 	m.statusFilter = 0
-	m.selectedRunID = 0
+	m.selectedRunID, m.runOffset = 0, 0
 	m.screen = runsScreen
-	m.message = ""
+	m.clearFlash()
 	m.refreshRuns()
 }
 
 func (m *Model) openLastLog() {
 	job := m.currentJob()
 	if job == nil || job.LastRun == nil {
-		m.message = "No run to read for the selected job."
+		m.flash(toneInfo, "No runs yet for this job · r queues one now.")
 		return
 	}
 	m.openLog(*job.LastRun, jobsScreen)
@@ -610,7 +634,7 @@ func (m *Model) openLastLog() {
 
 func (m *Model) openSelectedLog() {
 	if len(m.runs) == 0 {
-		m.message = "No run selected."
+		m.flash(toneInfo, "No run selected.")
 		return
 	}
 	m.openLog(m.runs[m.selectedRun], runsScreen)
@@ -624,30 +648,46 @@ func (m *Model) openLog(run app.Run, from screen) {
 	m.logReturn, m.screen = from, logScreen
 	m.logRun = run
 	m.logSection = section
-	m.logSearch = ""
+	m.clearSearch()
 	m.searchPrompt = false
-	m.searchInput = ""
+	m.searchInput, m.searchCursor = nil, 0
 	m.followNotice = false
-	m.logNotice = ""
+	m.logNotice, m.logOrphaned = "", false
 	m.autoScroll = true
-	m.message = ""
+	m.clearFlash()
 	if !m.loadLogTail(true) {
 		m.screen = from
+		return
+	}
+	if section == "job" {
+		m.flash(toneInfo, "Showing job output · s shows the hook's output")
 	}
 }
 
+func (m *Model) setLogText(text string) {
+	m.logText = text
+	m.logVersion++
+}
+
+func (m *Model) clearSearch() {
+	m.logSearch, m.searchRE, m.matchCursor, m.matchedLines = "", nil, 0, 0
+}
+
+// loadLogTail reads up to one page of the newest whole lines, so the view
+// opens on the last screenful with recent scrollback above it.
 func (m *Model) loadLogTail(resetFollow bool) bool {
-	rows := m.visibleRows(8)
-	query := app.LogQuery{Section: m.logSection, Tail: &rows, LimitBytes: intPointer(logPageBytes)}
+	tail := logTailLines
+	query := app.LogQuery{Section: m.logSection, Tail: &tail, LimitBytes: intPointer(logPageBytes)}
 	detail, err := app.GetRun(context.Background(), m.stateDir, m.logRun.ID, 0, query)
 	if err != nil {
-		m.message = errorMessage(err)
+		m.flash(toneError, errorMessage(err))
 		return false
 	}
 	m.logRun, m.logSize = detail.Run, detail.Size
-	m.logText = detail.Log
+	m.setLogText(detail.Log)
+	m.logPartial = detail.Truncated || strings.Count(detail.Log, "\n") >= logTailLines
 	m.logCursor = detail.Next
-	m.logNotice = runLogNotice(detail.Run, detail.Orphaned)
+	m.setLogNotice(detail.Run, detail.Orphaned)
 	m.logScroll = m.maxLogScroll()
 	m.autoScroll = true
 	if resetFollow {
@@ -660,61 +700,126 @@ func (m *Model) loadLogTail(resetFollow bool) bool {
 }
 
 func (m *Model) loadLogTop() {
-	if m.logSearch != "" {
-		m.logSearch = ""
-	}
+	m.clearSearch()
+	m.clearFlash()
 	zero := int64(0)
 	query := app.LogQuery{Section: m.logSection, After: &zero, LimitBytes: intPointer(logPageBytes)}
 	detail, err := app.GetRun(context.Background(), m.stateDir, m.logRun.ID, 0, query)
 	if err != nil {
-		m.message = errorMessage(err)
+		m.flash(toneError, errorMessage(err))
 		return
 	}
-	m.logRun, m.logSize, m.logText = detail.Run, detail.Size, detail.Log
+	m.logRun, m.logSize = detail.Run, detail.Size
+	m.setLogText(detail.Log)
+	m.logPartial = false
 	m.logCursor = detail.Next
-	m.logNotice = runLogNotice(detail.Run, detail.Orphaned)
+	m.setLogNotice(detail.Run, detail.Orphaned)
 	m.logScroll, m.autoScroll = 0, false
 }
 
-func (m *Model) cycleLogSection() {
-	sections := []string{"job", "hook", "all"}
+func (m *Model) cycleLogSection(step int) {
+	if m.logRun.Log.HookOffset == nil {
+		m.flash(toneInfo, "This run has no hook output; its log is all job output.")
+		return
+	}
 	index := 0
-	for i, section := range sections {
+	for i, section := range logSections {
 		if section == m.logSection {
-			index = (i + 1) % len(sections)
+			index = (i + step + len(logSections)) % len(logSections)
 			break
 		}
 	}
-	m.logSection = sections[index]
-	m.logSearch = ""
+	m.logSection = logSections[index]
+	m.clearSearch()
 	m.followNotice = false
-	m.message = ""
-	m.loadLogTail(true)
+	m.clearFlash()
+	if m.loadLogTail(true) {
+		m.flash(toneInfo, "Showing "+m.logSection+" output")
+	}
+}
+
+func (m *Model) toggleWrap() {
+	m.logWrap = !m.logWrap
+	if m.logWrap {
+		m.flash(toneInfo, "Wrapping long lines.")
+	} else {
+		m.flash(toneInfo, "Long lines are cut at the window edge · w wraps them.")
+	}
+	m.clampScroll()
 }
 
 func (m *Model) runSearch() {
-	pattern := m.searchInput
+	pattern := string(m.searchInput)
 	m.searchPrompt = false
-	m.searchInput = ""
-	if _, err := regexp.Compile(pattern); err != nil {
-		m.message = fmt.Sprintf("invalid RE2 pattern: %v", err)
+	m.searchInput, m.searchCursor = nil, 0
+	if pattern == "" {
 		return
 	}
-	contextLines := 3
+	compiled, err := regexp.Compile(pattern)
+	if err != nil {
+		m.flash(toneError, fmt.Sprintf("Invalid RE2 pattern: %v", err))
+		return
+	}
+	contextLines := searchContext
 	query := app.LogQuery{Section: m.logSection, Match: &pattern, Context: &contextLines, LimitBytes: intPointer(logPageBytes)}
 	detail, err := app.GetRun(context.Background(), m.stateDir, m.logRun.ID, 0, query)
 	if err != nil {
-		m.message = errorMessage(err)
+		m.flash(toneError, errorMessage(err))
 		return
 	}
-	m.logRun, m.logSize, m.logText = detail.Run, detail.Size, detail.Log
-	m.logSearch = pattern
-	m.logNotice = runLogNotice(detail.Run, detail.Orphaned)
+	m.logRun, m.logSize = detail.Run, detail.Size
+	m.setLogText(detail.Log)
+	m.logPartial = detail.Truncated
+	m.logSearch, m.searchRE, m.matchCursor = pattern, compiled, 0
+	m.matchedLines = 0
+	if detail.MatchedLines != nil {
+		m.matchedLines = *detail.MatchedLines
+	}
+	m.setLogNotice(detail.Run, detail.Orphaned)
 	m.logScroll, m.autoScroll = 0, false
-	if detail.MatchedLines != nil && *detail.MatchedLines == 0 {
-		m.message = "No matches for /" + pattern + "/."
+	if m.matchedLines == 0 {
+		m.flash(toneWarning, "No matches for /"+pattern+"/.")
 	} else {
-		m.message = ""
+		m.clearFlash()
+		m.revealMatch()
+	}
+}
+
+// jumpMatch moves between matching lines in search results, wrapping at the ends.
+func (m *Model) jumpMatch(step int) {
+	if m.logSearch == "" {
+		m.flash(toneInfo, "No search · / searches this log.")
+		return
+	}
+	matches := m.logRows().matches
+	if len(matches) == 0 {
+		return
+	}
+	next := m.matchCursor + step
+	switch {
+	case next >= len(matches):
+		next = 0
+		m.flash(toneInfo, "Search wrapped to the first match.")
+	case next < 0:
+		next = len(matches) - 1
+		m.flash(toneInfo, "Search wrapped to the last match.")
+	default:
+		m.clearFlash()
+	}
+	m.matchCursor = next
+	m.revealMatch()
+}
+
+// revealMatch scrolls the current match into the upper third of the view.
+func (m *Model) revealMatch() {
+	matches := m.logRows().matches
+	if len(matches) == 0 {
+		return
+	}
+	m.matchCursor = clamp(m.matchCursor, 0, len(matches)-1)
+	row, height := matches[m.matchCursor], m.logBodyHeight()
+	if row < m.logScroll || row >= m.logScroll+height {
+		m.logScroll = clamp(row-height/3, 0, m.maxLogScroll())
 	}
 }
 
@@ -743,12 +848,12 @@ func (m *Model) pollLog() {
 	query := app.LogQuery{Section: m.logSection, After: &after, LimitBytes: &limit}
 	detail, err := app.GetRun(context.Background(), m.stateDir, m.logRun.ID, 0, query)
 	if err != nil {
-		m.message = errorMessage(err)
+		m.flash(toneError, errorMessage(err))
 		return
 	}
 	oldCursor := m.logCursor
 	m.logRun, m.logSize = detail.Run, detail.Size
-	m.logNotice = runLogNotice(detail.Run, detail.Orphaned)
+	m.setLogNotice(detail.Run, detail.Orphaned)
 	if activeRun(detail.Run) {
 		m.logFollowed = true
 	}
@@ -776,22 +881,21 @@ func (m *Model) pollLog() {
 	}
 }
 
-func runLogNotice(run app.Run, orphaned bool) string {
-	if orphaned {
+// setLogNotice records the shared queued, orphaned, or missing-log notice.
+func (m *Model) setLogNotice(run app.Run, orphaned bool) {
+	m.logOrphaned = orphaned
+	switch {
+	case orphaned:
 		failure := app.OrphanedRunError(run.ID)
-		return failure.Message + " · " + strings.TrimPrefix(failure.Hint, "Record it: ")
-	}
-	if run.Status == "queued" {
-		return fmt.Sprintf("noon: run %d is queued; waiting for it to start", run.ID)
-	}
-	if !run.Log.Available {
+		m.logNotice, m.logNoticeTone = failure.Message+" · "+strings.TrimPrefix(failure.Hint, "Record it: "), toneError
+	case run.Status == "queued":
+		m.logNotice, m.logNoticeTone = fmt.Sprintf("noon: run %d is queued; waiting for it to start", run.ID), toneInfo
+	case !run.Log.Available:
 		failure := app.MissingRunLogError(run)
-		if failure.Hint != "" {
-			return failure.Message + " · " + failure.Hint
-		}
-		return failure.Message
+		m.logNotice, m.logNoticeTone = withHint(failure.Message, failure.Hint), toneWarning
+	default:
+		m.logNotice = ""
 	}
-	return ""
 }
 
 func activeRun(run app.Run) bool {
@@ -806,11 +910,11 @@ func (m *Model) askCancel() {
 		id = m.runs[m.selectedRun].ID
 	}
 	if id == 0 {
-		m.message = "No run selected."
+		m.flash(toneInfo, "No run selected.")
 		return
 	}
 	m.confirmCancelID = id
-	m.message = ""
+	m.clearFlash()
 }
 
 func (m *Model) cancelRun(id int64) {
@@ -818,23 +922,23 @@ func (m *Model) cancelRun(id int64) {
 	result, err := app.Cancel(m.stateDir, m.project, &id, "", time.Now())
 	if err != nil {
 		if app.IsMissingRun(err) {
-			m.message = errorMessage(app.RunNotFoundError(id))
+			m.flash(toneError, errorMessage(app.RunNotFoundError(id)))
 		} else {
-			m.message = errorMessage(err)
+			m.flash(toneError, errorMessage(err))
 		}
 		return
 	}
 	switch {
 	case result.Pending:
-		m.message = fmt.Sprintf("Cancellation request recorded for run %d; it is still running.", id)
+		m.flash(toneSuccess, fmt.Sprintf("Cancellation request recorded for run %d; it is still running.", id))
 	case len(result.Runs) > 0 && result.Runs[0].Status == "cancelled" && result.Runs[0].StartedAt == nil:
-		m.message = fmt.Sprintf("Cancelled queued run %d.", id)
+		m.flash(toneSuccess, fmt.Sprintf("Cancelled queued run %d.", id))
 	case len(result.Runs) > 0 && result.Runs[0].Status == "cancelled":
-		m.message = fmt.Sprintf("Cancelled run %d.", id)
+		m.flash(toneSuccess, fmt.Sprintf("Cancelled run %d.", id))
 	case len(result.Runs) > 0:
-		m.message = fmt.Sprintf("Run %d is already %s.", id, result.Runs[0].Status)
+		m.flash(toneInfo, fmt.Sprintf("Run %d is already %s.", id, statusLabel(result.Runs[0].Status)))
 	default:
-		m.message = fmt.Sprintf("Run %d cancellation requested.", id)
+		m.flash(toneSuccess, fmt.Sprintf("Run %d cancellation requested.", id))
 	}
 	if m.screen == runsScreen {
 		m.refreshRuns()
@@ -844,7 +948,7 @@ func (m *Model) cancelRun(id int64) {
 func (m *Model) queueSelectedJob() {
 	jobName := m.selectedActionJob()
 	if jobName == "" {
-		m.message = "No job selected."
+		m.flash(toneInfo, "No job selected.")
 		return
 	}
 	m.queueJob(jobName)
@@ -853,32 +957,45 @@ func (m *Model) queueSelectedJob() {
 func (m *Model) queueJob(jobName string) {
 	cfg, err := config.Load(m.input)
 	if err != nil {
-		m.message = errorMessage(app.ConfigError(err))
+		m.flash(toneError, errorMessage(app.ConfigError(err)))
 		return
 	}
 	now := time.Now()
 	queued, err := app.QueueRun(cfg, jobName, "", now, now, time.Now, true, "cli", app.QueueOptions{EventSource: "cli"})
 	if err != nil {
-		m.message = errorMessage(err)
+		m.flash(toneError, errorMessage(err))
 		return
 	}
 	run := queued.Run
+	// The first sentence matches `noon run --detach`; the rest points at TUI keys.
 	switch {
 	case queued.Created:
-		m.message = fmt.Sprintf("Queued %s as run %d · due now", run.Job, run.ID)
+		m.flash(toneSuccess, fmt.Sprintf("Queued %s as run %d · due now", run.Job, run.ID))
 	case queued.Reason == "queued":
-		m.message = fmt.Sprintf("%s is already queued as run %d · due now", run.Job, run.ID)
+		m.flash(toneInfo, fmt.Sprintf("%s is already queued as run %d · due now", run.Job, run.ID))
 	case queued.Reason == "cooldown":
-		m.message = fmt.Sprintf("%s is cooling down until %s (run %d)", run.Job, queued.CooldownUntil, run.ID)
+		wait := app.RelativeTime(&queued.CooldownUntil, now)
+		m.flash(toneWarning, fmt.Sprintf("%s is cooling down (run %d) · it can run again %s", run.Job, run.ID, wait))
 	default:
-		m.message = fmt.Sprintf("Already requested as run %d (%s)", run.ID, run.Status)
+		m.flash(toneInfo, fmt.Sprintf("Already requested as run %d (%s)", run.ID, statusLabel(run.Status)))
 	}
-	if run.Status == "queued" || run.Status == "running" {
-		m.message += fmt.Sprintf(" · Follow it: noon logs %d --follow", run.ID)
-	} else {
-		m.message += fmt.Sprintf(" · Read it: noon logs %d", run.ID)
+	active := run.Status == "queued" || run.Status == "running"
+	filter := statusFilters[m.statusFilter].statuses
+	selected := m.screen == runsScreen && active && (filter == nil || slices.Contains(filter, run.Status))
+	if selected {
+		m.selectedRunID = run.ID
 	}
-	m.refreshDashboard()
+	switch {
+	case run.Status == "queued" && m.dashboard.Scheduler.State != "running":
+		m.message += " · it waits for the scheduler: " + m.schedulerFix()
+	case active && m.screen == jobsScreen:
+		m.message += " · l follows it"
+	case selected:
+		m.message += " · enter follows it"
+	}
+	if err := m.refreshDashboard(); err != nil {
+		m.flash(toneError, errorMessage(err))
+	}
 	if m.screen == runsScreen {
 		m.refreshRuns()
 	}
@@ -887,38 +1004,40 @@ func (m *Model) queueJob(jobName string) {
 func (m *Model) togglePause() {
 	name := m.selectedActionJob()
 	if name == "" {
-		m.message = "No job selected."
+		m.flash(toneInfo, "No job selected.")
 		return
 	}
 	cfg, err := config.Load(m.input)
 	if err != nil {
-		m.message = errorMessage(app.ConfigError(err))
+		m.flash(toneError, errorMessage(app.ConfigError(err)))
 		return
 	}
 	if _, ok := cfg.Jobs[name]; !ok {
-		m.message = fmt.Sprintf("job %q not found · Run noon pause to list jobs", name)
+		m.flash(toneError, fmt.Sprintf("job %q not found · Run noon pause to list jobs", name))
 		return
 	}
 	if err := m.refreshDashboard(); err != nil {
-		m.message = errorMessage(err)
+		m.flash(toneError, errorMessage(err))
 		return
 	}
 	job, ok := m.configuredJob(name)
 	if !ok {
-		m.message = fmt.Sprintf("job %q not found · Run noon pause to list jobs", name)
+		m.flash(toneError, fmt.Sprintf("job %q not found · Run noon pause to list jobs", name))
 		return
 	}
 	paused := !job.Paused
 	if err := app.SetPaused(m.stateDir, m.project, name, paused, time.Now()); err != nil {
-		m.message = errorMessage(err)
+		m.flash(toneError, errorMessage(err))
 		return
 	}
 	if paused {
-		m.message = fmt.Sprintf("Paused %s. Background runs stop until noon resume %s.", name, name)
+		m.flash(toneSuccess, fmt.Sprintf("Paused %s · background runs stop until you resume it with p.", name))
 	} else {
-		m.message = fmt.Sprintf("Resumed %s. Its schedule starts from now.", name)
+		m.flash(toneSuccess, fmt.Sprintf("Resumed %s · its schedule starts from now.", name))
 	}
-	m.refreshDashboard()
+	if err := m.refreshDashboard(); err != nil {
+		m.flash(toneError, errorMessage(err))
+	}
 }
 
 func (m *Model) selectedActionJob() string {
@@ -954,49 +1073,55 @@ func (m *Model) goBack() {
 	switch m.screen {
 	case logScreen:
 		if m.logSearch != "" {
-			m.logSearch = ""
-			m.message = ""
+			m.clearSearch()
+			m.clearFlash()
 			m.loadLogTail(true)
 			return
 		}
 		m.screen = m.logReturn
+		m.clearFlash()
+		if m.screen == runsScreen {
+			m.refreshRuns()
+		}
 	case runsScreen:
 		m.screen = jobsScreen
+		m.clearFlash()
 	case helpScreen:
 		m.screen = m.helpFrom
 	}
 }
 
+// scrollLog moves through the loaded text, first reading the next page of a
+// finished log when the move nears its end.
 func (m *Model) scrollLog(delta int) {
-	m.logScroll = clamp(m.logScroll+delta, 0, m.maxLogScroll())
-	m.autoScroll = m.logScroll == m.maxLogScroll()
+	target := m.logScroll + delta
+	if delta > 0 && !activeRun(m.logRun) && m.wantsNextLogPage(target) {
+		m.autoScroll = false
+		m.pollLog()
+	}
+	limit := m.maxLogScroll()
+	m.logScroll = clamp(target, 0, limit)
+	m.autoScroll = m.logScroll == limit
 }
 
 func (m *Model) maxLogScroll() int {
-	lines := splitLogLines(m.logText)
-	return max(0, len(lines)-m.visibleRows(8))
+	return max(0, len(m.logRows().rows)-m.logBodyHeight())
 }
 
 func (m *Model) appendLogText(text string) {
 	if text == "" {
 		return
 	}
-	m.logText += text
-	if len(m.logText) > maxLogBufferBytes {
-		trim := len(m.logText) - maxLogBufferBytes
-		if newline := strings.IndexByte(m.logText[trim:], '\n'); newline >= 0 {
+	buffer := m.logText + text
+	if len(buffer) > maxLogBufferBytes {
+		trim := len(buffer) - maxLogBufferBytes
+		if newline := strings.IndexByte(buffer[trim:], '\n'); newline >= 0 {
 			trim += newline + 1
 		}
-		m.logText = m.logText[trim:]
+		buffer = buffer[trim:]
+		m.logPartial = true
 	}
-}
-
-func dropLastRune(value string) string {
-	if value == "" {
-		return value
-	}
-	_, size := utf8.DecodeLastRuneInString(value)
-	return value[:len(value)-size]
+	m.setLogText(buffer)
 }
 
 func splitLogLines(text string) []string {
@@ -1007,40 +1132,7 @@ func splitLogLines(text string) []string {
 	if strings.HasSuffix(text, "\n") {
 		lines = lines[:len(lines)-1]
 	}
-	for i := range lines {
-		lines[i] = displayText(lines[i])
-	}
 	return lines
-}
-
-func displayText(value string) string {
-	var output strings.Builder
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			if r <= 0xff {
-				fmt.Fprintf(&output, "\\x%02x", r)
-			} else {
-				fmt.Fprintf(&output, "\\u%04x", r)
-			}
-		} else {
-			output.WriteRune(r)
-		}
-	}
-	return output.String()
-}
-
-func fit(value string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	runes := []rune(value)
-	if len(runes) <= width {
-		return value
-	}
-	if width == 1 {
-		return "…"
-	}
-	return string(runes[:width-1]) + "…"
 }
 
 func clamp(value, low, high int) int {
