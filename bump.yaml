@@ -1,0 +1,4 @@
+# Bump bootstrap settings. Jobs will be added in a later release.
+# Ignore .bump.yaml and .bump/ in your repository.
+version: 1
+# timezone: Local

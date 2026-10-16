@@ -70,6 +70,10 @@ func TestInitPreservesExistingConfig(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("private file mode: %v", info.Mode())
 	}
+	code, result = invoke(t, "--json", "config")
+	if code != 0 || result["config"].(map[string]any)["timezone"] != "UTC" {
+		t.Fatalf("local init shadowed inherited settings: %d %+v", code, result)
+	}
 }
 
 func TestFlagsOverrideEnvironmentAndFiles(t *testing.T) {
@@ -99,6 +103,10 @@ func TestJSONFailuresAreSingleObjects(t *testing.T) {
 	sandbox(t)
 	for _, args := range [][]string{
 		{"--json", "--bogus"}, {"--bogus", "--json"}, {"config", "--bogus", "--json"},
+		{"--json=1", "--config", "missing.yaml", "config", "check"},
+		{"--json=TRUE", "--config", "missing.yaml", "config", "check"},
+		{"-json", "--config", "missing.yaml", "config", "check"},
+		{"--bogus", "--json=t"},
 		{"--json", "config", "unknown"}, {"--json", "--timezone", "Invalid/Zone"},
 		{"--json", "--config", "missing.yaml", "config", "check"},
 		{"--json", "--timezone=", "config"}, {"--json", "init", "unexpected"},

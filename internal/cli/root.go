@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/brettinternet/bump/internal/config"
@@ -71,18 +72,24 @@ func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut
 func jsonRequested(args []string) bool {
 	requested := false
 	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--":
+		arg := args[i]
+		if arg == "--" {
 			return requested
-		case "--project", "-C", "--config", "--timezone", "--state-dir":
-			i++
-		case "--json", "--json=true":
-			requested = true
-		case "--json=false":
-			requested = false
-		default:
-			if strings.HasPrefix(args[i], "--json=") {
-				requested = false
+		}
+		if !strings.HasPrefix(arg, "-") {
+			continue
+		}
+		name, value, hasValue := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-"), "=")
+		switch name {
+		case "project", "C", "config", "timezone", "state-dir":
+			if !hasValue {
+				i++
+			}
+		case "json":
+			if !hasValue {
+				requested = true
+			} else {
+				requested, _ = strconv.ParseBool(value)
 			}
 		}
 	}
@@ -212,7 +219,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	} else if err != nil {
 		return err
 	} else {
-		_, writeErr := io.WriteString(file, "# Bump bootstrap settings. Jobs will be added in a later release.\n# Ignore .bump.yaml and .bump/ in your repository.\nversion: 1\ntimezone: Local\n")
+		_, writeErr := io.WriteString(file, "# Bump bootstrap settings. Jobs will be added in a later release.\n# Ignore .bump.yaml and .bump/ in your repository.\nversion: 1\n# timezone: Local\n")
 		closeErr := file.Close()
 		if err := errors.Join(writeErr, closeErr); err != nil {
 			return err

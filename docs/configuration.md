@@ -74,6 +74,7 @@ future job executability. State ownership/writability belongs to the later runne
 
 `bump init` exclusively creates `bump.yaml`; `bump init --local` exclusively
 creates `.bump.yaml` with mode 0600. Existing paths are preserved, never replaced.
+Generated settings are commented out so init does not shadow inherited values.
 Init does not merge or repair existing YAML. Use `bump config check` afterward.
 Invocation setting overrides are rejected by init rather than silently ignored.
 
