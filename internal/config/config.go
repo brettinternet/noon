@@ -11,7 +11,7 @@ import (
 	"time"
 	_ "time/tzdata" // Named zones work in minimal containers too.
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // BuildOpts contains metadata injected at link time.
