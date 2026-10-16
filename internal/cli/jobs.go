@@ -42,6 +42,10 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 	if err != nil {
 		return stateError(err)
 	}
+	queued, err := app.QueuedRuns(view.StateDir, view.Project.Path)
+	if err != nil {
+		return stateError(err)
+	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "jobs": view.Jobs})
 	}
@@ -54,6 +58,16 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 		fmt.Fprintf(cmd.Writer, "Config error: %s\n", cell(view.Project.ConfigError, 240))
 	}
 	printJobs(cmd.Writer, view.Jobs, now)
+	if dashboard && len(queued) > 0 {
+		fmt.Fprintf(cmd.Writer, "%d queued: ", len(queued))
+		for i, run := range queued {
+			if i > 0 {
+				fmt.Fprint(cmd.Writer, ", ")
+			}
+			fmt.Fprintf(cmd.Writer, "%s %s", run.Job, queuedRunDue(run.ScheduledAt, now, view.Project.Timezone))
+		}
+		fmt.Fprintln(cmd.Writer)
+	}
 	changed, scheduled := 0, false
 	for _, job := range view.Jobs {
 		if job.Approval == "needs_approval" {

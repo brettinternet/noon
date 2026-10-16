@@ -120,7 +120,7 @@ func (s *Store) EnableProject(path string, configFile *string, digests map[strin
 }
 
 // DisableProject revokes opt-in and approvals without deleting run history.
-func (s *Store) DisableProject(path string) error {
+func (s *Store) DisableProject(path string, now time.Time) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -129,8 +129,36 @@ func (s *Store) DisableProject(path string) error {
 	if _, err := tx.Exec(`DELETE FROM approvals WHERE project_id IN (SELECT id FROM projects WHERE path=?)`, path); err != nil {
 		return err
 	}
+	rows, err := tx.Query(`SELECT DISTINCT runs.project_id, runs.job FROM runs JOIN projects ON projects.id=runs.project_id WHERE projects.path=? AND runs.status='queued'`, path)
+	if err != nil {
+		return err
+	}
+	var queuedJobs []JobStateKey
+	for rows.Next() {
+		var key JobStateKey
+		if err := rows.Scan(&key.ProjectID, &key.Job); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		queuedJobs = append(queuedJobs, key)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	stamp := FormatTime(now)
+	if _, err := tx.Exec(`UPDATE runs SET status='cancelled', finished_at=?, error='project disabled before start' WHERE project_id IN (SELECT id FROM projects WHERE path=?) AND status='queued'`, stamp, path); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`UPDATE projects SET enabled=0 WHERE path=?`, path); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for _, key := range queuedJobs {
+		if err := s.pruneJobRuns(key.ProjectID, key.Job); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -57,6 +57,10 @@ CREATE TABLE scheduler (
   started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL);
 ALTER TABLE runs ADD COLUMN due_at TEXT;
 ALTER TABLE projects ADD COLUMN config_error TEXT;
+`, `
+ALTER TABLE runs ADD COLUMN idempotency_key TEXT;
+ALTER TABLE runs ADD COLUMN cancel_requested_at TEXT;
+CREATE UNIQUE INDEX runs_key ON runs(project_id, job, idempotency_key) WHERE idempotency_key IS NOT NULL;
 `}
 
 type Store struct {
@@ -65,6 +69,7 @@ type Store struct {
 	hasLogOverflow bool
 	hasApprovals   bool
 	hasScheduler   bool
+	hasQueue       bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -92,13 +97,16 @@ type Run struct {
 	OwnerStart, LeaderStart      sql.NullString
 	LogPath                      sql.NullString
 	DueAt                        sql.NullString
+	RequestedBy                  sql.NullString
+	IdempotencyKey               sql.NullString
+	CancelRequestedAt            sql.NullString
 	LogBytes                     int64
 	LogTruncated, LogOverflow    bool
 }
 
 const (
-	runColumnsV1          = `id, project_id, job, status, trigger, digest, scheduled_at, created_at, started_at, finished_at, exit_code, signal, error, owner_pid, owner_start, pgid, leader_start, log_path, log_bytes, log_truncated`
-	qualifiedRunColumnsV1 = `runs.id, runs.project_id, runs.job, runs.status, runs.trigger, runs.digest, runs.scheduled_at, runs.created_at, runs.started_at, runs.finished_at, runs.exit_code, runs.signal, runs.error, runs.owner_pid, runs.owner_start, runs.pgid, runs.leader_start, runs.log_path, runs.log_bytes, runs.log_truncated`
+	runColumnsV1          = `id, project_id, job, status, trigger, digest, scheduled_at, created_at, started_at, finished_at, exit_code, signal, error, owner_pid, owner_start, pgid, leader_start, log_path, log_bytes, log_truncated, requested_by`
+	qualifiedRunColumnsV1 = `runs.id, runs.project_id, runs.job, runs.status, runs.trigger, runs.digest, runs.scheduled_at, runs.created_at, runs.started_at, runs.finished_at, runs.exit_code, runs.signal, runs.error, runs.owner_pid, runs.owner_start, runs.pgid, runs.leader_start, runs.log_path, runs.log_bytes, runs.log_truncated, runs.requested_by`
 	runColumns            = runColumnsV1 + `, log_overflow`
 	qualifiedRunColumns   = qualifiedRunColumnsV1 + `, runs.log_overflow`
 )
@@ -109,9 +117,14 @@ func (s *Store) runSelectColumns() string {
 		columns = runColumns
 	}
 	if s.hasScheduler {
-		return columns + `, due_at`
+		columns += `, due_at`
+	} else {
+		columns += `, NULL`
 	}
-	return columns + `, NULL`
+	if s.hasQueue {
+		return columns + `, idempotency_key, cancel_requested_at`
+	}
+	return columns + `, NULL, NULL`
 }
 
 func (s *Store) qualifiedRunSelectColumns() string {
@@ -120,9 +133,14 @@ func (s *Store) qualifiedRunSelectColumns() string {
 		columns = qualifiedRunColumns
 	}
 	if s.hasScheduler {
-		return columns + `, runs.due_at`
+		columns += `, runs.due_at`
+	} else {
+		columns += `, NULL`
 	}
-	return columns + `, NULL`
+	if s.hasQueue {
+		return columns + `, runs.idempotency_key, runs.cancel_requested_at`
+	}
+	return columns + `, NULL, NULL`
 }
 
 type runScanner interface {
@@ -132,7 +150,7 @@ type runScanner interface {
 func scanRun(row runScanner) (Run, error) {
 	var run Run
 	var startedAt sql.NullString
-	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.LogOverflow, &run.DueAt)
+	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt)
 	run.StartedAt = startedAt.String
 	return run, err
 }
@@ -227,6 +245,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasLogOverflow = version >= 2
 		state.hasApprovals = version >= 3
 		state.hasScheduler = version >= 4
+		state.hasQueue = version >= 5
 		return state, nil
 	}
 	for {
@@ -263,6 +282,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasLogOverflow = true
 	state.hasApprovals = true
 	state.hasScheduler = true
+	state.hasQueue = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}
@@ -383,7 +403,28 @@ func nullableString(value string) any {
 
 // Recover marks runs whose identity-checked owner has exited as interrupted.
 func (s *Store) Recover(now time.Time, grace time.Duration) error {
-	rows, err := s.db.Query(`SELECT id, owner_pid, owner_start, pgid, leader_start, log_path, project_id, job FROM runs WHERE status='running'`)
+	return s.recoverRuns(nil, now, grace, false)
+}
+
+// RecoverRuns recovers only the selected runs, sharing one grace budget across
+// every stale process group so a multi-run cancellation stays bounded.
+func (s *Store) RecoverRuns(ids []int64, now time.Time, budget time.Duration) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return s.recoverRuns(ids, now, budget, true)
+}
+
+func (s *Store) recoverRuns(ids []int64, now time.Time, grace time.Duration, sharedBudget bool) error {
+	query := `SELECT id, owner_pid, owner_start, pgid, leader_start, log_path, project_id, job, cancel_requested_at FROM runs WHERE status='running'`
+	var args []any
+	if ids != nil {
+		query += ` AND id IN (` + strings.TrimSuffix(strings.Repeat(`?,`, len(ids)), `,`) + `)`
+		for _, id := range ids {
+			args = append(args, id)
+		}
+	}
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return fmt.Errorf("read running runs: %w", err)
 	}
@@ -391,12 +432,13 @@ func (s *Store) Recover(now time.Time, grace time.Duration) error {
 		id, projectID                    int64
 		pid, pgid                        sql.NullInt64
 		ownerStart, leaderStart, logPath sql.NullString
+		cancelRequestedAt                sql.NullString
 		job                              string
 	}
 	var candidates []staleRun
 	for rows.Next() {
 		var row staleRun
-		if err := rows.Scan(&row.id, &row.pid, &row.ownerStart, &row.pgid, &row.leaderStart, &row.logPath, &row.projectID, &row.job); err != nil {
+		if err := rows.Scan(&row.id, &row.pid, &row.ownerStart, &row.pgid, &row.leaderStart, &row.logPath, &row.projectID, &row.job, &row.cancelRequestedAt); err != nil {
 			_ = rows.Close()
 			return err
 		}
@@ -407,6 +449,7 @@ func (s *Store) Recover(now time.Time, grace time.Duration) error {
 		return err
 	}
 	_ = rows.Close()
+	var stale []staleRun
 	for _, row := range candidates {
 		if !row.pid.Valid || !row.ownerStart.Valid {
 			return fmt.Errorf("run %d has no owner identity", row.id)
@@ -418,12 +461,27 @@ func (s *Store) Recover(now time.Time, grace time.Duration) error {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("check owner for run %d: %w", row.id, err)
 		}
+		stale = append(stale, row)
+	}
+	deadline := time.Now().Add(grace)
+	for i, row := range stale {
+		groupGrace := grace
+		if sharedBudget {
+			groupGrace = time.Until(deadline) / time.Duration(len(stale)-i)
+			if groupGrace <= 0 {
+				groupGrace = time.Nanosecond
+			}
+		}
 		if row.pgid.Valid && row.leaderStart.Valid {
-			if err := runner.TerminateProcessGroup(int(row.pgid.Int64), row.leaderStart.String, grace); err != nil {
+			if err := runner.TerminateProcessGroup(int(row.pgid.Int64), row.leaderStart.String, groupGrace); err != nil {
 				return fmt.Errorf("terminate stale run %d: %w", row.id, err)
 			}
 		}
-		if err := s.finish(row.id, row.projectID, row.job, Outcome{Status: "interrupted", FinishedAt: now, Error: "owner process exited unexpectedly", LogPath: row.logPath.String}); err != nil {
+		status, message := "interrupted", "owner process exited unexpectedly"
+		if row.cancelRequestedAt.Valid {
+			status, message = "cancelled", "cancellation completed after owner exited"
+		}
+		if err := s.finishRecovered(row.id, row.projectID, row.job, Outcome{Status: status, FinishedAt: now, Error: message, LogPath: row.logPath.String}); err != nil {
 			return err
 		}
 	}
@@ -436,6 +494,14 @@ func (s *Store) FinishRun(runID, projectID int64, job string, outcome Outcome) e
 }
 
 func (s *Store) finish(runID, projectID int64, job string, outcome Outcome) error {
+	return s.finishWithTerminalTolerance(runID, projectID, job, outcome, false)
+}
+
+func (s *Store) finishRecovered(runID, projectID int64, job string, outcome Outcome) error {
+	return s.finishWithTerminalTolerance(runID, projectID, job, outcome, true)
+}
+
+func (s *Store) finishWithTerminalTolerance(runID, projectID int64, job string, outcome Outcome, tolerateTerminal bool) error {
 	if outcome.Status == "queued" || outcome.Status == "running" || outcome.Status == "" {
 		return fmt.Errorf("invalid terminal run status %q", outcome.Status)
 	}
@@ -453,6 +519,15 @@ func (s *Store) finish(runID, projectID int64, job string, outcome Outcome) erro
 		return fmt.Errorf("finish run: %w", err)
 	}
 	if n, _ := result.RowsAffected(); n == 0 {
+		if tolerateTerminal {
+			var status string
+			if err := tx.QueryRow(`SELECT status FROM runs WHERE id=?`, runID).Scan(&status); err != nil {
+				return fmt.Errorf("read recovered run %d: %w", runID, err)
+			}
+			if status != "running" && status != "queued" {
+				return nil
+			}
+		}
 		return fmt.Errorf("run %d is not running", runID)
 	}
 	if err := tx.Commit(); err != nil {
@@ -553,6 +628,19 @@ func (s *Store) RunLog(projectID, runID int64) (*RunLog, error) {
 
 func (s *Store) RunByID(id int64) (Run, error) {
 	return scanRun(s.db.QueryRow(`SELECT `+s.runSelectColumns()+` FROM runs WHERE id=?`, id))
+}
+
+// CancellationRequested reports a durable request for an active run.
+func (s *Store) CancellationRequested(id int64) (bool, error) {
+	if !s.hasQueue {
+		return false, nil
+	}
+	var requested bool
+	err := s.db.QueryRow(`SELECT cancel_requested_at IS NOT NULL FROM runs WHERE id=? AND status='running'`, id).Scan(&requested)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return requested, err
 }
 
 // RunsForJob returns all retained runs, newest first; it is also useful to clients of the store.

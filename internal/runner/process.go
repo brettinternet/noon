@@ -66,6 +66,30 @@ func TerminateProcessGroup(pgid int, expectedIdentity string, grace time.Duratio
 				return nil
 			}
 			if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+				// Another recovery may have killed the group after our liveness check.
+				if errors.Is(err, syscall.EPERM) {
+					deadline := time.Now().Add(100 * time.Millisecond)
+					for {
+						identity, identityErr := ProcessStartIdentity(pgid)
+						if errors.Is(identityErr, os.ErrNotExist) || (identityErr == nil && identity != expectedIdentity) {
+							return nil
+						}
+						if identityErr != nil {
+							return identityErr
+						}
+						alive, aliveErr := processGroupAlive(pgid)
+						if aliveErr != nil {
+							return aliveErr
+						}
+						if !alive {
+							return nil
+						}
+						if !time.Now().Before(deadline) {
+							break
+						}
+						time.Sleep(10 * time.Millisecond)
+					}
+				}
 				return fmt.Errorf("send KILL to process group %d: %w", pgid, err)
 			}
 			return nil

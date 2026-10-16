@@ -40,14 +40,14 @@ func Enable(cfg config.Config, now time.Time) (Project, []string, error) {
 	return project, approved, nil
 }
 
-func Disable(cfg config.Config) (Project, error) {
+func Disable(cfg config.Config, now time.Time) (Project, error) {
 	project := Project{Path: cfg.Project, Timezone: cfg.Timezone, Scheduler: "offline"}
 	state, err := store.Open(cfg.StateDir)
 	if err != nil {
 		return project, err
 	}
 	defer state.Close()
-	return project, state.DisableProject(cfg.Project)
+	return project, state.DisableProject(cfg.Project, now)
 }
 
 // WithApprovals enriches an inspection without creating or migrating state.

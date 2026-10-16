@@ -94,6 +94,18 @@ func deadPID(t *testing.T) int {
 	return pid
 }
 
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("file %q was not created", path)
+}
+
 func createTestRun(t *testing.T, s *Store, project int64, job string) Run {
 	t.Helper()
 	identity, err := runner.ProcessStartIdentity(os.Getpid())
@@ -121,7 +133,7 @@ func TestStore(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 4 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		for _, statement := range []string{
@@ -129,6 +141,7 @@ func TestStore(t *testing.T) {
 			`SELECT id, pid, start_identity, version, started_at, heartbeat_at FROM scheduler`,
 			`SELECT due_at FROM runs`,
 			`SELECT config_error FROM projects`,
+			`SELECT idempotency_key, cancel_requested_at FROM runs`,
 		} {
 			rows, err := s.db.Query(statement)
 			if err != nil {
@@ -240,8 +253,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 4 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 4", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 5", version, err)
 		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.LogOverflow {
@@ -256,7 +269,7 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=5"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=6"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -268,8 +281,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 5 {
-			t.Fatalf("Open error = %v, want StateTooNewError(5)", err)
+		if !errors.As(err, &newer) || newer.Version != 6 {
+			t.Fatalf("Open error = %v, want StateTooNewError(6)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {
@@ -642,6 +655,125 @@ func TestRecovery(t *testing.T) {
 			t.Fatalf("stale row status=%q, want interrupted", got.Status)
 		}
 	})
+}
+
+// Two cancellation callers can snapshot the same orphan before either records its terminal state.
+func TestConcurrentRecoveryOfSameCancelledOrphan(t *testing.T) {
+	s, project := testStore(t)
+	other, err := Open(s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+
+	ready := filepath.Join(t.TempDir(), "ready")
+	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(`trap '' TERM; printf ready > %s; while :; do :; done`, ready))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	waitForFile(t, ready)
+	leaderStart, err := runner.ProcessStartIdentity(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.CreateRun(NewRun{ProjectID: project, Job: "concurrent-cancel", Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: os.Getpid(), OwnerStart: "stale-owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProcessIdentity(run.ID, cmd.Process.Pid, leaderStart); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RequestCancelRun(run.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, state := range []*Store{s, other} {
+		go func(state *Store) {
+			<-start
+			results <- state.RecoverRuns([]int64{run.ID}, time.Now(), 200*time.Millisecond)
+		}(state)
+	}
+	close(start)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Errorf("concurrent recovery failed: %v", err)
+		}
+	}
+	finished, err := s.RunByID(run.ID)
+	if err != nil || finished.Status != "cancelled" {
+		t.Fatalf("recovered cancellation = %+v, err=%v", finished, err)
+	}
+	if err := cmd.Wait(); err == nil {
+		t.Fatal("orphaned process group survived concurrent recovery")
+	}
+}
+
+// Recovery for a cancellation is limited to its selected runs, and a single grace budget covers all selected groups.
+func TestRecoverRunsScopesAndSharesCancellationBudget(t *testing.T) {
+	s, project := testStore(t)
+	type orphan struct {
+		run Run
+		cmd *exec.Cmd
+	}
+	startOrphan := func(job string) orphan {
+		t.Helper()
+		ready := filepath.Join(t.TempDir(), "ready")
+		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(`trap '' TERM; printf ready > %s; while :; do :; done`, ready))
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+		waitForFile(t, ready)
+		leaderStart, err := runner.ProcessStartIdentity(cmd.Process.Pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, err := s.CreateRun(NewRun{ProjectID: project, Job: job, Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: os.Getpid(), OwnerStart: "stale-owner"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetProcessIdentity(run.ID, cmd.Process.Pid, leaderStart); err != nil {
+			t.Fatal(err)
+		}
+		return orphan{run: run, cmd: cmd}
+	}
+	first := startOrphan("selected-one")
+	second := startOrphan("selected-two")
+	unrelated := startOrphan("unrelated")
+	for _, selected := range []orphan{first, second} {
+		if _, err := s.RequestCancelRun(selected.run.ID, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	started := time.Now()
+	if err := s.RecoverRuns([]int64{first.run.ID, second.run.ID}, time.Now(), 300*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("selected recovery exceeded shared budget: %s", elapsed)
+	}
+	for _, selected := range []orphan{first, second} {
+		finished, err := s.RunByID(selected.run.ID)
+		if err != nil || finished.Status != "cancelled" {
+			t.Fatalf("selected orphan recovery = %+v, err=%v", finished, err)
+		}
+		if err := selected.cmd.Wait(); err == nil {
+			t.Fatalf("selected process group for run %d survived recovery", selected.run.ID)
+		}
+	}
+	if err := unrelated.cmd.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("recovery signalled unrelated process group: %v", err)
+	}
+	unrelatedRun, err := s.RunByID(unrelated.run.ID)
+	if err != nil || unrelatedRun.Status != "running" {
+		t.Fatalf("unrelated orphan changed: %+v, err=%v", unrelatedRun, err)
+	}
 }
 
 func TestDatabaseTimeFormat(t *testing.T) {

@@ -37,7 +37,13 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		},
 		Action: status,
 		Commands: []*urfave.Command{
-			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Action: runJob},
+			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
+				&urfave.BoolFlag{Name: "detach", Usage: "Queue NAME to run as soon as capacity is available"},
+				&urfave.StringFlag{Name: "in", Usage: "Queue NAME after DURATION (at least 1s)"},
+				&urfave.StringFlag{Name: "at", Usage: "Queue NAME at HH:MM, YYYY-MM-DD HH:MM, or RFC 3339 time"},
+				&urfave.StringFlag{Name: "key", Usage: "Idempotency key; deduplicated while retained (newest 50 terminal runs per job)"},
+			}, Action: runJob},
+			{Name: "cancel", Usage: "Cancel a run or all active runs of a job; without an argument, list active runs", ArgsUsage: "[RUN|NAME]", Action: cancelRuns},
 			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
 				&urfave.IntFlag{Name: "limit", Value: 20, Usage: "Limit history to 1–50 runs"},
 			}, Action: historyRuns},

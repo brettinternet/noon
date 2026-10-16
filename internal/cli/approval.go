@@ -48,7 +48,7 @@ func disableProject(_ context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return configError(err)
 	}
-	project, err := app.Disable(cfg)
+	project, err := app.Disable(cfg, time.Now())
 	if err != nil {
 		return stateError(err)
 	}

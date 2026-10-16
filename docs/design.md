@@ -77,7 +77,7 @@ deploy   manual              —             never
 | --- | --- | --- |
 | `noon`, `noon status` | Dashboard | — |
 | `noon list`, `ls` | All jobs, next runs, state | — |
-| `noon run` | Runnable jobs + examples | `NAME` foreground; `--detach`, `--in`, `--at` queue |
+| `noon run` | Runnable jobs + examples | `NAME` foreground; `--detach`, `--in`, `--at` queue; `--key` deduplicates retained requests |
 | `noon add` | Examples | `NAME [SCHEDULE] -- CMD…`, `--sh`, `--prompt`, `--prompt-file` |
 | `noon remove`, `rm` | Candidates | Remove a job from the file that defines it |
 | `noon pause`, `resume` | Candidates | Pause or resume background runs of a job |
@@ -292,8 +292,12 @@ project in its state directory. It does **not** self-daemonize, and it is **not*
 - There is no IPC socket. Implemented CLI clients read the SQLite store for scheduler status and
   persisted next times; future MCP, HTTP, and TUI clients will use the same store. Revisit polling
   only if latency or cost becomes a measured problem.
-- Future commands that need the scheduler (queued runs, MCP `run_job`) will record durable intent
-  and say plainly when no scheduler is running.
+- `noon run NAME --detach`, `--in`, and `--at` record queued intent in one immediate SQLite
+  transaction, checking retained idempotency keys, project/job requirements, and due-run coalescing
+  before insertion. A due-now duplicate returns the existing queued run; future one-shots remain
+  independent. When the scheduler heartbeat is stale or absent, the CLI says queued work waits until
+  the scheduler starts and points to the service or `noon serve`.
+- Future clients that need the scheduler (MCP `run_job`) will use the same shared queue operation.
 
 ### Enable and approve
 
@@ -330,6 +334,9 @@ the same.
 - A foreground run streams the job's stdout to stdout and stderr to stderr, so
   `noon run report > report.md` works; Noon's own status lines go to stderr. SIGINT, SIGTERM, or
   SIGHUP to `noon run` cancels the job as above; a second signal kills the group immediately.
+  `noon cancel RUN` requests the same TERM/grace/KILL lifecycle from another invocation. Owners
+  poll their own cancellation requests every second; if an owner has exited, cancellation recovery
+  checks process identity, terminates only its matching process group, and records `cancelled`.
 - A run that cannot start records a `failed` run and a message, using `env`-style exit codes: 127
   command not found, 126 not executable, 125 any other start failure (missing `cwd`, unreadable or
   oversized prompt file).
@@ -354,7 +361,9 @@ pollutes worktrees, and lets one scheduler see every enabled project.
   `timed_out`, `cancelled`, `interrupted`, `skipped`, `missed`, `expired`. Run `trigger`: `manual`,
   `schedule`, `catch_up`, `queued`, `webhook`. `scheduled_at` is the occurrence a scheduled run
   stands for (the first missed one for `catch_up` and `missed`) or the due time of a queued run.
-  `requested_by` records claimed client identity as metadata only.
+  Queued runs also store `due_at`; `requested_by` records claimed client identity as metadata only.
+  `idempotency_key` is unique per project and job, while `cancel_requested_at` records a durable
+  request for the run owner to stop its process group.
 - Times are stored as UTC text, `2006-01-02T15:04:05.000Z`, so they sort as strings.
 - Retention: the newest 50 terminal runs per job; logs and payloads for the newest 10 of them.
   Queued and running runs are never pruned. Idempotency keys and webhook delivery IDs deduplicate

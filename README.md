@@ -9,11 +9,11 @@ Python, Node, cloud service, or agent provider.
 **Status: foreground scheduling with explicit OS supervision.** Working today: project discovery,
 layered settings, non-destructive initialization, strict job validation, schedule parsing and
 previews, foreground command and agent-prompt execution, durable per-user run records and bounded
-logs, explicit project opt-in and shared-job approvals, `noon serve` for enabled schedules,
-`noon service install` for a per-user launchd or systemd service, read-only run history and log
-inspection, and development tooling. Cron import, hooks, MCP, and TUI are designed but **not
-implemented**. Noon never backgrounds itself; keep `noon serve` in the foreground or use the
-explicit service installer or an OS/container supervisor.
+logs, queued one-shot runs with idempotency and cancellation, explicit project opt-in and shared-job
+approvals, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
+systemd service, read-only run history and log inspection, and development tooling. Cron import,
+hooks, MCP, and TUI are designed but **not implemented**. Noon never backgrounds itself; keep
+`noon serve` in the foreground or use the explicit service installer or an OS/container supervisor.
 
 ## Try it
 
@@ -31,6 +31,10 @@ bin/noon service install # explicitly install the per-user launchd/systemd servi
 bin/noon service         # inspect service and scheduler heartbeat
 bin/noon run             # list runnable jobs; starts nothing
 bin/noon run tests       # execute this job now, in the foreground
+bin/noon run tests --detach # queue this job to run as soon as capacity is available
+bin/noon run tests --in 2h --key nightly-check # queue a one-shot with idempotency
+bin/noon cancel          # list active runs without changing them
+bin/noon cancel 12       # cancel run 12, including another terminal's foreground run
 bin/noon history         # inspect recent runs
 bin/noon logs            # print the latest run log
 bin/noon logs tests      # print this job's latest log
@@ -77,8 +81,16 @@ stderr. `noon serve` rejects `--json`, `--config`, `--timezone`, `--project` and
 variables; projects use the selection recorded by `noon enable`.
 `noon run NAME --json` sends both job streams to stderr and one run summary to
 stdout. Each foreground run is recorded in the per-user SQLite database with a bounded log;
-only one run of a given job can be active per project. SIGINT, SIGTERM, or SIGHUP cancels
-the process group (TERM, then KILL after 10s); a second signal kills it immediately.
+only one run of a given job can run at a time per project. Queued requests require `noon enable`
+for that checkout and run only while `noon serve` is active. `--detach` requests due-now work;
+`--in DURATION` and `--at TIME` queue independent one-shots. `--key KEY` deduplicates against the
+same project's retained runs of that job; keys are retained with the newest 50 terminal runs per
+job. A due-now request coalesces with an already-due queued run. When the scheduler is offline,
+Noon says that queued work will wait until it starts. `noon cancel RUN` cancels queued work
+immediately or asks the run owner to stop a running process group; `noon cancel NAME` requests
+cancellation for every active run of that job. `noon disable` also cancels queued runs. SIGINT,
+SIGTERM, or SIGHUP cancels a foreground run's process group (TERM, then KILL after 10s); a second
+signal kills it immediately.
 `noon history` shows the newest 20 runs (up to 50); `noon logs` prints stored bytes, and
 `noon logs --follow` waits for a running job. Logs are retained for the newest 10 runs per job.
 `noon list` and bare `noon` show each job's latest run in the LAST column. Read-only commands
@@ -95,7 +107,7 @@ keeping state and history. See [Service](docs/service.md) for logs, upgrades, an
 `noon enable` opts in this canonical checkout and approves its current shared job
  definitions. It starts nothing; schedules run only while `noon serve` is running, directly or
  under the explicitly installed per-user service.
-`noon disable` revokes opt-in and approvals while keeping run history.
+`noon disable` revokes opt-in and approvals, cancels queued runs, and keeps run history.
 Changed shared definitions show `needs approval`; rerun `noon enable` after review. When the
 scheduler is offline, `noon enable` suggests `noon service install` when no service is installed.
 Foreground `noon run NAME` needs no approval.
@@ -109,8 +121,8 @@ a sandbox and cannot protect against an agent or user with local shell access.
 
 Implemented foundations and planned extensions ([design](docs/design.md), [decisions](backlog/decisions)):
 
-- Command and agent-prompt jobs, schedule parsing, foreground `noon run NAME`, and
-  durable scheduling through `noon serve` already work.
+- Command and agent-prompt jobs, schedule parsing, foreground `noon run NAME`, queued one-shot
+  requests and cancellation, and durable scheduling through `noon serve` already work.
 - One per-user `noon serve` runs every enabled repo's schedules. `noon service install` keeps
   it alive across reboots on macOS and Linux. Docker runs the same foreground process. Noon never
   backgrounds itself.

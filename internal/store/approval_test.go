@@ -50,7 +50,7 @@ func TestApprovalTransitions(t *testing.T) {
 	if err != nil || snapshot.ConfigFile.Valid || len(snapshot.Approvals) != 2 || snapshot.Approvals["a"] != "changed" {
 		t.Fatalf("partial enable persisted: %+v %v", snapshot, err)
 	}
-	if err := state.DisableProject(path); err != nil {
+	if err := state.DisableProject(path, now.Add(3*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	enable(map[string]string{"b": "two"}, now.Add(4*time.Hour))
@@ -105,7 +105,7 @@ func TestEnableScheduleStateResets(t *testing.T) {
 	}
 	seed("a")
 	seed("c")
-	if err := state.DisableProject(project); err != nil {
+	if err := state.DisableProject(project, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.EnableProject(project, nil, map[string]string{"a": "changed", "b": "two", "c": "new"}, now.Add(3*time.Minute)); err != nil {

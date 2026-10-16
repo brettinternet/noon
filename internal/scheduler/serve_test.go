@@ -23,6 +23,7 @@ var serveTestStart = time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 
 type serveFixture struct {
 	root, project, stateDir, userConfig string
+	logger                              io.Writer
 	clock                               atomic.Int64
 	ticks                               chan time.Time
 	ack                                 chan struct{}
@@ -237,7 +238,7 @@ func TestServe(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := state.DisableProject(fixture.project); err != nil {
+		if err := state.DisableProject(fixture.project, serveTestStart.Add(2*time.Minute)); err != nil {
 			t.Fatal(err)
 		}
 		_ = state.Close()
@@ -256,7 +257,7 @@ func TestServe(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := state.DisableProject(fixture.project); err != nil {
+		if err := state.DisableProject(fixture.project, serveTestStart.Add(4*time.Minute)); err != nil {
 			t.Fatal(err)
 		}
 		if err := state.EnableProject(fixture.project, nil, map[string]string{}, serveTestStart.Add(4*time.Minute)); err != nil {
@@ -333,12 +334,16 @@ func (f *serveFixture) start(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
+	logger := f.logger
+	if logger == nil {
+		logger = io.Discard
+	}
 	go func() {
 		f.done <- Serve(ctx, ServeOptions{
 			StateDir: f.stateDir, StateDirDefault: f.stateDir, UserConfigDir: f.userConfig, Version: "test",
 			Environment: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + f.root},
 			Now:         func() time.Time { return time.Unix(0, f.clock.Load()).UTC() }, Ticks: f.ticks,
-			KillGrace: 20 * time.Millisecond, Logger: io.Discard, IgnoreSignals: true, OnTick: func() { f.ack <- struct{}{} },
+			KillGrace: 20 * time.Millisecond, Logger: logger, IgnoreSignals: true, OnTick: func() { f.ack <- struct{}{} },
 		})
 	}()
 }

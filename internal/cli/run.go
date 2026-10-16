@@ -28,6 +28,19 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	if cmd.Args().Len() > 1 {
 		return usageError("run accepts only one job name", "Run noon run to list jobs")
 	}
+	queueMode, err := runQueueMode(cmd)
+	if err != nil {
+		return err
+	}
+	if cmd.Args().Len() == 0 && queueMode != "" {
+		return usageError("queued run options require a job name", "Run noon run to list jobs")
+	}
+	if cmd.IsSet("key") && queueMode == "" {
+		return usageError("--key requires --detach, --in, or --at", "Use --key with a queued run")
+	}
+	if cmd.IsSet("key") && !app.ValidIdempotencyKey(cmd.String("key")) {
+		return usageError("--key must be 1–200 characters of [A-Za-z0-9._:-]", "Choose a key using letters, digits, dot, underscore, colon, or hyphen")
+	}
 	values, err := input(cmd)
 	if err != nil {
 		return err
@@ -64,6 +77,38 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		return nil
 	}
 	name := cmd.Args().First()
+	if queueMode != "" {
+		now := time.Now()
+		location, err := time.LoadLocation(cfg.Timezone)
+		if err != nil {
+			return configError(err)
+		}
+		dueAt, err := queueDueAt(queueMode, cmd.String("in"), cmd.String("at"), now, location)
+		if err != nil {
+			return usageError(err.Error(), "Use --in 2h or --at '2026-10-16 09:00'")
+		}
+		result, err := app.QueueRun(cfg, name, cmd.String("key"), dueAt, now, time.Now, queueMode == "detach", "cli")
+		if err != nil {
+			return queueError(err)
+		}
+		if cmd.Bool("json") {
+			output := map[string]any{"run": result.Run, "created": result.Created, "scheduler": result.Scheduler}
+			if !result.Created {
+				output["reason"] = result.Reason
+			}
+			return emit(cmd, output)
+		}
+		printQueuedRun(cmd, result, now, location, queueMode == "detach")
+		if result.Scheduler == "offline" {
+			fmt.Fprintln(cmd.Writer, "The scheduler isn't running, so nothing runs until it starts.")
+			hint, err := serviceGuidance(cfg.StateDir)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.Writer, hint)
+		}
+		return nil
+	}
 	job, ok := cfg.Jobs[name]
 	if !ok {
 		hint, best := "Run noon run to list jobs", 3
@@ -130,9 +175,13 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	force := make(chan struct{})
 	done := make(chan struct{})
 	stopped := make(chan struct{})
+	pollErrors := make(chan error, 1)
 	defer func() { close(done); <-stopped }()
 	go func() {
 		defer close(stopped)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		tickerC := ticker.C
 		count := 0
 		for {
 			select {
@@ -145,6 +194,20 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 				} else {
 					close(force)
 					return
+				}
+			case <-tickerC:
+				requested, err := state.CancellationRequested(run.ID)
+				if err != nil {
+					pollErrors <- err
+					cancel()
+					ticker.Stop()
+					tickerC = nil
+					continue
+				}
+				if requested {
+					cancel()
+					ticker.Stop()
+					tickerC = nil
 				}
 			}
 		}
@@ -191,6 +254,19 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	} else {
 		result = runner.Run(runCtx, spec)
 	}
+	var cancellationPollError error
+	select {
+	case cancellationPollError = <-pollErrors:
+	default:
+	}
+	requested, requestErr := state.CancellationRequested(run.ID)
+	if requestErr != nil && cancellationPollError == nil {
+		cancellationPollError = requestErr
+	}
+	if requested {
+		result.Cancelled = true
+		result.ExitCode = 130
+	}
 	status, summary := "succeeded", "✓ "+name+" succeeded in "
 	elapsed := result.FinishedAt.Sub(result.StartedAt)
 	switch {
@@ -218,8 +294,17 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		outcomeError += "log write failed: " + logErr.Error()
 		fmt.Fprintf(cmd.ErrWriter, "run log failed: %v\n", logErr)
 	}
+	if cancellationPollError != nil {
+		if outcomeError != "" {
+			outcomeError += "; "
+		}
+		outcomeError += "cancellation poll failed: " + cancellationPollError.Error()
+	}
 	if err := state.FinishRun(run.ID, projectID, name, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: outcomeError, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: logTruncated}); err != nil {
 		return stateError(err)
+	}
+	if cancellationPollError != nil {
+		return stateError(cancellationPollError)
 	}
 	if cmd.Bool("json") {
 		stored, err := state.RunByID(run.ID)

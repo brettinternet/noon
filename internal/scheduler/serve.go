@@ -261,8 +261,16 @@ func Serve(ctx context.Context, options ServeOptions) error {
 				delete(configs, id)
 			}
 		}
-		for _, control := range running {
+		for id, control := range running {
 			if !activeProjects[control.projectID] {
+				control.stop("cancelled")
+				continue
+			}
+			requested, err := state.CancellationRequested(id)
+			if err != nil {
+				return fmt.Errorf("check cancellation for run %d: %w", id, err)
+			}
+			if requested {
 				control.stop("cancelled")
 			}
 		}
@@ -598,6 +606,11 @@ func executeScheduledRun(ctx context.Context, state *store.Store, run store.Run,
 		return state.SetProcessIdentity(run.ID, pgid, leaderStart)
 	}
 	result := runner.Run(ctx, spec)
+	cancelRequested, cancelCheckErr := state.CancellationRequested(run.ID)
+	if cancelRequested {
+		result.Cancelled = true
+		result.ExitCode = 130
+	}
 	status := "succeeded"
 	switch {
 	case result.TimedOut:
@@ -614,6 +627,11 @@ func executeScheduledRun(ctx context.Context, state *store.Store, run store.Run,
 	errorMessage := ""
 	if result.StartError != nil {
 		errorMessage = result.StartError.Error()
+	}
+	if cancelCheckErr != nil {
+		status = "failed"
+		result.ExitCode = 125
+		errorMessage = "check cancellation request: " + cancelCheckErr.Error()
 	}
 	if logErr != nil {
 		if errorMessage != "" {
