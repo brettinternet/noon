@@ -4,11 +4,12 @@ title: Document agent log workflows and ship a shell-only noon skill
 status: Done
 assignee: []
 created_date: '2026-10-16 17:26'
-updated_date: '2026-10-16 19:26'
+updated_date: '2026-10-16 20:39'
 labels:
   - cli
   - mcp
   - integration
+  - reviewed
 dependencies:
   - NOON-28
 references:
@@ -91,6 +92,8 @@ AC#4: NOON-24 fixture recreated with isolated HOME/project and env containing on
 Single direct review checked command side effects, flag coverage, example results, and log contracts. Corrected omission-marker wording to apply only when bytes are dropped; no other concrete defects. New command reuses hum embedding and existing noArgs/emit conventions. No tests deleted, skipped, or weakened. All paths within contract; MCP changes are descriptions only. LSP clean for all changed Go files; initial task ci passed including race, security, checks, smoke. Next: commit, committed-tree CI, merge, finalize ledger and remove owned worktree.
 
 Delivery complete: task check:staged and task ci passed on implementation 8a16647. Rebased over concurrent backlog-only main commit without discarding changes; fast-forward merged as 70764ae. task ci passed again on merged main (all tests, race, vet/staticcheck, vulnerability/secrets scans, smoke). Creation receipt matched this session and exact checkout/branch; Worktrunk removed noon-29-agent-guide and its branch. Herdr workspace wDF had only an idle zsh, and its disappearance was verified after the post-remove hook. No retained task checkout/workspace, no blockers or next implementation step, and nothing pushed. Final backlog-only completion commit follows.
+
+Post-implementation review: checked embedded skill and command, argument/JSON handling, flag regression, agent guide examples and MCP descriptions against current implementation. No actionable defects found. TestSkillFlags passed. task cli:build and isolated fixture checks passed: failed-run selection, exact search output/cursor 18898, forward pages at 95 and 191, direct retained-path search, unchanged embedded output (cmp), JSON content and extra-argument exit 2. Safety and bounded-wait guidance match implemented behavior. MCP behavior covered by passing TestMCP and race run. No source changes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

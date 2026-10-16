@@ -4,11 +4,12 @@ title: Separate hook output from job output in log reads
 status: Done
 assignee: []
 created_date: '2026-10-16 17:26'
-updated_date: '2026-10-16 19:13'
+updated_date: '2026-10-16 20:39'
 labels:
   - cli
   - store
   - mcp
+  - reviewed
 dependencies:
   - NOON-27
 references:
@@ -92,6 +93,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 <!-- SECTION:NOTES:BEGIN -->
 AC#1: task cli:test -- -run '^(TestHooks|TestStore|TestSelectLog|TestMCP)$' -count=1 -v -> exit 0, all four PASS (executor). Parent reran these plus the new append-before-commit and newer-schema regressions successfully. AC#2: exact fixture command via bash /tmp/noon-28-ac2.sh -> job-out, hook marker and hook-out, offset 8. AC#3: exact fixture command via bash /tmp/noon-28-ac3.sh -> both usage errors followed by exit=2. Temporary scripts used because inline fixture syntax was rejected by shell guard. Single independent review identified partial-append boundary loss, append-before-commit reads, and explicit empty sections. Fixed by recording offsets whenever marker bytes are written, bounding running-hook job reads to stored job bytes, and rejecting explicit empty sections in CLI/MCP. Added deterministic append-before-commit snapshot and empty-section regressions. A ulimit partial-write experiment did not actually constrain writes on this host; partial-write handling was inspected, not fault-injection proven. Initial CI exposed hardcoded future schema 9 becoming current; fixture now uses 999 and still asserts upgrade rejection/exit 75. No tests deleted, skipped, or weakened. All paths within contract; docs and help updated. task check:staged passed. task ci passed on implementation commit df8ca93 (security/vulnerability checks, formatting/vet/staticcheck, all tests, race tests, smoke). Fast-forward merged into main; session-owned worktree/branch removed through Worktrunk and exact Herdr workspace disappearance verified. No blockers or remaining item work; final backlog-only commit follows. No push.
+
+Post-implementation review: inspected append-only migration/capability handling, CompleteHook boundary persistence, section/cursor intersections, append-before-commit protection, JSON and CLI/MCP validation. No actionable defects found. Focused TestHooks/TestStore/TestSelectLog/TestMCP checks passed; race checks including TestReadRunLogSelectionUncommittedHook passed. Built CLI isolated fixture confirmed job-only output, hook marker/output, hook_offset=8, and exit 2 for invalid section and section plus follow. No source changes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

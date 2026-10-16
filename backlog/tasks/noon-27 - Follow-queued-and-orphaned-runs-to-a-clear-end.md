@@ -4,11 +4,12 @@ title: Follow queued and orphaned runs to a clear end
 status: Done
 assignee: []
 created_date: '2026-10-16 17:26'
-updated_date: '2026-10-16 18:52'
+updated_date: '2026-10-16 20:39'
 labels:
   - cli
   - mcp
   - store
+  - reviewed
 dependencies:
   - NOON-26
 references:
@@ -110,6 +111,8 @@ AC#4: exact acceptance command via bash /tmp/noon-27-ac4.sh -> started, orphaned
 Validation: task ci passed (tests, race, vet, staticcheck, vulnerabilities/secrets, smoke); LSP diagnostics clean for app history and changed CLI/MCP tests. Single direct risk-focused review found no additional item-scoped defect. Independent reviewer could not launch: requested model absent, available model excluded by configured modelScope; no agent ran. Next: commit implementation, run CI on that commit, merge main, finalize provider and remove owned checkout.
 
 Delivery complete: implementation e797e6f passed task check:staged and task ci on the committed tree, then fast-forward merged to main at e797e6f. Verified creation receipt and Worktrunk listing; removed owned noon-27-follow worktree and branch through Worktrunk. Matching Herdr workspace wDD contained only its idle shell and was removed by the post-remove hook. No retained task checkout, no blocker, no next implementation step. Nothing pushed.
+
+Post-implementation review: inspected FollowLog/GetRun, owner-identity checks against recovery, missing-log errors, CLI/MCP adapters and transition regressions. No actionable defects found. Confirmed queued dispatch/cancellation, run/hook orphan detection, remaining-output delivery and read-only inspection. Verification: task cli:test -- -run '^(TestLogsFollow|TestHistoryAndLogs|TestMCP|TestHooks|TestStore|TestSelectLog|TestSkillFlags)$' -count=1 passed; mise exec go -- go test -race ./internal/app ./internal/cli ./internal/mcp -run 'TestLogsFollow|TestMCP|TestHooks|TestSelectLog|TestReadRunLog' -count=1 passed. No source changes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
