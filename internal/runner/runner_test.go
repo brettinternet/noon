@@ -47,7 +47,10 @@ func TestRunner(t *testing.T) {
 			t.Fatal(err)
 		}
 		job := config.Job{Name: "tests", Run: `printf '%s\n' "$VALUE" "$BASE" "$BUMP_PROJECT" "$BUMP_JOB" "$BUMP_TRIGGER"; pwd`, CWD: project, Env: map[string]string{"VALUE": "job"}, Timeout: "none"}
-		spec := app.RunSpec(project, job, []string{"PATH=/bin:/usr/bin", "VALUE=inherited", "BASE=kept", "BUMP_PROJECT=bad", "BUMP_JOB=bad", "BUMP_TRIGGER=bad"})
+		spec, err := app.RunSpec(project, job, []string{"PATH=/bin:/usr/bin", "VALUE=inherited", "BASE=kept", "BUMP_PROJECT=bad", "BUMP_JOB=bad", "BUMP_TRIGGER=bad"})
+		if err != nil {
+			t.Fatal(err)
+		}
 		spec.KillGrace = 40 * time.Millisecond
 		result, out := run(t, spec)
 		if result.ExitCode != 0 || out != "job\nkept\n"+project+"\ntests\nmanual\n"+project+"\n" {

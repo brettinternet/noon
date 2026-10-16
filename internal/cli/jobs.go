@@ -72,15 +72,19 @@ func printJobs(out io.Writer, jobs []app.Job, now time.Time) {
 			next = fmt.Sprintf("%s (in %d%s)", job.NextAt.Format("Mon 15:04"), amount, suffix)
 		}
 		command := ""
-		switch run := job.Run.(type) {
-		case string:
-			command = run
-		case []string:
-			quoted := make([]string, len(run))
-			for i, arg := range run {
-				quoted[i] = strconv.Quote(arg)
+		if job.Prompt != nil || job.PromptFile != nil {
+			command = promptDescription(job.Agent, job.Prompt, job.PromptFile)
+		} else {
+			switch run := job.Run.(type) {
+			case string:
+				command = run
+			case []string:
+				quoted := make([]string, len(run))
+				for i, arg := range run {
+					quoted[i] = strconv.Quote(arg)
+				}
+				command = strings.Join(quoted, " ")
 			}
-			command = strings.Join(quoted, " ")
 		}
 		row := [4]string{job.Name, scheduled, next, command}
 		rows = append(rows, row)
@@ -108,10 +112,18 @@ func printJobs(out io.Writer, jobs []app.Job, now time.Time) {
 
 // Render control and non-ASCII characters as escapes so terminal controls and
 // wide glyphs cannot defeat the table's column budget.
+func promptDescription(agent string, prompt, promptFile *string) string {
+	if promptFile != nil {
+		return agent + ": " + *promptFile
+	}
+	firstLine, _, _ := strings.Cut(*prompt, "\n")
+	return agent + ": " + firstLine + "…"
+}
+
 func cell(text string, width int) string {
 	var b strings.Builder
 	for _, r := range text {
-		if r >= 32 && r < 127 && !unicode.IsControl(r) {
+		if (r >= 32 && r < 127 || r == '…') && !unicode.IsControl(r) {
 			b.WriteRune(r)
 		} else {
 			b.WriteString(strconv.QuoteRuneToASCII(r)[1 : len(strconv.QuoteRuneToASCII(r))-1])

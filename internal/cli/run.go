@@ -104,24 +104,34 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 			}
 		}
 	}()
-	spec := app.RunSpec(cfg.Project, job, os.Environ())
+	spec, startErr := app.RunSpec(cfg.Project, job, os.Environ())
 	spec.Stdout, spec.Stderr, spec.ForceKill = cmd.Writer, cmd.ErrWriter, force
 	if cmd.Bool("json") {
 		spec.Stdout = cmd.ErrWriter
 	}
 	command := ""
-	switch run := job.Run.(type) {
-	case string:
-		command = run
-	case []string:
-		quoted := make([]string, len(run))
-		for i, arg := range run {
-			quoted[i] = strconv.Quote(arg)
+	if job.Prompt != nil || job.PromptFile != nil {
+		command = promptDescription(job.Agent, job.Prompt, job.PromptFile)
+	} else {
+		switch run := job.Run.(type) {
+		case string:
+			command = run
+		case []string:
+			quoted := make([]string, len(run))
+			for i, arg := range run {
+				quoted[i] = strconv.Quote(arg)
+			}
+			command = strings.Join(quoted, " ")
 		}
-		command = strings.Join(quoted, " ")
 	}
 	fmt.Fprintf(cmd.ErrWriter, "▶ %s · %s\n", name, cell(command, 240))
-	result := runner.Run(runCtx, spec)
+	var result runner.Result
+	if startErr != nil {
+		now := time.Now()
+		result = runner.Result{ExitCode: 125, StartError: startErr, StartedAt: now, FinishedAt: now}
+	} else {
+		result = runner.Run(runCtx, spec)
+	}
 	status, summary := "succeeded", "✓ "+name+" succeeded in "
 	elapsed := result.FinishedAt.Sub(result.StartedAt)
 	switch {

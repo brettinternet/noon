@@ -24,3 +24,7 @@ jobs:
     overlap: queue
     missed: skip
     enabled: false
+  review:
+    description: Review pull requests
+    prompt: Review open pull requests and list the main risks.
+    agent: claude

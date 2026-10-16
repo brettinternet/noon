@@ -8,7 +8,7 @@ Python, Node, cloud service, or agent provider.
 
 **Status: foreground execution.** Working today: project discovery, layered settings,
 non-destructive initialization, strict job validation, job listing with next-run
-previews, foreground command execution, human/JSON output, and development tooling.
+previews, foreground command and agent-prompt execution, human/JSON output, and development tooling.
 Scheduling, cron import, hooks, MCP, service installation, and TUI are designed but
 **not implemented**. There is no background daemon yet.
 
@@ -66,8 +66,8 @@ after 10s); a second signal kills it immediately. No run history is stored yet.
 
 Designed, not built yet ([design](docs/design.md), [decisions](backlog/decisions)):
 
-- Command definitions, schedule parsing, and `bump run NAME` already work;
-  agent prompts and unattended execution are still planned.
+- Command and agent-prompt jobs, schedule parsing, and foreground `bump run NAME` already work;
+  background scheduling is still planned.
 - One per-user `bump serve` runs every enabled repo's schedules;
   `bump service install` keeps it alive across reboots. Docker runs the same
   foreground process. Bump never backgrounds itself.

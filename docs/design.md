@@ -144,7 +144,7 @@ jobs:
 | `run` | string or list | — | String runs via `/bin/sh -c`; list is exact argv. Decided by YAML type, never by punctuation |
 | `prompt` | string | — | Inline agent prompt, ≤ 64 KiB |
 | `prompt_file` | path | — | Relative to project root; read at run time, ≤ 64 KiB |
-| `agent` | string | `default_agent` | Agent profile for prompt jobs; one of the two is required |
+| `agent` | string | `default_agent` | Agent profile for prompt jobs; either this field or `default_agent` is required and must name a known profile |
 | `cwd` | path | project root | Relative to project root |
 | `env` | map | `{}` | Literal strings; names `[A-Za-z_][A-Za-z0-9_]*`; `BUMP_*` reserved; values never printed |
 | `timeout` | duration or `none` | `1h` | Whole run, at least `1s`; then terminate |
@@ -167,6 +167,8 @@ List output records each job's source file and whether it overrides a shared def
 
 ### Agent prompts
 
+Foreground prompt jobs are implemented: `bump run NAME` supports inline and file prompts through
+configured agent profiles. Scheduled prompt runs remain unavailable until the scheduler exists.
 Bump runs existing agent CLIs; it has no model SDK and stores no provider credentials. Profiles
 live in user config because they are machine choices:
 
@@ -184,8 +186,9 @@ agents:
 
 Built-in profiles, overridable by name: `claude` → `claude -p --permission-prompts none` and
 `codex` → `codex exec -`, both with the prompt on stdin. Unattended runs must never wait for
-permission prompts. The prompt is passed verbatim, with no templating. Context comes from
-environment variables (below), so a prompt can say "summarize commits since
+permission prompts. In stdin mode the prompt bytes are sent unchanged; argument mode appends those
+bytes as the final argv entry. No expansion, templating, or trimming occurs. Prompt files are read
+when the run starts and are limited to 64 KiB. Context comes from environment variables (below), so a prompt can say "summarize commits since
 `$BUMP_LAST_SUCCESS_AT`" or "read the event in `$BUMP_EVENT_FILE`".
 
 ### Schedules
@@ -300,8 +303,9 @@ risk, especially when `git pull` changes it.
 - Each run gets its own process group. Cancel and timeout send SIGTERM to the group, wait 10s, then
   SIGKILL. When the main process exits, remaining group members are terminated the same way.
 - `argv[0]` resolves against the job environment's `PATH`, relative to `cwd` when it contains `/`.
-- stdin is `/dev/null`, except a stdin-mode prompt. Jobs never get a TTY, so manual and scheduled
-  runs behave the same.
+- stdin is `/dev/null`, except a stdin-mode prompt. Argument-mode prompts are the final argv entry.
+  Prompt jobs receive `BUMP_AGENT=NAME`. Jobs never get a TTY, so manual and scheduled runs behave
+the same.
 - The log combines stdout and stderr in arrival order. The first 1 MiB is written live; output past
   that is kept in memory as the last 1 MiB and appended after an omission marker when the run ends.
   `logs --follow` therefore streams the first 1 MiB live and the tail at the end.
@@ -309,8 +313,8 @@ risk, especially when `git pull` changes it.
   `bump run report > report.md` works; Bump's own status lines go to stderr. SIGINT, SIGTERM, or
   SIGHUP to `bump run` cancels the job as above; a second signal kills the group immediately.
 - A run that cannot start records a `failed` run and a message, using `env`-style exit codes: 127
-  command not found, 126 not executable, 125 any other start failure (missing `cwd`, unreadable
-  prompt file).
+  command not found, 126 not executable, 125 any other start failure (missing `cwd`, unreadable or
+  oversized prompt file).
 - Environment: inherited (the scheduler's for background runs, your shell's for manual runs), then
   job `env`, then `BUMP_PROJECT`, `BUMP_JOB`, `BUMP_RUN_ID`, `BUMP_TRIGGER`, `BUMP_SCHEDULED_AT`,
   `BUMP_LAST_SUCCESS_AT` (start of the last successful run), and `BUMP_EVENT_FILE` when a run has a

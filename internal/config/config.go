@@ -35,11 +35,13 @@ type Input struct {
 
 // Config is a read-only snapshot. Sources are ordered from lowest to highest priority.
 type Config struct {
-	Project  string         `json:"project"`
-	Timezone string         `json:"timezone"`
-	StateDir string         `json:"state_dir"`
-	Sources  []string       `json:"sources"`
-	Jobs     map[string]Job `json:"-"`
+	Project      string                  `json:"project"`
+	Timezone     string                  `json:"timezone"`
+	StateDir     string                  `json:"state_dir"`
+	Sources      []string                `json:"sources"`
+	Jobs         map[string]Job          `json:"-"`
+	Agents       map[string]AgentProfile `json:"-"`
+	DefaultAgent string                  `json:"default_agent"`
 }
 
 // Load applies defaults, user settings, project settings, and invocation overrides.
@@ -49,12 +51,12 @@ func Load(input Input) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cfg := Config{Project: project, Timezone: "Local", StateDir: filepath.Join(project, ".bump"), Sources: []string{}, Jobs: make(map[string]Job)}
+	cfg := Config{Project: project, Timezone: "Local", StateDir: filepath.Join(project, ".bump"), Sources: []string{}, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
 	if input.File != nil {
 		if *input.File == "" {
 			return Config{}, errors.New("config path must not be empty")
 		}
-		if err := cfg.applyFile(resolvePath(input.CWD, *input.File), false, "shared"); err != nil {
+		if err := cfg.applyFile(resolvePath(input.CWD, *input.File), false, "explicit"); err != nil {
 			return Config{}, err
 		}
 	} else {
@@ -74,6 +76,9 @@ func Load(input Input) (Config, error) {
 				return Config{}, err
 			}
 		}
+	}
+	if err := cfg.resolveAgents(); err != nil {
+		return Config{}, err
 	}
 	if input.Timezone != nil {
 		if err := validTimezone(*input.Timezone); err != nil {
@@ -176,6 +181,24 @@ func (cfg *Config) applyFile(path string, optional bool, kind string) error {
 		}
 		cfg.StateDir = resolvePath(filepath.Dir(path), value)
 	}
+	if node, ok := values["default_agent"]; ok {
+		if kind != "user" && kind != "local" && kind != "explicit" {
+			return jobError(path, node, "default_agent", "allowed only in user config, .bump.yaml, or --config files")
+		}
+		value := node.Value
+		if strings.TrimSpace(value) == "" {
+			return jobError(path, node, "default_agent", "must not be empty")
+		}
+		cfg.DefaultAgent = value
+	}
+	if node, ok := values["agents"]; ok {
+		if kind != "user" && kind != "explicit" {
+			return jobError(path, node, "agents", "allowed only in user config or --config files")
+		}
+		if err := cfg.applyAgents(path, node); err != nil {
+			return err
+		}
+	}
 	if jobs, ok := values["jobs"]; ok {
 		if kind == "user" {
 			return jobError(path, jobs, "jobs", "allowed only in bump.yaml, .bump.yaml, or --config files")
@@ -215,6 +238,12 @@ func parse(data []byte) (map[string]*yaml.Node, error) {
 		case "version":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!int" || value.Value != "1" {
 				return nil, errors.New("version must be 1")
+			}
+		case "agents":
+			// The profile schema is validated with source and YAML-path diagnostics below.
+		case "default_agent":
+			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+				return nil, errors.New("default_agent must be a string")
 			}
 		case "jobs":
 			// Nested job validation retains source lines and YAML paths.

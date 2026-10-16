@@ -1,8 +1,8 @@
 # Configuration
 
-This documents implemented settings and command job definitions. Jobs can be
-validated, listed, and executed with `bump run NAME`. Hooks, prompts, cron import, and the
-scheduler are not implemented; see [design](design.md) for their proposed format.
+This documents implemented settings, command jobs, and agent-prompt jobs. Jobs can be
+validated, listed, and executed with `bump run NAME`. Hooks, cron import, and the scheduler
+are not implemented; see [design](design.md) for their proposed format.
 The default state directory will move from `PROJECT/.bump` to a per-user
 directory (decision-3); until then, nothing writes state.
 
@@ -70,9 +70,10 @@ path flags are relative to the invocation directory. No shell, tilde, or variabl
 expansion happens inside YAML. A relative user-level `state_dir` therefore
 refers to the user config directory, not each repository; normally leave it unset.
 
-`bump config` prints effective settings and the loaded file paths in order.
-`bump config check` validates the same snapshot. Neither creates state or checks
-job executability. Persistent run state is not implemented yet.
+`bump config` prints effective settings, loaded file paths, and available agent profiles.
+`bump config --json` includes `agents` as profile-name-to-command mappings and `default_agent`.
+`bump config check` validates the same snapshot. Neither creates state or checks job
+executability or whether an agent CLI is installed. Persistent run state is not implemented yet.
 
 ## Private configuration
 
@@ -92,10 +93,11 @@ Add both entries to your repository's `.gitignore`:
 Init prints this reminder but never modifies an existing ignore file. Never commit
 credentials or `.bump.yaml`: local job definitions are private.
 
-## Command jobs
+## Jobs
 
 Jobs are allowed in `bump.yaml`, `.bump.yaml`, and an explicit `--config` file,
-not in user config. Names match `^[a-z][a-z0-9_-]{0,63}$`.
+not in user config. Names match `^[a-z][a-z0-9_-]{0,63}$`. Exactly one of `run`, `prompt`, or
+`prompt_file` defines the action.
 
 ```yaml
 jobs:
@@ -114,7 +116,10 @@ See [the complete example](../examples/jobs.yaml).
 | --- | --- | --- |
 | `description` | empty | String |
 | `schedule` | manual | Five-field cron, macros, calendar phrases, or intervals; [grammar](design.md#schedules) |
-| `run` | required | Non-empty string (`/bin/sh -c`) or non-empty string list (exact argv) |
+| `run` | — | Non-empty string (`/bin/sh -c`) or non-empty string list (exact argv) |
+| `prompt` | — | Inline agent prompt, at most 64 KiB |
+| `prompt_file` | — | Path relative to project root; read when run starts, at most 64 KiB |
+| `agent` | `default_agent` | Profile name; required on a prompt job if no default is set |
 | `cwd` | project root | Absolute path or path relative to project root; existence is not checked |
 | `env` | empty | String values only; quote numbers. Names match `[A-Za-z_][A-Za-z0-9_]*`; `BUMP_` is reserved |
 | `timeout` | `1h` | Integer `s`, `m`, `h`, `d` components, at least `1s`, or `none` |
@@ -123,8 +128,40 @@ See [the complete example](../examples/jobs.yaml).
 | `enabled` | `true` | Boolean |
 
 Foreground runs honor `cwd`, `env`, `timeout`, and `enabled`. Scheduling,
-`overlap`, and `missed` policies are validated but not yet executed. Unknown fields (including prompts and hooks), aliases, nulls,
-duplicate keys, and wrong types are errors with file, line, and YAML path.
+`overlap`, and `missed` policies are validated but not yet executed. Hooks are not implemented.
+Unknown fields, aliases, nulls, duplicate keys, and wrong types are errors with file, line, and YAML path.
+
+### Agent prompts
+
+Profiles are machine-specific and belong in user config (`$XDG_CONFIG_HOME/bump/config.yaml`,
+or `~/.config/bump/config.yaml`). `agents` is allowed only there or in an explicit `--config`
+file. `default_agent` is allowed in user config, `.bump.yaml`, or an explicit config file.
+Project `bump.yaml` cannot define either setting. Built-in `claude` and `codex` profiles can be
+replaced by defining the same name in user config:
+
+```yaml
+default_agent: claude
+agents:
+  claude:
+    command: [claude, -p, --permission-prompts, none, --permission-mode, acceptEdits]
+    prompt: stdin
+  codex:
+    command: [codex, exec, -]
+    prompt: stdin
+  reviewer:
+    command: [my-agent, --quiet]
+    prompt: argument
+```
+
+Built-ins are `claude -p --permission-prompts none` and `codex exec -`, both receiving the prompt
+on stdin. Their flags were checked against the installed CLIs' `--help`; Claude users who want edits
+can add `--permission-mode acceptEdits` to their own profile. Unattended runs must never wait for
+permission prompts. A custom profile's `prompt` defaults to `stdin`; `argument` appends the prompt
+byte-for-byte as the final argument. In stdin mode the exact prompt bytes are the child's stdin.
+There is no templating, variable expansion, or trimming. A missing, unreadable, or oversized prompt
+file fails before the agent starts with exit code 125. Prompt files must be regular files;
+FIFOs, devices, and directories are rejected. Prompt runs receive `BUMP_AGENT=NAME`.
+Bump does not check whether the configured agent executable is installed.
 
 A local job replaces the entire shared job with the same name; fields do not
 merge. The exception is `jobs: {tests: {enabled: false}}`, which toggles an
@@ -141,7 +178,7 @@ jobs have no next time. `bump config check` reports the validated job count.
 
 `bump list --json` returns `schema_version: 1`, `project` (`path`, `timezone`),
 and `jobs`. Each job contains `name`, `description`, `schedule`, `next_at`,
-`run`, `cwd`, `env_keys`, `timeout`, `overlap`, `missed`, `enabled`,
+`run`, `prompt`, `prompt_file`, the effective `agent` for prompt jobs, `cwd`, `env_keys`, `timeout`, `overlap`, `missed`, `enabled`,
 `source`, `shared`, `overrides`, and `digest`.
 Absent schedules and next times are null; times are RFC 3339 with the project
 timezone offset. Environment keys are sorted; environment values are never
@@ -149,8 +186,9 @@ printed, including by config inspection. Avoid putting secrets in commands or de
 
 Digests are `sha256:` plus the SHA-256 of canonical JSON: sorted keys, explicitly
 set execution fields only, normalized schedules and durations, and omitted unset
-fields. Description, enabled, source paths, and YAML formatting do not affect
-the digest. Digests cover definitions, **not the contents of referenced scripts**.
+fields. Prompt text, prompt-file path, and the effective agent name participate; agent profile
+commands are user-owned and excluded. Description, enabled, source paths, and YAML formatting do
+not affect the digest. Digests cover definitions, **not the contents of referenced scripts or prompt files**.
 Unattended execution and approval are not yet implemented; eventually shared jobs
 will require approval of their current digest. Explicit foreground runs need no approval. Trust only repositories whose contents
 you would run by hand.

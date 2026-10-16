@@ -1,7 +1,10 @@
 package config_test
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -46,7 +49,14 @@ func TestLoadJobs(t *testing.T) {
 		{name: "orphan toggle", local: "jobs: {tests: {enabled: false}}", want: "enabled-only override requires a shared job"},
 		{name: "user jobs", user: "jobs: {}", want: "allowed only in bump.yaml, .bump.yaml, or --config"},
 		{name: "name", shared: "jobs:\n  1tests: {run: hi}", want: "bump.yaml:2: jobs.1tests:"},
-		{name: "unknown field", shared: "jobs:\n  tests:\n    run: hi\n    prompt: nope", want: "bump.yaml:4: jobs.tests.prompt: unknown field"},
+		{name: "unknown field", shared: "jobs:\n  tests:\n    run: hi\n    typo: nope", want: "bump.yaml:4: jobs.tests.typo: unknown field"},
+		{name: "two actions", shared: "jobs: {tests: {run: hi, prompt: nope}}", want: "exactly one of run, prompt, or prompt_file is required"},
+		{name: "agent on run", shared: "jobs: {tests: {run: hi, agent: claude}}", want: "valid only for prompt or prompt_file jobs"},
+		{name: "unknown agent", shared: "jobs: {tests: {prompt: hi, agent: missing}}", want: `unknown agent "missing"; known agents: claude, codex`},
+		{name: "prompt needs agent", shared: "jobs: {tests: {prompt: hi}}", want: "requires agent or default_agent; set agent on the job or default_agent"},
+		{name: "agents outside user config", shared: "agents: {team: {command: [agent]}}", want: "agents: allowed only in user config or --config files"},
+		{name: "default agent outside allowed file", shared: "default_agent: claude", want: "default_agent: allowed only in user config, .bump.yaml, or --config files"},
+		{name: "invalid profile prompt mode", user: "agents: {team: {command: [agent], prompt: terminal}}", want: "must be stdin or argument"},
 		{name: "schedule suggestion", shared: "jobs:\n  tests:\n    schedule: every day\n    run: hi", want: "bump.yaml:3: jobs.tests.schedule: every day needs a time: try every day at 9am"},
 		{name: "numeric env", shared: "jobs: {tests: {run: hi, env: {COUNT: 1}}}", want: "jobs.tests.env.COUNT: must be a string (quote numbers)"},
 		{name: "reserved env", shared: "jobs: {tests: {run: hi, env: {BUMP_JOB: secret}}}", want: "BUMP_ is reserved"},
@@ -99,6 +109,31 @@ func TestLoadJobs(t *testing.T) {
 			}
 		})
 	}
+	t.Run("prompt size", func(t *testing.T) {
+		root := canonical(t, t.TempDir())
+		data := "jobs:\n  tests:\n    prompt: " + strings.Repeat("x", config.MaxPromptBytes+1) + "\n    agent: claude\n"
+		put(t, filepath.Join(root, "bump.yaml"), data)
+		if _, err := config.Load(config.Input{CWD: root}); err == nil || !strings.Contains(err.Error(), "must be at most 64 KiB") {
+			t.Fatalf("oversized prompt accepted: %v", err)
+		}
+	})
+	t.Run("user profiles and default agent", func(t *testing.T) {
+		root := canonical(t, t.TempDir())
+		user := filepath.Join(root, "user")
+		put(t, filepath.Join(user, "bump/config.yaml"), "default_agent: team\nagents:\n  team:\n    command: [fake-agent, --quiet]\n    prompt: argument\n  claude:\n    command: [claude-wrapper]\n")
+		put(t, filepath.Join(root, "bump.yaml"), "jobs: {review: {prompt: review}}")
+		cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: user})
+		if err != nil {
+			t.Fatal(err)
+		}
+		job := cfg.Jobs["review"]
+		if job.Agent != "team" || job.PromptMode != "argument" || !reflect.DeepEqual(job.AgentCommand, []string{"fake-agent", "--quiet"}) {
+			t.Fatalf("resolved agent: %+v", job)
+		}
+		if !reflect.DeepEqual(cfg.Agents["codex"].Command, []string{"codex", "exec", "-"}) || !reflect.DeepEqual(cfg.Agents["claude"].Command, []string{"claude-wrapper"}) {
+			t.Fatalf("profiles: %+v", cfg.Agents)
+		}
+	})
 	t.Run("explicit file is shared", func(t *testing.T) {
 		root := canonical(t, t.TempDir())
 		file := filepath.Join(root, "custom.yaml")
@@ -144,4 +179,35 @@ func TestJobDigest(t *testing.T) {
 	if load("    run: hi\n", "{}") == load("    run: hi\n    timeout: 1h\n", "{}") {
 		t.Fatal("unset field included in digest")
 	}
+	t.Run("prompt definition and agent name", func(t *testing.T) {
+		root := canonical(t, t.TempDir())
+		user := filepath.Join(root, "user")
+		userConfig := filepath.Join(user, "bump", "config.yaml")
+		put(t, userConfig, "agents: {team: {command: [agent-one]}}")
+		loadPrompt := func(body string) string {
+			t.Helper()
+			put(t, filepath.Join(root, "bump.yaml"), "jobs:\n  review:\n"+body)
+			cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: user})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return cfg.Jobs["review"].Digest
+		}
+		base := "    prompt: review\n    agent: team\n"
+		initial := loadPrompt(base)
+		want := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(`{"agent":"team","prompt":"review"}`)))
+		if initial != want {
+			t.Fatalf("canonical prompt digest = %s, want %s", initial, want)
+		}
+		if loadPrompt("    prompt: changed\n    agent: team\n") == initial || loadPrompt("    prompt_file: prompts/review.md\n    agent: team\n") == initial || loadPrompt("    prompt: review\n    agent: claude\n") == initial {
+			t.Fatal("prompt, prompt-file, or agent changes did not change the digest")
+		}
+		put(t, userConfig, "default_agent: team\nagents: {team: {command: [agent-two]}}")
+		if loadPrompt("    prompt: review\n") != initial {
+			t.Fatal("default agent differs from equivalent explicit agent digest")
+		}
+		if loadPrompt(base) != initial {
+			t.Fatal("user-owned agent profile command changed the job digest")
+		}
+	})
 }

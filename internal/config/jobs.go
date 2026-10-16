@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -15,21 +16,34 @@ import (
 )
 
 // Job is a validated effective definition. Env is deliberately never serialized.
+const MaxPromptBytes = 64 * 1024
+
+type AgentProfile struct {
+	Command []string
+	Prompt  string
+}
+
 type Job struct {
-	Name        string
-	Description string
-	Schedule    *schedule.Schedule
-	Run         any
-	CWD         string
-	Env         map[string]string `json:"-"`
-	Timeout     string
-	Overlap     string
-	Missed      string
-	Enabled     bool
-	Source      string
-	Shared      bool
-	Overrides   bool
-	Digest      string
+	Name         string
+	Description  string
+	Schedule     *schedule.Schedule
+	Run          any
+	Prompt       *string
+	PromptFile   *string
+	Agent        string
+	AgentCommand []string
+	PromptMode   string
+	CWD          string
+	Env          map[string]string `json:"-"`
+	Timeout      string
+	Overlap      string
+	Missed       string
+	Enabled      bool
+	Source       string
+	Shared       bool
+	Overrides    bool
+	Digest       string
+	execution    map[string]any
 }
 
 var jobName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
@@ -105,7 +119,7 @@ func (cfg *Config) applyJobs(file, kind string, node *yaml.Node) error {
 			return err
 		}
 		job.CWD = resolvePath(cfg.Project, job.CWD)
-		job.Shared = kind == "shared"
+		job.Shared = kind == "shared" || kind == "explicit"
 		job.Overrides = kind == "local" && exists && previous.Shared
 		cfg.Jobs[name] = job
 	}
@@ -123,9 +137,114 @@ func jobEnabled(file, path string, node *yaml.Node) (bool, error) {
 	return value, nil
 }
 
+func BuiltInAgents() map[string]AgentProfile {
+	return map[string]AgentProfile{
+		"claude": {Command: []string{"claude", "-p", "--permission-prompts", "none"}, Prompt: "stdin"},
+		"codex":  {Command: []string{"codex", "exec", "-"}, Prompt: "stdin"},
+	}
+}
+
+func (cfg *Config) applyAgents(file string, node *yaml.Node) error {
+	profiles, err := jobMapping(file, "agents", node)
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(node.Content); i += 2 {
+		key, value := node.Content[i], node.Content[i+1]
+		name, path := key.Value, "agents."+key.Value
+		if !jobName.MatchString(name) {
+			return jobError(file, key, path, "name must match ^[a-z][a-z0-9_-]{0,63}$")
+		}
+		if _, err := jobMapping(file, path, profiles[name]); err != nil {
+			return err
+		}
+		profile := AgentProfile{Prompt: "stdin"}
+		for j := 0; j < len(value.Content); j += 2 {
+			fieldNode, fieldValue := value.Content[j], value.Content[j+1]
+			field := path + "." + fieldNode.Value
+			switch fieldNode.Value {
+			case "command":
+				if fieldValue.Kind != yaml.SequenceNode || fieldValue.Tag != "!!seq" || len(fieldValue.Content) == 0 {
+					return jobError(file, fieldValue, field, "must be a non-empty string list")
+				}
+				for _, arg := range fieldValue.Content {
+					text, err := jobString(file, field, arg)
+					if err != nil {
+						return err
+					}
+					profile.Command = append(profile.Command, text)
+				}
+				if strings.TrimSpace(profile.Command[0]) == "" {
+					return jobError(file, fieldValue, field, "executable must not be empty")
+				}
+			case "prompt":
+				text, err := jobString(file, field, fieldValue)
+				if err != nil {
+					return err
+				}
+				if text != "stdin" && text != "argument" {
+					return jobError(file, fieldValue, field, "must be stdin or argument")
+				}
+				profile.Prompt = text
+			default:
+				return jobError(file, fieldNode, field, "unknown field")
+			}
+		}
+		if len(profile.Command) == 0 {
+			return jobError(file, value, path+".command", "required")
+		}
+		cfg.Agents[name] = profile
+	}
+	return nil
+}
+
+func (cfg *Config) resolveAgents() error {
+	if cfg.DefaultAgent != "" {
+		if _, ok := cfg.Agents[cfg.DefaultAgent]; !ok {
+			return fmt.Errorf("default_agent %q is unknown; known agents: %s", cfg.DefaultAgent, strings.Join(agentNames(cfg.Agents), ", "))
+		}
+	}
+	for name, job := range cfg.Jobs {
+		if job.Prompt == nil && job.PromptFile == nil {
+			continue
+		}
+		if job.Agent == "" {
+			job.Agent = cfg.DefaultAgent
+		}
+		if job.Agent == "" {
+			return fmt.Errorf("job %q: prompt job requires agent or default_agent; set agent on the job or default_agent in user config or .bump.yaml", name)
+		}
+		profile, ok := cfg.Agents[job.Agent]
+		if !ok {
+			return fmt.Errorf("job %q: unknown agent %q; known agents: %s", name, job.Agent, strings.Join(agentNames(cfg.Agents), ", "))
+		}
+		job.AgentCommand = append([]string(nil), profile.Command...)
+		job.PromptMode = profile.Prompt
+		job.execution["agent"] = job.Agent
+		data, err := json.Marshal(job.execution)
+		if err != nil {
+			return err
+		}
+		job.Digest = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+		cfg.Jobs[name] = job
+	}
+	return nil
+}
+
+func agentNames(profiles map[string]AgentProfile) []string {
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
 func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node) (Job, error) {
 	job := Job{Name: name, CWD: ".", Env: map[string]string{}, Timeout: "1h", Overlap: "skip", Missed: "run_once", Enabled: true, Source: file}
 	execution := make(map[string]any)
+	job.execution = execution
+	actions := 0
 	for i := 0; i < len(node.Content); i += 2 {
 		key, value := node.Content[i].Value, node.Content[i+1]
 		field := path + "." + key
@@ -137,6 +256,7 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 			}
 			job.Enabled = enabled
 		case "run":
+			actions++
 			var run any
 			if value.Kind == yaml.SequenceNode && value.Tag == "!!seq" {
 				if len(value.Content) == 0 {
@@ -165,6 +285,35 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				run = text
 			}
 			job.Run, execution[key] = run, run
+		case "prompt":
+			actions++
+			text, err := jobString(file, field, value)
+			if err != nil {
+				return Job{}, err
+			}
+			if len(text) > MaxPromptBytes {
+				return Job{}, jobError(file, value, field, "must be at most 64 KiB")
+			}
+			job.Prompt, execution[key] = &text, text
+		case "prompt_file":
+			actions++
+			text, err := jobString(file, field, value)
+			if err != nil {
+				return Job{}, err
+			}
+			if strings.TrimSpace(text) == "" || filepath.IsAbs(text) {
+				return Job{}, jobError(file, value, field, "must be a non-empty path relative to the project root")
+			}
+			job.PromptFile, execution[key] = &text, text
+		case "agent":
+			text, err := jobString(file, field, value)
+			if err != nil {
+				return Job{}, err
+			}
+			if !jobName.MatchString(text) {
+				return Job{}, jobError(file, value, field, "must be a valid agent profile name")
+			}
+			job.Agent, execution[key] = text, text
 		case "env":
 			env, err := jobMapping(file, field, value)
 			if err != nil {
@@ -237,8 +386,11 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 			return Job{}, jobError(file, node.Content[i], field, "unknown field")
 		}
 	}
-	if fields["run"] == nil {
-		return Job{}, jobError(file, node, path+".run", "required; enabled-only entries must override a shared job in .bump.yaml")
+	if actions != 1 {
+		return Job{}, jobError(file, node, path, "exactly one of run, prompt, or prompt_file is required")
+	}
+	if job.Agent != "" && job.Prompt == nil && job.PromptFile == nil {
+		return Job{}, jobError(file, fields["agent"], path+".agent", "valid only for prompt or prompt_file jobs")
 	}
 	// encoding/json sorts string map keys, including nested environment keys.
 	data, err := json.Marshal(execution)

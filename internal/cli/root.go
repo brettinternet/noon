@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -184,15 +185,34 @@ func showConfig(_ context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"config": cfg})
+		return emit(cmd, map[string]any{"config": configOutput(cfg)})
 	}
-	fmt.Fprintf(cmd.Writer, "Project:   %s\nTimezone:  %s\nState dir: %s\n", cfg.Project, cfg.Timezone, cfg.StateDir)
+	fmt.Fprintf(cmd.Writer, "Project:       %s\nTimezone:      %s\nState dir:     %s\n", cfg.Project, cfg.Timezone, cfg.StateDir)
+	if cfg.DefaultAgent == "" {
+		fmt.Fprintln(cmd.Writer, "Default agent: (none)")
+	} else {
+		fmt.Fprintf(cmd.Writer, "Default agent: %s\n", cell(cfg.DefaultAgent, 80))
+	}
 	fmt.Fprintln(cmd.Writer, "Files (low → high precedence):")
 	if len(cfg.Sources) == 0 {
 		fmt.Fprintln(cmd.Writer, "  none; using defaults and invocation overrides")
 	}
 	for _, path := range cfg.Sources {
 		fmt.Fprintf(cmd.Writer, "  %s\n", path)
+	}
+	fmt.Fprintln(cmd.Writer, "Agents:")
+	names := make([]string, 0, len(cfg.Agents))
+	for name := range cfg.Agents {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		profile := cfg.Agents[name]
+		args := make([]string, len(profile.Command))
+		for i, arg := range profile.Command {
+			args[i] = strconv.Quote(arg)
+		}
+		fmt.Fprintf(cmd.Writer, "  %s: %s (%s)\n", cell(name, 80), strings.Join(args, " "), profile.Prompt)
 	}
 	fmt.Fprintln(cmd.Writer, "CLI flags override environment variables; both override files.")
 	return nil
@@ -204,7 +224,7 @@ func checkConfig(_ context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"valid": true, "config": cfg, "jobs": len(cfg.Jobs)})
+		return emit(cmd, map[string]any{"valid": true, "config": configOutput(cfg), "jobs": len(cfg.Jobs)})
 	}
 	fmt.Fprintf(cmd.Writer, "Configuration valid · %s · %d jobs\n", cfg.Project, len(cfg.Jobs))
 	return nil
@@ -256,6 +276,17 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	}
 	fmt.Fprintln(cmd.Writer, "Ignore .bump.yaml and .bump/ in Git. Next: bump config check")
 	return nil
+}
+
+func configOutput(cfg config.Config) map[string]any {
+	agents := make(map[string][]string, len(cfg.Agents))
+	for name, profile := range cfg.Agents {
+		agents[name] = profile.Command
+	}
+	return map[string]any{
+		"project": cfg.Project, "timezone": cfg.Timezone, "state_dir": cfg.StateDir,
+		"sources": cfg.Sources, "agents": agents, "default_agent": cfg.DefaultAgent,
+	}
 }
 
 func emit(cmd *urfave.Command, result map[string]any) error {

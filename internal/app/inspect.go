@@ -20,6 +20,9 @@ type Job struct {
 	Schedule    *string    `json:"schedule"`
 	NextAt      *time.Time `json:"next_at"`
 	Run         any        `json:"run"`
+	Prompt      *string    `json:"prompt"`
+	PromptFile  *string    `json:"prompt_file"`
+	Agent       string     `json:"agent,omitempty"`
 	CWD         string     `json:"cwd"`
 	EnvKeys     []string   `json:"env_keys"`
 	Timeout     string     `json:"timeout"`
@@ -56,7 +59,7 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 	slices.Sort(names)
 	for _, name := range names {
 		job := cfg.Jobs[name]
-		view := Job{Name: name, Description: job.Description, Run: job.Run, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest}
+		view := Job{Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, Agent: job.Agent, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest}
 		for key := range job.Env {
 			view.EnvKeys = append(view.EnvKeys, key)
 		}

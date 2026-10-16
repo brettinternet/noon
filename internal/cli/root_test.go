@@ -227,7 +227,7 @@ func TestListJSON(t *testing.T) {
 	if len(jobs) != 4 {
 		t.Fatal(jobs)
 	}
-	wantKeys := strings.Fields("name description schedule next_at run cwd env_keys timeout overlap missed enabled source shared overrides digest")
+	wantKeys := strings.Fields("name description schedule next_at run prompt prompt_file cwd env_keys timeout overlap missed enabled source shared overrides digest")
 	slices.Sort(wantKeys)
 	for i, name := range []string{"adaily", "bdisabled", "cinterval", "zmanual"} {
 		job := jobs[i].(map[string]any)
