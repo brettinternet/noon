@@ -4,9 +4,10 @@ title: Inspect and control jobs in a terminal UI
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 20:25'
+updated_date: '2026-10-16 20:40'
 labels:
   - tui
+  - reviewed
 dependencies:
   - NOON-21
   - NOON-28
@@ -94,6 +95,8 @@ Delivered implementation commit 9bed9dedb24f7deac35aaa95e2818f6502a14249, fast-f
 Final main verification at completion-record commit 363345c failed twice in unchanged TestServeStdioConcurrentCancellationAndEOFDrain: cancelled get_run returned success when cancel_run made its run terminal before the wait loop. User explicitly approved expanding scope to a narrow GetRun cancellation fix in a fresh owned worktree, existing regression checks, full CI, commit, merge, cleanup. Prior implementation commit passed CI; final-main DoD verification reopened.
 
 Approved cancellation correction delivered as e2aa083: GetRun checks context cancellation on entry and before returning a successful snapshot, including terminal-transition paths. Existing TestServeStdioConcurrentCancellationAndEOFDrain passed 100 runs without changes; task ci passed in the correction checkout and again on main after merge. No test weakened. Correction checkout/branch noon-13-cancellation and Herdr workspace wDJ removed and verified absent; original noon-13-tui/wDG also gone. All item requirements satisfied; no remaining blocker or resumable work. Concurrent unrelated documentation commit 1f7341a preserved.
+
+Post-merge implementation review: inspected internal/tui/tui.go and CLI terminal gating against the task contract, including shared app operations, mutation authorization, cancellation confirmation, bounded log cursors, sections, search, and rendering. Finding (P2): runSearch accepts the valid empty RE2 pattern and stores it as logSearch="" (internal/tui/tui.go:695-711), but goBack uses nonempty logSearch to identify search mode (line 953 onward). Reproduction: open a log, press / then Enter without text, then Escape. Escape leaves the log screen instead of restoring the tail; polling can also append unnumbered output to these search results because pollLog treats the empty string as ordinary follow mode. Track search mode separately or explicitly treat an empty submission as cancellation. Finding recorded, not fixed in this review. Verification: task cli:test -- -run '^(TestTUIModel|TestTUINonInteractive)$' -count=1 -v passed; task cli:build passed; bin/noon tui < /dev/null immediately reported terminal required and exited 2; CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon passed. Existing tests do not cover empty search submission. Terminal restoration was inspected through the Bubble Tea entry point, not independently PTY-retested in this review.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
