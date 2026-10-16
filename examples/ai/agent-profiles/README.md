@@ -1,6 +1,6 @@
 # Agent profiles and prompt jobs
 
-**Level:** intermediate · **Shows:** `prompt`, `prompt_file`, `agent`, `default_agent`, read-only vs editing profiles
+**Level:** intermediate · **Shows:** `prompt`, `prompt_file`, `agent`, `default_agent`, permission modes and sandbox profiles
 
 A prompt job sends text to an agent CLI. *Which* CLI and *what it may do* is a profile in your
 user config; the project only names the profile. That keeps machine paths and permissions out of
@@ -16,22 +16,49 @@ noon run release-notes            # streams the agent's output; stored as a norm
 
 | Job | Profile | Can change files |
 | --- | --- | --- |
-| `todo-sweep` | `claude` | no |
-| `docs-review` | `codex` (`--sandbox read-only`) | no |
-| `release-notes` | `claude-git` (allowlisted `git log/describe/diff`) | no |
+| `todo-sweep` | `claude` (manual mode) | depends on settings/hooks |
+| `docs-review` | `codex` (`--sandbox read-only`) | sandboxed shell cannot write; hooks/MCP are separate |
+| `release-notes` | `claude-git` (pre-approved `git log/describe/diff`) | depends on settings/hooks and command arguments |
 | `doc-comments` | `claude-edit` (`acceptEdits`) | yes, manual only |
 
 Rules of thumb:
 
-- **Unattended runs must never wait for a prompt.** Every profile here either denies or
-  pre-approves; none can hang a scheduled job.
-- **Schedule read-only work; run editing work by hand** (or in an isolated worktree, see
+- **Unattended runs need explicit permissions and a timeout.** Claude's
+  `--permission-prompts none` denies unresolved prompts; Codex `exec` is noninteractive.
+  This does not guarantee progress: authentication, tools, and model services can fail or stall.
+- **Schedule inspection work; run editing work by hand** (or in an isolated worktree, see
   [background agents](../background-agents/)).
 - Prompt text and the profile *name* are part of the approval digest, so editing an inline
   prompt on a shared job requires `noon enable` again. Prompt *files* are read at run time and
   are not covered: review them like scripts.
 - Context comes from the environment. A prompt may say "read the event in `$NOON_EVENT_FILE`" or
   "summarize commits since `$NOON_LAST_SUCCESS_AT`"; Noon does no templating.
+
+## Verification (2026-10-16)
+
+Documentation and installed help, **not model-backed execution**:
+
+- Claude Code **2.1.302**, `claude --help`, [headless](https://code.claude.com/docs/en/headless)
+  and [permissions](https://code.claude.com/docs/en/permissions): `--permission-prompts none`
+  (requires 2.1.259+) denies only unresolved requests. Manual mode is explicit here because
+  an unspecified mode can be auto. Settings, hooks, MCP, and existing allow rules can grant
+  more access. Read/Grep/Glob in working directories need no approval; availability varies
+  by version/platform. These profiles are **not read-only sandboxes**.
+- `acceptEdits` also approves common filesystem commands, not just Edit. Git rules use the
+  documented `Bash(git log *)` syntax; `--allowedTools` pre-approves rather than restricts
+  the tool set. Git arguments/configuration can have side effects (for example output files
+  or external diff helpers). Use these profiles only with trusted input and configuration.
+- Codex **0.163.0**, `codex exec --help` and
+  [noninteractive mode](https://developers.openai.com/codex/noninteractive): `-` reads stdin;
+  `--sandbox read-only|workspace-write` selects the shell sandbox. See
+  [background-agent trust notes](../background-agents/#verification-2026-10-16).
+- Gemini is not installed here. [Headless reference](https://geminicli.com/docs/cli/headless/)
+  documents `-p/--prompt` with a query argument; Noon appends that argument. This is not a
+  tool-disable mode or a verified read-only profile.
+- Ollama is not installed here. [CLI reference](https://docs.ollama.com/cli) documents
+  `ollama run`; [RunHandler source](https://github.com/ollama/ollama/blob/4d2e25016476e2744863900795fd226266b76a86/cmd/cmd.go)
+  reads non-TTY stdin and disables interactive mode. This plain generation path does not
+  execute model tool calls; it needs a running server and a downloaded model.
 
 Ad hoc, without editing YAML:
 

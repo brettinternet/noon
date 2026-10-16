@@ -3,26 +3,28 @@
 default_agent: claude
 
 agents:
-  # Read-only Claude: tools that never ask (Read, Grep, Glob) work; anything that would prompt
-  # is denied automatically. This replaces the built-in "claude" profile with the same command.
+  # Manual-mode Claude: unanswered prompts are denied, but settings/hooks may allow more.
+  # This is NOT a read-only sandbox. Read/Grep/Glob need no approval within working dirs.
   claude:
-    command: [claude, -p, --permission-prompts, none]
+    command: [claude, -p, --permission-prompts, none, --permission-mode, manual]
 
   # Claude that may edit files in the job's cwd. Still never waits for a prompt.
   claude-edit:
     command: [claude, -p, --permission-prompts, none, --permission-mode, acceptEdits]
 
-  # Read-only Claude plus a narrow allowlist of shell commands.
+  # Manual-mode Claude plus pre-approved Git commands; rules are not a sandbox.
   claude-git:
     command:
       - claude
       - -p
       - --permission-prompts
       - none
+      - --permission-mode
+      - manual
       - --allowedTools
-      - Bash(git log:*)
-      - Bash(git describe:*)
-      - Bash(git diff:*)
+      - Bash(git log *)
+      - Bash(git describe *)
+      - Bash(git diff *)
 
   # Codex in its read-only and workspace-write sandboxes; "-" reads the prompt from stdin.
   codex:

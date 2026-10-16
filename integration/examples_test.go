@@ -84,6 +84,119 @@ func TestExamplesValidate(t *testing.T) {
 	check(t, "-C", project)
 }
 
+// A dirty tree must not bypass verification, and repeated Stop callbacks must
+// eventually release the gate. This exercises our script, not a vendor agent.
+func TestExampleVerifyGate(t *testing.T) {
+	for _, tool := range []string{"git", "jq"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Fatalf("verify-gate test requires %s; run task init: %v", tool, err)
+		}
+	}
+	root := t.TempDir()
+	project, home, bin, tmp := filepath.Join(root, "project"), filepath.Join(root, "home"), filepath.Join(root, "bin"), filepath.Join(root, "tmp")
+	for _, dir := range []string{project, home, bin, tmp} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(noonBinary, filepath.Join(bin, "noon")); err != nil {
+		t.Fatal(err)
+	}
+	// Do not inherit Git overrides, agent credentials, or user XDG paths.
+	env := []string{
+		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"HOME=" + home, "XDG_CONFIG_HOME=" + filepath.Join(root, "config"),
+		"XDG_STATE_HOME=" + filepath.Join(root, "xdg-state"), "XDG_CACHE_HOME=" + filepath.Join(root, "cache"),
+		"NOON_STATE_DIR=" + filepath.Join(root, "state"), "TMPDIR=" + tmp,
+		"MAX_ATTEMPTS=3", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd.Dir, cmd.Env = project, env
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	write(filepath.Join(project, "noon.yaml"), `version: 1
+jobs:
+  verify:
+    run: [sh, verify.sh]
+`)
+	write(filepath.Join(project, "verify.sh"), "printf 'ran\\n' >> \"$TMPDIR/runs\"\nif test -f passing; then exit 0; fi\ni=0; while test $i -lt 100; do printf '%0300d failure-%s\\n' 0 \"$i\"; i=$((i+1)); done\nexit 1\n")
+	git("init", "--quiet")
+	git("add", ".")
+	git("-c", "user.name=Gate Test", "-c", "user.email=gate@example.invalid", "-c", "core.hooksPath="+tmp, "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture")
+	gate, err := filepath.Abs("../examples/ai/verify-loop/scripts/verify-gate.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(session string, active bool, wantExit int, runEnv []string) string {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "/bin/sh", gate)
+		cmd.Dir, cmd.Env = project, runEnv
+		cmd.Stdin = strings.NewReader(fmt.Sprintf(`{"session_id":%q,"stop_hook_active":%t}`, session, active))
+		output, err := cmd.CombinedOutput()
+		if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != wantExit {
+			t.Fatalf("gate: %v, want exit %d\n%s", err, wantExit, output)
+		}
+		return string(output)
+	}
+	counter := filepath.Join(tmp, "noon-verify-gate-test-session")
+	assertAbsent := func(path string) {
+		t.Helper()
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected absent %s, got %v", path, err)
+		}
+	}
+	run("test-session", false, 0, env)
+	assertAbsent(filepath.Join(tmp, "runs")) // Clean tree must not invoke Noon.
+	write(filepath.Join(project, "dirty"), "untracked change")
+	output := run("test-session", false, 2, env)
+	if !strings.Contains(output, "attempt 1 of 3") || !strings.Contains(output, "failure-99") || strings.Contains(output, "failure-0\n") || len(output) > 12500 {
+		t.Fatalf("missing or unbounded failure feedback: %s", output)
+	}
+	if data, err := os.ReadFile(counter); err != nil || string(data) != "1\n" {
+		t.Fatalf("counter = %q, %v", data, err)
+	}
+	write(filepath.Join(project, "passing"), "success") // Still dirty: must actually run verify.
+	run("test-session", true, 0, env)
+	assertAbsent(counter)
+	if data, err := os.ReadFile(filepath.Join(tmp, "runs")); err != nil || string(data) != "ran\nran\n" {
+		t.Fatalf("verify invocations = %q, %v", data, err)
+	}
+	if err := os.Remove(filepath.Join(project, "passing")); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 3; attempt++ {
+		run("test-session", true, 2, env)
+	}
+	if output := run("test-session", true, 0, env); !strings.Contains(output, "after 3 attempts") {
+		t.Fatalf("missing escape feedback: %s", output)
+	}
+	assertAbsent(counter)
+	missingJQEnv := append([]string{}, env...)
+	for i, value := range missingJQEnv {
+		if strings.HasPrefix(value, "PATH=") {
+			missingJQEnv[i] = "PATH=" + bin // Contains only noon, deliberately no jq.
+		}
+	}
+	if output := run("test-session", false, 2, missingJQEnv); !strings.Contains(output, "requires jq; install jq") {
+		t.Fatalf("missing actionable jq error: %s", output)
+	}
+	if output := run("../invalid", false, 2, env); !strings.Contains(output, "valid session_id") {
+		t.Fatalf("unsafe session ID accepted: %s", output)
+	}
+}
+
 func TestExampleNotifications(t *testing.T) {
 	root := t.TempDir()
 	bin := filepath.Join(root, "bin")

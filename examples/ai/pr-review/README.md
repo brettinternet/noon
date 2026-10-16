@@ -51,9 +51,12 @@ reviews up to `MAX_REVIEWS` of its open PRs.
 
 GitHub must reach the listener. Options, from least to most exposed:
 
-- **`gh webhook forward`** (the `cli/gh-webhook` extension) relays a repository's events to a
-  local URL without a public endpoint. Check its `--help` for passing the shared secret: Noon
-  rejects unsigned requests.
+- **`gh webhook forward`** (the `cli/gh-webhook` extension) can relay events without a
+  public endpoint. The source revision below supports `--secret`; supply the same secret as
+  Noon, e.g. `gh webhook forward --repo OWNER/REPO --events pull_request,issues --url URL --secret "$NOON_GITHUB_WEBHOOK_SECRET"`.
+  This creates/activates a development webhook and needs GitHub permission. The secret is
+  passed in argv (potentially visible to local process inspection). Check your installed
+  extension's help; if it lacks `--secret`, use a tunnel/proxy instead. Never disable HMAC checks.
 - A tunnel (Tailscale Funnel, Cloudflare Tunnel) to `127.0.0.1:8787`.
 - A TLS reverse proxy on a server; see [webhooks](../../../docs/webhooks.md#tls-reverse-proxy).
 
@@ -64,6 +67,34 @@ environment rather than a shell profile.
 
 ## Safety
 
-The PR text and diff are attacker-controlled for public repositories. The agent gets them as
-prompt data with **no tools**, the prompt says to ignore embedded instructions, and posting is off
-by default. Keep it that way for repositories that accept outside contributions.
+The PR text and diff are attacker-controlled for public repositories. The default Claude command
+uses `--tools ""` to remove built-in tools and `--disallowedTools 'mcp__*'` to deny MCP tools;
+`--strict-mcp-config` excludes ordinary configured servers. `--safe-mode` disables user/project
+customizations, including hooks. This is a model tool restriction, **not an OS sandbox**:
+the CLI still authenticates and sends the prompt to its model service, managed policy can still
+run hooks, and the surrounding script uses GitHub credentials and writes output files. Use a
+trusted managed configuration or an isolated runtime without sensitive files for hostile input.
+
+The prompt asks the model to ignore embedded instructions, but that is not a security boundary.
+Posting/label changes remain off by default; review generated output before enabling them.
+An `AGENT_CMD` override replaces the default safeguards and must establish its own restrictions.
+It is a whitespace-split command, not shell syntax; embedded quotes do not preserve empty arguments.
+
+## Verification (2026-10-16)
+
+**Documentation/help/source evidence only; no model-backed review or live GitHub delivery.**
+Claude Code **2.1.302** `claude --help` and the
+[CLI reference](https://code.claude.com/docs/en/cli-reference) document `--tools ""`,
+`--disallowedTools "mcp__*"`, `--strict-mcp-config`, and `--safe-mode` (including managed-policy
+exceptions). The [headless reference](https://code.claude.com/docs/en/headless) makes clear that
+`--permission-prompts none` only denies unresolved prompts: it does **not** remove Read/Grep/Glob
+or tools allowed by settings. Both scripts now pass a real empty argv entry to `--tools`.
+
+Inspected `cli/gh-webhook` through `gh api` at revision
+`115d4d6768b55c74ee7d7c61d4775d83fdc323d2`:
+[forward.go](https://github.com/cli/gh-webhook/blob/115d4d6768b55c74ee7d7c61d4775d83fdc323d2/webhook/forward.go)
+declares `--secret/-S`, forwards `bytes.NewReader(ev.Body)` and copies event headers;
+[create_webhook.go](https://github.com/cli/gh-webhook/blob/115d4d6768b55c74ee7d7c61d4775d83fdc323d2/webhook/create_webhook.go)
+sends the secret in hook configuration. Thus the client preserves the signature header and
+exact body needed by Noon. End-to-end service delivery remains untested; use the local signed
+fixture to test Noon, and check actual delivery status before relying on forwarding.
