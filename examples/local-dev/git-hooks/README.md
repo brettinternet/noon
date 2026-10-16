@@ -29,7 +29,9 @@ noon logs deps
 # triggered by post-checkout: 1a2b3c4d..5e6f7a8b
 ```
 
-Payload values are data in a JSON file, never interpolated into the job's command. Noon never
+Payload values are data in a JSON file, never interpolated into the job's command. A request made
+while a run of the same job is already waiting joins that run, and its payload is not kept, so
+treat payloads as context and keep jobs like `deps` idempotent. Noon never
 installs hooks for you. For a hook that must block (pre-push), run `noon run test` in the
 foreground instead: it returns the test's exit code.
 

@@ -65,6 +65,9 @@ is validated by `integration/examples_test.go`.
 
 - **Failure is the alarm.** Report-style jobs exit non-zero when something needs attention and
   let an `on_failure` hook notify you.
+- **Triggers are wake-ups; scripts reconcile.** A request that arrives while a run of the same job
+  is already waiting is merged into that run, and its payload is not kept. Jobs that must handle
+  every event (PR review, failure triage) list what still needs work and record what they did.
 - **Gather deterministically, summarize with a model.** AI scripts collect facts themselves and
   give the model no tools, so untrusted input (logs, PR text, feeds) cannot make it act.
 - **Unattended means non-interactive.** Agent profiles deny or pre-approve permissions; none can

@@ -7,22 +7,22 @@ jobs:
     schedule: every day at 2am
     run: [make, test]
     timeout: 30m
-    # The hook's stdin is the failed run's JSON; --data - stores it as triage's event file.
-    on_failure: [noon, run, triage, --detach, --data, "-"]
+    on_failure: [noon, run, triage, --detach]
 
   e2e:
     description: Nightly browser tests. Failures are triaged automatically.
     schedule: every day at 3am
     run: [make, e2e]
     timeout: 45m
-    on_failure: [noon, run, triage, --detach, --data, "-"]
+    on_failure: [noon, run, triage, --detach]
 
   triage:
-    description: Diagnose a failed run from its log. Queued by on_failure hooks; reads NOON_EVENT_FILE.
+    description: Diagnose recent failed runs in this project that have no report yet. Queued by on_failure hooks.
     run: [./scripts/triage.sh]
     env:
       AGENT_CMD: claude -p --permission-prompts none
       TRIAGE_DIR: .noon-triage
-    timeout: 10m
-    overlap: queue          # two failures overnight: triage both, one after the other
+      SINCE_HOURS: "48"        # ignore older failures
+      MAX_TRIAGE: "3"          # per run; the rest are picked up by the next run
+    timeout: 15m
     on_success: [./scripts/notify.sh]

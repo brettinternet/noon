@@ -2,8 +2,8 @@
 
 This documents implemented settings, command jobs, agent-prompt jobs, and lifecycle hooks. Jobs can be
 validated, listed, added, removed, paused, resumed, and executed with `noon run NAME`. Foreground
-run history and bounded logs are stored in the per-user state directory. Cron import is not implemented;
-see [design](design.md) for its proposed format.
+run history and bounded logs are stored in the per-user state directory. Cron import is documented in
+[Crontab import](crontab.md).
 
 ## Sources
 

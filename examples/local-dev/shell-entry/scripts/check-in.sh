@@ -10,9 +10,13 @@ if git fetch --quiet 2>/dev/null && git rev-parse --abbrev-ref '@{upstream}' >/d
   [ "$behind" -eq 0 ] || { echo "-> pull before starting"; attention=1; }
 fi
 
-if [ -f bun.lock ] && [ bun.lock -nt node_modules ]; then
-  echo "-> bun.lock changed since the last install: run bun install"
-  attention=1
+if command -v mise >/dev/null 2>&1; then
+  missing=$(mise ls --current --missing 2>/dev/null)
+  if [ -n "$missing" ]; then
+    printf '%s\n' "$missing"
+    echo "-> tools missing: run mise install"
+    attention=1
+  fi
 fi
 
 stashes=$(git stash list | wc -l | tr -d ' ')

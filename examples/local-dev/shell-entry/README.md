@@ -3,7 +3,7 @@
 **Level:** intermediate · **Shows:** `noon shell init --on-enter`, `cooldown`, job-level `on_failure`, `NOON_LOG_FILE`
 
 When you `cd` into the project, Noon queues `check-in` in the background. Your prompt is never
-delayed. If the branch is behind upstream or dependencies are stale, the job exits 1 and its
+delayed. If the branch is behind upstream or the project's mise tools are missing, the job exits 1 and its
 `on_failure` hook raises a desktop notification.
 
 ```sh

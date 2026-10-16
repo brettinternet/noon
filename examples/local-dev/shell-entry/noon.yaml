@@ -4,8 +4,8 @@ version: 1
 jobs:
   check-in:
     description: >
-      On project entry: fetch, then fail if the branch is behind its upstream or has a
-      lockfile newer than installed dependencies, so an on_failure hook can tell you.
+      On project entry: fetch, then fail if the branch is behind its upstream or mise tools
+      requested by the project are not installed, so an on_failure hook can tell you.
     run: [./scripts/check-in.sh]
     timeout: 2m
     cooldown: 15m       # hopping between terminals should not refetch every time

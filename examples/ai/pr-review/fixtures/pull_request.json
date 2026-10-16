@@ -6,5 +6,5 @@
     "draft": false,
     "head": { "sha": "0123456789abcdef0123456789abcdef01234567" }
   },
-  "repository": { "full_name": "cli/cli" }
+  "repository": { "full_name": "OWNER/REPO" }
 }

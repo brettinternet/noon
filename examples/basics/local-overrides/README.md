@@ -18,7 +18,7 @@ cp dot-noon.yaml .noon.yaml && chmod 600 .noon.yaml
 noon list                       # test replaced, lint disabled, notes-sync added
 noon list --json | jq '.jobs[] | {name, source, overrides, approval}'
 noon config                     # effective settings and which files were loaded
-trash .noon.yaml                # clean up
+rm .noon.yaml                   # clean up
 ```
 
 `noon init --local` creates an empty `.noon.yaml` with the right mode. `noon add NAME ...`
