@@ -37,6 +37,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		},
 		Action: status,
 		Commands: []*urfave.Command{
+			shellCommand(),
 			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "data", Usage: "JSON event data, @FILE, or - for stdin (up to 256 KiB)"},
 				&urfave.BoolFlag{Name: "detach", Usage: "Queue NAME to run as soon as capacity is available"},
@@ -113,13 +114,16 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		}
 		return nil
 	})
+	defaultCompletion(root)
 	return root
 }
 
 // Run owns error rendering so framework errors cannot exit the calling process.
 // JSON actions emit one object; help/version/completion retain standard CLI text.
 func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut io.Writer) int {
+	args = shellCompletionArgs(args)
 	root := NewRootCommand(build, out, errOut)
+	configureCompletion(root, args)
 	jsonOutput := jsonRequested(root, args)
 	if err := root.Run(ctx, args); err != nil {
 		var exit runExit
@@ -187,7 +191,14 @@ func jsonRequested(root *urfave.Command, args []string) bool {
 }
 
 func input(cmd *urfave.Command) (config.Input, error) {
+	return invocationInput(cmd, false)
+}
+
+func invocationInput(cmd *urfave.Command, shellEntry bool) (config.Input, error) {
 	for _, name := range []string{"project", "config", "timezone", "state-dir"} {
+		if shellEntry && name != "state-dir" {
+			continue
+		}
 		if value := setting(cmd, name); value != nil && strings.TrimSpace(*value) == "" {
 			return config.Input{}, usageError(fmt.Sprintf("--%s or its environment variable must not be empty", name), "")
 		}
@@ -217,9 +228,12 @@ func input(cmd *urfave.Command) (config.Input, error) {
 	} else if !filepath.IsAbs(stateHome) {
 		return config.Input{}, errors.New("XDG_STATE_HOME must be absolute")
 	}
-	return config.Input{CWD: cwd, UserConfigDir: userDir, StateDirDefault: filepath.Join(stateHome, "noon"),
-		Project: setting(cmd, "project"), File: setting(cmd, "config"),
-		Timezone: setting(cmd, "timezone"), StateDir: setting(cmd, "state-dir")}, nil
+	values := config.Input{CWD: cwd, UserConfigDir: userDir, StateDirDefault: filepath.Join(stateHome, "noon"),
+		StateDir: setting(cmd, "state-dir")}
+	if !shellEntry {
+		values.Project, values.File, values.Timezone = setting(cmd, "project"), setting(cmd, "config"), setting(cmd, "timezone")
+	}
+	return values, nil
 }
 
 func setting(cmd *urfave.Command, name string) *string {

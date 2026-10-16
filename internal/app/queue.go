@@ -33,10 +33,11 @@ type QueuedRun struct {
 }
 
 type QueueOptions struct {
-	EventData    []byte
-	EventSource  string
-	EventHeaders map[string]string
-	Trigger      string
+	RequireUnpaused bool
+	EventData       []byte
+	EventSource     string
+	EventHeaders    map[string]string
+	Trigger         string
 }
 
 const MaxWebhookBodyBytes = store.MaxWebhookBodyBytes
@@ -82,7 +83,7 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 		ProjectID: projectID, Job: name, Digest: job.Digest, IdempotencyKey: key,
 		RequestedBy: requestedBy, Trigger: options.Trigger, DueAt: dueAt, Now: now, NowFunc: nowFunc,
 		JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared,
-		Coalesce: coalesce, Cooldown: job.Cooldown, Depth: depth,
+		Coalesce: coalesce, Cooldown: job.Cooldown, Depth: depth, RequireUnpaused: options.RequireUnpaused,
 		EventData: options.EventData, EventSource: options.EventSource, EventHeaders: options.EventHeaders,
 	})
 	if err != nil {

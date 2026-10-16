@@ -44,6 +44,11 @@ tasks:
     cmds:
       - task: cli:build
       - sh scripts/smoke.sh
+  shell:smoke:
+    desc: Verify generated integration in real Bash, Zsh, and Fish (all required on PATH)
+    cmds:
+      - task: cli:build
+      - mise exec go -- go test -tags shellintegration -run '^TestShellSmoke$' -count=1 -v ./integration
   ci:
     desc: Full local and CI gate
     cmds:
