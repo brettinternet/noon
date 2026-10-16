@@ -4,11 +4,12 @@ title: Find runs by status and read retained history for any job name
 status: Done
 assignee: []
 created_date: '2026-10-16 17:26'
-updated_date: '2026-10-16 18:42'
+updated_date: '2026-10-16 20:36'
 labels:
   - cli
   - store
   - mcp
+  - reviewed
 dependencies:
   - NOON-25
 references:
@@ -91,6 +92,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 <!-- SECTION:NOTES:BEGIN -->
 AC#1: task cli:test -- -run '^(TestHistoryAndLogs|TestMCP)$' -count=1 -v -> exit 0, both PASS; includes explicit-empty-name regression from independent review. AC#2: exact acceptance command via sh /tmp/noon-26-ac-2.sh -> [[1,"t","failed"]], 2, valid-status hint, exit=2. AC#3: exact acceptance command via sh /tmp/noon-26-ac-3.sh -> No runs of ok match --status failed., exit=0. AC#4: exact acceptance command via sh /tmp/noon-26-ac-4.sh -> boom, skipping queued run 3. AC#5: exact acceptance command via sh /tmp/noon-26-ac-5.sh -> retained run 1 row, boom, not_found, exit=1. Scripts preserve commands verbatim because inline fixture syntax was rejected. task ci passed on final implementation commit c2b7051 (security, checks, tests, race, smoke); initial CI encountered an existing stdio cancellation race, focused rerun and final full CI passed without weakening tests. Single independent review found empty explicit job selecting all jobs; fixed and regression-tested. No other findings. All modified paths comply with contract; README/design/help updated. Rebased onto concurrent main changes and fast-forward merged c2b7051; no unrelated changes discarded. Next: finalize ledger and remove owned worktree; no implementation blocker.
+
+Post-implementation review: SQL binds status values and filters before LIMIT; latest-started selection, explicit queued selection, retained-name lookup, no-match handling, and MCP selector validation match the contract. Low-severity finding remains: internal/cli/history.go runLogs distinguishes selectors by selector != "", not by argument presence. Reproduced with an isolated built binary after running sample: noon logs '' --json returns sample's log and exit 0, whereas noon history '' --json returns not_found and exit 1; MCP rejects empty job names too. An unset shell variable can therefore read an unintended job's log. Recommended correction: reject an explicit empty logs argument, preserving bare logs as latest-project selection, and extend TestHistoryAndLogs. No implementation changes made in this review. task cli:test -- -run '^(TestSelectLog|TestHistoryAndLogs|TestLogsFollow|TestMCP|TestHooks|TestCancelQueued)$' -count=1 exited 0; task cli:build passed. No full CI rerun.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

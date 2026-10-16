@@ -4,10 +4,11 @@ title: 'Read bounded, resumable, searchable log slices from the CLI and MCP'
 status: Done
 assignee: []
 created_date: '2026-10-16 17:26'
-updated_date: '2026-10-16 18:27'
+updated_date: '2026-10-16 20:36'
 labels:
   - cli
   - mcp
+  - reviewed
 dependencies:
   - NOON-24
 references:
@@ -111,6 +112,8 @@ Implemented shared byte-snapshot selection, CLI/MCP queries and follow starts, c
 Single independent review found three concrete regressions: prefix/rune budgets could yield nonadvancing forward cursors; UTF-8 replacement could exceed JSON/MCP emitted-byte limits; unflagged active CLI reads omitted a partial line. Correction executor is addressing these with minimal regression tests; no second general review planned. Range-first match/context semantics remain as specified (context never crosses after).
 
 All three review defects corrected and exercised by extended existing regression tests: usage errors prevent nonadvancing pages, repaired UTF-8 budgets retain raw cursor offsets, and unflagged human/JSON reads retain active partial bytes. All exact AC#1–6 commands rerun after corrections with the same passing results above. task ci passed on implementation commit 38afaf31592a19f9634a1b58b29eb8f2308cf282 and merged main commit 4a7eda761c1aeae25a017cbda89cec8fe58d6cde. No tests deleted, skipped, or weakened; diff is within contract and README/design/help match implementation. Owned worktree and branch feat/noon-25-log-slices removed by Worktrunk after receipt verification; associated Herdr workspace wDA removed. No blockers or remaining implementation steps; no push performed.
+
+Post-implementation review: inspected shared snapshot selection, raw-byte cursor mapping, active partial-line handling, match/context windows, tail and byte limits, UTF-8 repair, follow start selection, CLI validation, and MCP defaults. No additional defects found. Existing regressions cover forward multibyte/oversized-line paging, insufficient rune/prefix budgets, repaired-text byte limits with raw offsets, active partial bytes, and MCP search/default bounded reads. task cli:test -- -run '^(TestSelectLog|TestHistoryAndLogs|TestLogsFollow|TestMCP|TestHooks|TestCancelQueued)$' -count=1 exited 0; task cli:build passed. Review-only change; no implementation edits or full CI rerun.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

@@ -4,11 +4,12 @@ title: Associate runs with their log files and request context
 status: Done
 assignee: []
 created_date: '2026-10-16 17:26'
-updated_date: '2026-10-16 17:52'
+updated_date: '2026-10-16 20:36'
 labels:
   - cli
   - store
   - mcp
+  - reviewed
 dependencies: []
 references:
   - internal/app/history.go
@@ -102,6 +103,8 @@ AC#4: exact fixture command via bash /tmp/noon-24-ac-4.sh -> expected foreground
 AC#5: exact fixture command via bash /tmp/noon-24-ac-5.sh -> Queued t as run 3, Follow it: noon logs 3 --follow, then offline scheduler lines.
 AC#6: exact fixture command via bash /tmp/noon-24-ac-6.sh -> JSON usage error hint names .run.log.path; exit=2.
 Fixture scripts were written verbatim from the provider acceptance commands to avoid shell parser restrictions. Single independent review found cancellation retention exposed a deleted event path; reproduced with a queued payload plus 50 newer same-job runs, fixed both cached-row refresh paths, and extended TestCancelQueued. Focused cancellation regression passes; no other review findings. No tests deleted, skipped, or weakened; all modifications within contract. LSP diagnostics clean; task ci passed on final implementation merge f16d35e (tests, race, vet, Staticcheck, security, smoke). Implementation commit 6ce2d0e merged into main as f16d35e, preserving concurrent help-alias fix. Owned worktree and branch noon-24-run-context removed through Worktrunk; Herdr workspace wD9 removal verified. Nothing pushed. No blocker or remaining implementation step.
+
+Post-implementation review: inspected shared RunFromStore mapping, version-compatible store projections, retained log/event paths, hook stdin, foreground run IDs, queued read/follow hints, and CLI --path validation. No additional defects found. Verified with task cli:test -- -run '^(TestSelectLog|TestHistoryAndLogs|TestLogsFollow|TestMCP|TestHooks|TestCancelQueued)$' -count=1 (exit 0), including retention and hook path regressions. task cli:build passed; an isolated built-binary run exposed the expected canonical project, absolute log path, nullable request fields, and foreground run ID. Review-only change; no implementation edits or full CI rerun.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
