@@ -1,7 +1,7 @@
 ---
 id: NOON-23
 title: Adopt noon as the product name
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-16 04:16'
 updated_date: '2026-10-16 04:30'
@@ -98,7 +98,7 @@ Modified-file contract: the modified_files list (renames included) plus the whol
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
+- [x] #1 task ci passes on the final commit
 - [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
 - [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
 - [x] #4 No test was deleted, skipped, or weakened
@@ -129,4 +129,12 @@ AC#6: specified rg scan with the approved README migration-line exclusion -> no 
 Validation: task ci passed (security, vet, Staticcheck, full tests, race, isolated smoke); LSP diagnostics clean for internal/cli/root.go. No tests added, removed, skipped, or weakened: assertions only renamed. All modified paths remain in contract. Independent review pending; next commit and final-commit CI.
 
 Single independent review found one concrete defect: the README directory-only migration left bump.db unread and could collide with existing log IDs. Corrected the same migration line to require stopped processes, backup, absent destinations, database/sidecar renames, and intact logs. sh /tmp/noon-23-migration.sh built the old HEAD binary, recorded run 1, migrated its real state, then verified noon history and logs preserve run 1 and a new run succeeds as ID 2. Exit 0. No runtime behavior changed; no second general review needed.
+
+Implementation committed directly on main as 22da456 (approved primary-checkout exception); task check:staged and task ci passed on that commit. Review correction verified with old-state migration fixture. All six acceptance criteria and five DoD requirements satisfied. No blocker or remaining implementation step. No worktree/branch created, so no merge or checkout cleanup was needed; stale binary trashed, authorized Colima VM stopped. Completion-record commit follows; nothing pushed.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Renamed binary, module, config/state paths, environment variables, container image, docs and all 22 backlog tasks to Noon. Preserved tests and clean-break behavior. All acceptance checks, full CI, Docker smoke and old-state migration check passed. Independent review migration finding corrected. Implementation 22da456 is on main; no worktree retained or push performed.
+<!-- SECTION:FINAL_SUMMARY:END -->
