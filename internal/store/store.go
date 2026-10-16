@@ -937,11 +937,30 @@ func (s *Store) RunsForJob(projectID int64, job string) ([]Run, error) {
 
 // RunsForProject returns retained runs for a project, newest first. An empty job matches all jobs.
 func (s *Store) RunsForProject(project, job string, limit int) ([]Run, error) {
+	return s.RunsForProjectFiltered(project, job, nil, false, limit)
+}
+
+// RunsForProjectFiltered returns retained runs in descending ID order, applying filters before the limit.
+func (s *Store) RunsForProjectFiltered(project, job string, statuses []string, startedOnly bool, limit int) ([]Run, error) {
 	query := `SELECT ` + s.qualifiedRunSelectColumns() + ` FROM runs JOIN projects ON projects.id=runs.project_id WHERE projects.path=?`
 	args := []any{project}
 	if job != "" {
 		query += ` AND runs.job=?`
 		args = append(args, job)
+	}
+	if len(statuses) > 0 {
+		query += ` AND runs.status IN (`
+		for i, status := range statuses {
+			if i > 0 {
+				query += `,`
+			}
+			query += `?`
+			args = append(args, status)
+		}
+		query += `)`
+	}
+	if startedOnly {
+		query += ` AND runs.started_at IS NOT NULL`
 	}
 	query += ` ORDER BY runs.id DESC LIMIT ?`
 	args = append(args, limit)

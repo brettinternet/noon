@@ -32,19 +32,23 @@ type runJobArgs struct {
 }
 
 type listRunsArgs struct {
-	Project *string `json:"project,omitempty" jsonschema:"absolute path to another checkout"`
-	Job     *string `json:"job,omitempty" jsonschema:"filter runs to one configured job"`
-	Limit   *int    `json:"limit,omitempty" jsonschema:"maximum 50; defaults to 20"`
+	Project *string  `json:"project,omitempty" jsonschema:"absolute path to another checkout"`
+	Job     *string  `json:"job,omitempty" jsonschema:"filter runs to a configured or retained job"`
+	Status  []string `json:"status,omitempty" jsonschema:"filter by run status: queued, running, succeeded, failed, timed_out, cancelled, interrupted, skipped, missed, expired"`
+	Limit   *int     `json:"limit,omitempty" jsonschema:"maximum 50; defaults to 20"`
 }
 
 type getRunArgs struct {
-	RunID       int64   `json:"run_id" jsonschema:"globally unique run ID"`
-	WaitSeconds *int    `json:"wait_seconds,omitempty" jsonschema:"wait up to 60 seconds for the run to finish"`
-	LogBytes    *int    `json:"log_bytes,omitempty" jsonschema:"maximum 65536 bytes; defaults to 16384 and keeps whole lines"`
-	After       *int64  `json:"after,omitempty" jsonschema:"start at this byte offset; pass the previous next value to page forward"`
-	Tail        *int    `json:"tail,omitempty" jsonschema:"keep the last 1 to 10000 selected log lines"`
-	Match       *string `json:"match,omitempty" jsonschema:"case-sensitive Go RE2 regular expression matched against each line"`
-	Context     *int    `json:"context,omitempty" jsonschema:"include 0 to 50 lines around each match; requires match"`
+	RunID       *int64   `json:"run_id,omitempty" jsonschema:"globally unique run ID; provide this or job"`
+	Job         *string  `json:"job,omitempty" jsonschema:"select the newest started matching run by default; provide this or run_id"`
+	Project     *string  `json:"project,omitempty" jsonschema:"absolute project path used with job"`
+	Status      []string `json:"status,omitempty" jsonschema:"when selecting by job, filter by status: queued, running, succeeded, failed, timed_out, cancelled, interrupted, skipped, missed, expired"`
+	WaitSeconds *int     `json:"wait_seconds,omitempty" jsonschema:"wait up to 60 seconds for the run to finish"`
+	LogBytes    *int     `json:"log_bytes,omitempty" jsonschema:"maximum 65536 bytes; defaults to 16384 and keeps whole lines"`
+	After       *int64   `json:"after,omitempty" jsonschema:"start at this byte offset; pass the previous next value to page forward"`
+	Tail        *int     `json:"tail,omitempty" jsonschema:"keep the last 1 to 10000 selected log lines"`
+	Match       *string  `json:"match,omitempty" jsonschema:"case-sensitive Go RE2 regular expression matched against each line"`
+	Context     *int     `json:"context,omitempty" jsonschema:"include 0 to 50 lines around each match; requires match"`
 }
 
 type cancelRunArgs struct {
@@ -162,7 +166,7 @@ func NewServer(input config.Input, version string) *protocol.Server {
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "list_runs", Description: "List recent runs for a project.", Annotations: readOnly,
+		Name: "list_runs", Description: "List recent runs for a project, optionally filtered by job and status.", Annotations: readOnly,
 	}, func(_ context.Context, _ *protocol.CallToolRequest, args listRunsArgs) (*protocol.CallToolResult, any, error) {
 		values, err := projectInput(input, args.Project)
 		if err != nil {
@@ -172,7 +176,7 @@ func NewServer(input config.Input, version string) *protocol.Server {
 		if args.Limit != nil {
 			limit = *args.Limit
 		}
-		view, err := app.ListRuns(values, args.Job, limit)
+		view, err := app.ListRuns(values, args.Job, args.Status, limit)
 		if err != nil {
 			return toolFailure(err)
 		}
@@ -180,9 +184,29 @@ func NewServer(input config.Input, version string) *protocol.Server {
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "get_run", Description: "Get a run and a bounded, line-aligned log selection. Use next as after to page forward, or match and context to search; optionally wait for the run to finish.", Annotations: readOnly,
+		Name: "get_run", Description: "Get a run by run_id or select the newest matching run by job, optionally filtering by project and status. Returns a bounded, line-aligned log selection; use next as after to page forward, or match and context to search, and optionally wait for the run to finish.", Annotations: readOnly,
 	}, func(ctx context.Context, _ *protocol.CallToolRequest, args getRunArgs) (*protocol.CallToolResult, any, error) {
-		stateDir, err := stateDirectory(input)
+		if (args.RunID == nil) == (args.Job == nil) {
+			return toolFailure(app.UsageError("get_run requires exactly one of run_id or job", "Provide run_id or job, but not both"))
+		}
+		if args.Job != nil && *args.Job == "" {
+			return toolFailure(app.MatchingJobRunNotFoundError(*args.Job, args.Status))
+		}
+		if err := app.ValidateRunStatuses(args.Status); err != nil {
+			return toolFailure(err)
+		}
+		if args.RunID != nil && (args.Project != nil || len(args.Status) > 0) {
+			return toolFailure(app.UsageError("project and status can only be used with job selection", "Use get_run with job, or omit project and status when using run_id"))
+		}
+		values := input
+		if args.Job != nil {
+			var err error
+			values, err = projectInput(input, args.Project)
+			if err != nil {
+				return toolFailure(err)
+			}
+		}
+		stateDir, err := stateDirectory(values)
 		if err != nil {
 			return toolFailure(err)
 		}
@@ -195,7 +219,23 @@ func NewServer(input config.Input, version string) *protocol.Server {
 			logBytes = *args.LogBytes
 		}
 		query := app.LogQuery{After: args.After, Tail: args.Tail, Match: args.Match, Context: args.Context, LimitBytes: &logBytes, RepairUTF8: true}
-		view, err := app.GetRun(ctx, stateDir, args.RunID, waitSeconds, query)
+		var view app.RunDetail
+		if args.RunID != nil {
+			view, err = app.GetRun(ctx, stateDir, *args.RunID, waitSeconds, query)
+		} else {
+			cfg, configErr := config.Load(values)
+			if configErr != nil {
+				return toolFailure(app.ConfigError(configErr))
+			}
+			run, found, selectErr := app.LatestRun(stateDir, cfg.Project, *args.Job, args.Status)
+			if selectErr != nil {
+				return toolFailure(app.StateError(selectErr))
+			}
+			if !found {
+				return toolFailure(app.MatchingJobRunNotFoundError(*args.Job, args.Status))
+			}
+			view, err = app.GetRun(ctx, stateDir, run.ID, waitSeconds, query)
+		}
 		if err != nil {
 			return toolFailure(err)
 		}

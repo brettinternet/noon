@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/brettinternet/noon/internal/app"
@@ -17,6 +18,7 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 		return usageError("history accepts at most one job name", "Run noon history [NAME]")
 	}
 	limit := cmd.Int("limit")
+	statuses := cmd.StringSlice("status")
 	values, err := input(cmd)
 	if err != nil {
 		return err
@@ -27,7 +29,7 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 		job = cmd.Args().First()
 		jobFilter = &job
 	}
-	history, err := app.ListRuns(values, jobFilter, limit)
+	history, err := app.ListRuns(values, jobFilter, statuses, limit)
 	if err != nil {
 		return err
 	}
@@ -36,7 +38,13 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 		return emit(cmd, map[string]any{"runs": runs})
 	}
 	if len(runs) == 0 {
-		if job != "" {
+		if len(statuses) > 0 {
+			if job != "" {
+				fmt.Fprintf(cmd.Writer, "No runs of %s match --status %s.\n", job, strings.Join(statuses, ","))
+			} else {
+				fmt.Fprintf(cmd.Writer, "No runs match --status %s.\n", strings.Join(statuses, ","))
+			}
+		} else if job != "" {
 			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: noon run %s\n", job, job)
 		} else {
 			fmt.Fprintln(cmd.Writer, "No runs yet.")
@@ -84,6 +92,11 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	}
 	follow := cmd.Bool("follow")
 	pathOnly := cmd.Bool("path")
+	statuses := cmd.StringSlice("status")
+	statusSet := cmd.IsSet("status")
+	if err := app.ValidateRunStatuses(statuses); err != nil {
+		return err
+	}
 	tailSet := cmd.IsSet("tail")
 	afterSet := cmd.IsSet("after-cursor")
 	matchSet := cmd.IsSet("match")
@@ -143,9 +156,12 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	var run app.Run
 	if selector != "" {
 		if id, parseErr := strconv.ParseInt(selector, 10, 64); parseErr == nil {
+			if statusSet {
+				return usageError("logs --status cannot be combined with a run ID", "Run noon logs [NAME] --status STATUS or select a numeric RUN without --status")
+			}
 			run, err = app.RunByID(cfg.StateDir, id)
 			if app.NoDatabase(err) {
-				return noRuns(cmd, "")
+				return noRuns(cmd, "", statuses)
 			}
 			if app.IsMissingRun(err) {
 				return app.RunNotFoundError(id)
@@ -154,27 +170,33 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 				return stateError(err)
 			}
 		} else {
-			if _, ok := cfg.Jobs[selector]; !ok {
-				return app.MissingJobError(selector, "logs", cfg.Jobs)
+			var found bool
+			run, found, err = app.LatestRun(cfg.StateDir, cfg.Project, selector, statuses)
+			if err != nil {
+				return stateError(err)
 			}
-			runs, runsErr := app.Runs(cfg.StateDir, cfg.Project, selector, 1)
-			if runsErr != nil {
-				return stateError(runsErr)
+			if !found {
+				if _, configured := cfg.Jobs[selector]; !configured {
+					retained, historyErr := app.Runs(cfg.StateDir, cfg.Project, selector, 1)
+					if historyErr != nil {
+						return stateError(historyErr)
+					}
+					if len(retained) == 0 {
+						return app.MissingJobError(selector, "logs", cfg.Jobs)
+					}
+				}
+				return noRuns(cmd, selector, statuses)
 			}
-			if len(runs) == 0 {
-				return noRuns(cmd, selector)
-			}
-			run = runs[0]
 		}
 	} else {
-		runs, runsErr := app.Runs(cfg.StateDir, cfg.Project, "", 1)
-		if runsErr != nil {
-			return stateError(runsErr)
+		var found bool
+		run, found, err = app.LatestRun(cfg.StateDir, cfg.Project, "", statuses)
+		if err != nil {
+			return stateError(err)
 		}
-		if len(runs) == 0 {
-			return noRuns(cmd, "")
+		if !found {
+			return noRuns(cmd, "", statuses)
 		}
-		run = runs[0]
 	}
 	if pathOnly {
 		if !run.Log.Available || run.Log.Path == nil {
@@ -214,11 +236,17 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	return err
 }
 
-func noRuns(cmd *urfave.Command, job string) error {
+func noRuns(cmd *urfave.Command, job string, statuses []string) error {
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"run": nil, "log": ""})
 	}
-	if job != "" {
+	if len(statuses) > 0 {
+		if job != "" {
+			fmt.Fprintf(cmd.Writer, "No runs of %s match --status %s.\n", job, strings.Join(statuses, ","))
+		} else {
+			fmt.Fprintf(cmd.Writer, "No runs match --status %s.\n", strings.Join(statuses, ","))
+		}
+	} else if job != "" {
 		fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: noon run %s\n", job, job)
 	} else {
 		fmt.Fprintln(cmd.Writer, "No runs yet.")

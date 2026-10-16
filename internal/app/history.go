@@ -144,6 +144,14 @@ func RunFromStore(state *store.Store, run store.Run) Run {
 
 // Runs returns newest-first history for a project without creating state.
 func Runs(stateDir, project, job string, limit int) ([]Run, error) {
+	return RunsWithStatuses(stateDir, project, job, nil, limit)
+}
+
+// RunsWithStatuses returns newest-first history filtered by status before the limit.
+func RunsWithStatuses(stateDir, project, job string, statuses []string, limit int) ([]Run, error) {
+	if err := ValidateRunStatuses(statuses); err != nil {
+		return nil, err
+	}
 	state, err := store.OpenExisting(stateDir)
 	if errors.Is(err, store.ErrNoDatabase) {
 		return []Run{}, nil
@@ -152,7 +160,7 @@ func Runs(stateDir, project, job string, limit int) ([]Run, error) {
 		return nil, err
 	}
 	defer state.Close()
-	stored, err := state.RunsForProject(project, job, limit)
+	stored, err := state.RunsForProjectFiltered(project, job, statuses, false, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -163,10 +171,36 @@ func Runs(stateDir, project, job string, limit int) ([]Run, error) {
 	return runs, nil
 }
 
+// LatestRun returns the newest matching run for a project without creating state.
+func LatestRun(stateDir, project, job string, statuses []string) (Run, bool, error) {
+	if err := ValidateRunStatuses(statuses); err != nil {
+		return Run{}, false, err
+	}
+	state, err := store.OpenExisting(stateDir)
+	if errors.Is(err, store.ErrNoDatabase) {
+		return Run{}, false, nil
+	}
+	if err != nil {
+		return Run{}, false, err
+	}
+	defer state.Close()
+	stored, err := state.RunsForProjectFiltered(project, job, statuses, len(statuses) == 0, 1)
+	if err != nil {
+		return Run{}, false, err
+	}
+	if len(stored) == 0 {
+		return Run{}, false, nil
+	}
+	return RunFromStore(state, stored[0]), true, nil
+}
+
 // ListRuns returns the CLI JSON history view for one project.
-func ListRuns(input config.Input, job *string, limit int) (RunsView, error) {
+func ListRuns(input config.Input, job *string, statuses []string, limit int) (RunsView, error) {
 	if limit < 1 || limit > 50 {
 		return RunsView{}, UsageError("--limit must be between 1 and 50", "")
+	}
+	if err := ValidateRunStatuses(statuses); err != nil {
+		return RunsView{}, err
 	}
 	cfg, err := config.Load(input)
 	if err != nil {
@@ -175,13 +209,24 @@ func ListRuns(input config.Input, job *string, limit int) (RunsView, error) {
 	jobName := ""
 	if job != nil {
 		jobName = *job
-		if _, ok := cfg.Jobs[jobName]; !ok {
+		if jobName == "" {
 			return RunsView{}, MissingJobError(jobName, "history", cfg.Jobs)
 		}
 	}
-	runs, err := Runs(cfg.StateDir, cfg.Project, jobName, limit)
+	runs, err := RunsWithStatuses(cfg.StateDir, cfg.Project, jobName, statuses, limit)
 	if err != nil {
 		return RunsView{}, StateError(err)
+	}
+	if job != nil && len(runs) == 0 {
+		if _, configured := cfg.Jobs[jobName]; !configured {
+			retained, historyErr := Runs(cfg.StateDir, cfg.Project, jobName, 1)
+			if historyErr != nil {
+				return RunsView{}, StateError(historyErr)
+			}
+			if len(retained) == 0 {
+				return RunsView{}, MissingJobError(jobName, "history", cfg.Jobs)
+			}
+		}
 	}
 	return RunsView{SchemaVersion: 1, Runs: runs}, nil
 }

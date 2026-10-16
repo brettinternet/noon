@@ -119,9 +119,29 @@ func TestHistoryAndLogs(t *testing.T) {
 		if code != 0 || len(limited["runs"].([]any)) != 1 || int64(limited["runs"].([]any)[0].(map[string]any)["id"].(float64)) != badID {
 			t.Fatalf("history limit: %d %+v", code, limited)
 		}
+		code, statusBeforeLimit := invoke(t, "history", "--status", "succeeded", "--limit", "1", "--json")
+		if code != 0 || len(statusBeforeLimit["runs"].([]any)) != 1 || int64(statusBeforeLimit["runs"].([]any)[0].(map[string]any)["id"].(float64)) != testsID {
+			t.Fatalf("status filter was applied after limit: exit=%d history=%+v", code, statusBeforeLimit)
+		}
+		code, commaStatuses := invoke(t, "history", "--status", "failed,succeeded", "--json")
+		if code != 0 || len(commaStatuses["runs"].([]any)) != 2 {
+			t.Fatalf("comma-separated status filter: exit=%d history=%+v", code, commaStatuses)
+		}
+		code, repeatedStatuses := invoke(t, "history", "--status", "failed", "--status", "succeeded", "--json")
+		if code != 0 || len(repeatedStatuses["runs"].([]any)) != 2 {
+			t.Fatalf("repeated status filter: exit=%d history=%+v", code, repeatedStatuses)
+		}
+		code, invalidStatus := invoke(t, "history", "--status", "bogus", "--json")
+		if code != 2 || invalidStatus["error"].(map[string]any)["code"] != "usage" || !strings.Contains(invalidStatus["error"].(map[string]any)["hint"].(string), "queued, running, succeeded, failed") || !strings.Contains(invalidStatus["error"].(map[string]any)["hint"].(string), "expired") {
+			t.Fatalf("invalid status did not list valid values: exit=%d error=%+v", code, invalidStatus)
+		}
 		code, invalidLimit := invoke(t, "history", "--limit", "51", "--json")
 		if code != 2 || invalidLimit["error"].(map[string]any)["code"] != "usage" {
 			t.Fatalf("invalid limit: %d %+v", code, invalidLimit)
+		}
+		code, emptyJob := invoke(t, "history", "", "--json")
+		if code != 1 || emptyJob["error"].(map[string]any)["code"] != "not_found" {
+			t.Fatalf("empty job matched all history: %d %+v", code, emptyJob)
 		}
 		code, unknown := invoke(t, "history", "tset", "--json")
 		if code != 1 || unknown["error"].(map[string]any)["code"] != "not_found" || !strings.Contains(unknown["error"].(map[string]any)["hint"].(string), "tests") {
@@ -266,6 +286,79 @@ func TestHistoryAndLogs(t *testing.T) {
 		}
 	})
 
+	t.Run("logs skip newer queued runs without an explicit status", func(t *testing.T) {
+		project := sandbox(t)
+		manifest := "jobs:\n  tests:\n    run: 'printf started-log'\n"
+		if err := os.WriteFile(filepath.Join(project, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var out, stderr bytes.Buffer
+		if code := cli.Run(context.Background(), []string{"noon", "run", "tests"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+			t.Fatalf("run tests: exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
+		}
+		out.Reset()
+		stderr.Reset()
+		if code := cli.Run(context.Background(), []string{"noon", "enable"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+			t.Fatalf("enable project for queued fixture: exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
+		}
+		out.Reset()
+		stderr.Reset()
+		if code := cli.Run(context.Background(), []string{"noon", "run", "tests", "--detach"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+			t.Fatalf("queue tests: exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
+		}
+		code, queuedHistory := invoke(t, "history", "tests", "--status", "queued", "--json")
+		if code != 0 || len(queuedHistory["runs"].([]any)) != 1 {
+			t.Fatalf("queued run fixture missing: exit=%d history=%+v", code, queuedHistory)
+		}
+		queuedID := int64(queuedHistory["runs"].([]any)[0].(map[string]any)["id"].(float64))
+		code, latestStarted := invoke(t, "logs", "tests", "--json")
+		if code != 0 || int64(latestStarted["run"].(map[string]any)["id"].(float64)) == queuedID || latestStarted["log"] != "started-log" {
+			t.Fatalf("logs selected newer queued run instead of latest started: exit=%d result=%+v", code, latestStarted)
+		}
+		code, explicitlyQueued := invoke(t, "logs", "tests", "--status", "queued", "--json")
+		if code != 1 || !strings.Contains(explicitlyQueued["error"].(map[string]any)["message"].(string), fmt.Sprintf("run %d", queuedID)) {
+			t.Fatalf("explicit queued selection did not select the queued run: exit=%d result=%+v", code, explicitlyQueued)
+		}
+	})
+
+	t.Run("removed jobs remain readable from retained history", func(t *testing.T) {
+		project := sandbox(t)
+		manifest := "jobs:\n  gone:\n    run: 'printf retained-log'\n  keep:\n    run: 'true'\n"
+		path := filepath.Join(project, "noon.yaml")
+		if err := os.WriteFile(path, []byte(manifest), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var out, stderr bytes.Buffer
+		if code := cli.Run(context.Background(), []string{"noon", "run", "gone"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+			t.Fatalf("run gone: exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
+		}
+		if err := os.WriteFile(path, []byte("jobs:\n  keep:\n    run: 'true'\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		code, history := invoke(t, "history", "gone", "--json")
+		if code != 0 || len(history["runs"].([]any)) != 1 || history["runs"].([]any)[0].(map[string]any)["job"] != "gone" {
+			t.Fatalf("removed job history: exit=%d result=%+v", code, history)
+		}
+		code, logs := invoke(t, "logs", "gone", "--json")
+		if code != 0 || logs["log"] != "retained-log" {
+			t.Fatalf("removed job logs: exit=%d result=%+v", code, logs)
+		}
+		code, outText, errText := invokeText(t, "logs", "gone", "--status", "failed")
+		if code != 0 || outText != "No runs of gone match --status failed.\n" || errText != "" {
+			t.Fatalf("empty logs status selection message: exit=%d stdout=%q stderr=%q", code, outText, errText)
+		}
+		code, outText, errText = invokeText(t, "history", "gone", "--status", "failed")
+		if code != 0 || outText != "No runs of gone match --status failed.\n" || errText != "" {
+			t.Fatalf("empty history status selection message: exit=%d stdout=%q stderr=%q", code, outText, errText)
+		}
+		for _, command := range []string{"history", "logs"} {
+			code, unknown := invoke(t, command, "never-seen", "--json")
+			if code != 1 || unknown["error"].(map[string]any)["code"] != "not_found" {
+				t.Fatalf("%s accepted a never-seen job: exit=%d result=%+v", command, code, unknown)
+			}
+		}
+	})
+
 	t.Run("tail selection and query usage errors", func(t *testing.T) {
 		project := sandbox(t)
 		stateDir := filepath.Join(t.TempDir(), "state")
@@ -286,6 +379,7 @@ func TestHistoryAndLogs(t *testing.T) {
 			t.Fatalf("tail output/cursor = stdout %q stderr %q", out.String(), stderr.String())
 		}
 		for _, args := range [][]string{
+			{"logs", "1", "--status", "failed"},
 			{"logs", "tests", "--context", "2"},
 			{"logs", "tests", "--match", "("},
 			{"logs", "tests", "--follow", "--match", "boom"},

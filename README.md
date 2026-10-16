@@ -46,8 +46,10 @@ bin/noon run tests --in 2h --key nightly-check # queue a one-shot with idempoten
 bin/noon cancel          # list active runs without changing them
 bin/noon cancel 12       # cancel run 12, including another terminal's foreground run
 bin/noon history         # inspect recent runs
-bin/noon logs            # print the latest run log
-bin/noon logs tests      # print this job's latest log
+bin/noon history --status failed # inspect failures first
+bin/noon logs            # print the latest started run log
+bin/noon logs tests      # print this job's latest started log
+bin/noon logs tests --status failed # print its latest failure
 bin/noon logs 12 --follow # follow a running run
 bin/noon logs 12 --path   # print the absolute path of its retained log
 bin/noon config          # effective settings and source files
@@ -106,7 +108,10 @@ immediately or asks the run owner to stop a running process group; `noon cancel 
 cancellation for every active run of that job. `noon disable` also cancels queued runs. SIGINT,
 SIGTERM, or SIGHUP cancels a foreground run's process group (TERM, then KILL after 10s); a second
 signal kills it immediately.
-`noon history` shows the newest 20 runs (up to 50). `noon list` and bare `noon` show each job's
+`noon history` shows the newest 20 runs (up to 50), with optional `--status` filters. Status filters
+accept repeated or comma-separated values: `queued`, `running`, `succeeded`, `failed`, `timed_out`,
+`cancelled`, `interrupted`, `skipped`, `missed`, and `expired`. `history NAME` and `logs NAME` can
+read retained runs even after a job is removed from config. `noon list` and bare `noon` show each job's
 latest run in the LAST column. Read-only commands
 do not create the state directory. Bare `noon` and `noon status` show jobs, scheduler status,
 queued work and up to three prioritized notices, with one suggested next action. Their JSON
@@ -122,8 +127,12 @@ Existing local users: stop all old/new processes and back up your data; move `~/
 
 ## Logs
 
-`noon logs` prints the latest run's stored bytes; `noon logs NAME` selects a job's latest run, and
-`noon logs RUN --follow` follows a running job. `--tail/-n N` keeps the last 1–10000 lines;
+`noon logs` prints the latest started run's stored bytes; `noon logs NAME` selects that job's latest
+started run. NAME lookups use current jobs and retained history, including removed jobs.
+`noon logs RUN --follow` follows a running job. `--status S` selects runs by one or more statuses,
+using the same repeated or comma-separated values as `history`; only an explicit status filter can
+select a queued or otherwise never-started run. Numeric RUN selectors cannot be combined with
+`--status`. `--tail/-n N` keeps the last 1–10000 lines;
 `--after-cursor/-c BYTES` reads forward from a byte offset; `--match/-m REGEX` searches lines with a
 case-sensitive Go RE2 expression, and `--context N` adds up to 50 lines around matches. Context
 requires `--match`. `--limit-bytes/-b N` caps output while keeping whole lines where possible.
@@ -181,12 +190,14 @@ A generic client can use this configuration:
 
 MCP can inspect jobs and runs, queue only jobs permitted by the same project enablement and
 shared-job approval rules as the CLI, pass an optional JSON `data` value to `run_job`, read bounded
-log tails or pages, search `get_run` with `match` and `context`, and cancel runs. `get_run` returns
+log tails or pages, search `get_run` with `match` and `context`, and cancel runs. `list_runs` accepts
+an optional status array. `get_run` accepts either a global `run_id` or a `job`; job selection uses
+the newest started matching run, with optional absolute `project` and status array. `get_run` returns
 `next`, `size`, `truncated`, and nullable `matched_lines`; pass `next` as `after` to page forward.
 It cannot add, edit, remove, enable, approve, pause, or resume jobs. The initialize client's name and version
 are recorded as metadata on queued runs; identity does not grant authority. Optional `project`
-paths on `status`, `list_jobs`, `run_job`, and `list_runs` must be absolute. `get_run` and
-`cancel_run` use globally unique run IDs, like the CLI. MCP is a local stdio transport, not a
+paths on `status`, `list_jobs`, `run_job`, `list_runs`, and `get_run` job selection must be absolute.
+`get_run` and `cancel_run` use globally unique run IDs when selecting by ID. MCP is a local stdio transport, not a
 sandbox: approval is not isolation, and a client running with your account has your account's
 local permissions.
 

@@ -47,6 +47,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "cancel", Usage: "Cancel a run or all active runs of a job; without an argument, list active runs", ArgsUsage: "[RUN|NAME]", Action: cancelRuns},
 			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
 				&urfave.IntFlag{Name: "limit", Value: 20, Usage: "Limit history to 1–50 runs"},
+				&urfave.StringSliceFlag{Name: "status", Usage: "Filter by status; repeat or comma-separate values"},
 			}, Action: historyRuns},
 			{Name: "logs", Usage: "Read a run log, follow it, or print its path", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "follow", Usage: "Follow a running run until it finishes"},
@@ -56,6 +57,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.StringFlag{Name: "match", Aliases: []string{"m"}, Usage: "select lines matching a Go RE2 regular expression"},
 				&urfave.IntFlag{Name: "context", Usage: "include 0–50 surrounding lines; requires --match"},
 				&urfave.IntFlag{Name: "limit-bytes", Aliases: []string{"b"}, Usage: "cap emitted log text in bytes"},
+				&urfave.StringSliceFlag{Name: "status", Usage: "filter by status; repeat or comma-separate values"},
 			}, Action: runLogs},
 			{Name: "enable", Usage: "Enable this checkout and approve current shared job definitions", Action: enableProject},
 			{Name: "disable", Usage: "Disable this checkout and revoke approvals; keep history", Action: disableProject},

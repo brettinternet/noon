@@ -178,6 +178,14 @@ func TestMCP(t *testing.T) {
 	}
 	queuedValue := decodeObject(t, queued.StructuredContent)
 	queuedRunID := int64(queuedValue["run"].(map[string]any)["id"].(float64))
+	invalidGetRunSelectors := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": queuedRunID, "job": "approved"})
+	if !invalidGetRunSelectors.IsError || decodeObject(t, invalidGetRunSelectors.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
+		t.Fatalf("get_run accepted run_id together with job: %+v", invalidGetRunSelectors)
+	}
+	missingGetRunSelector := callTool(t, ctx, clientSession, "get_run", map[string]any{})
+	if !missingGetRunSelector.IsError || decodeObject(t, missingGetRunSelector.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
+		t.Fatalf("get_run accepted neither run_id nor job: %+v", missingGetRunSelector)
+	}
 	queuedDetail := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": queuedRunID})
 	if queuedDetail.IsError {
 		t.Fatalf("get_run queued run: %s", textContent(queuedDetail))
@@ -222,6 +230,18 @@ func TestMCP(t *testing.T) {
 	}
 	if got := len(decodeObject(t, runs.StructuredContent)["runs"].([]any)); got != 1 {
 		t.Fatalf("list_runs returned %d records, want one", got)
+	}
+	queuedRuns := callTool(t, ctx, clientSession, "list_runs", map[string]any{"job": "approved", "status": []string{"queued"}})
+	if queuedRuns.IsError {
+		t.Fatalf("list_runs status filter: %s", textContent(queuedRuns))
+	}
+	queuedList := decodeObject(t, queuedRuns.StructuredContent)["runs"].([]any)
+	if len(queuedList) != 1 || queuedList[0].(map[string]any)["status"] != "queued" {
+		t.Fatalf("list_runs status filter returned %+v", queuedList)
+	}
+	invalidStatuses := callTool(t, ctx, clientSession, "list_runs", map[string]any{"status": []string{"bogus"}})
+	if !invalidStatuses.IsError || decodeObject(t, invalidStatuses.StructuredContent)["error"].(map[string]any)["code"] != "usage" || !strings.Contains(decodeObject(t, invalidStatuses.StructuredContent)["error"].(map[string]any)["hint"].(string), "expired") {
+		t.Fatalf("list_runs accepted an invalid status or omitted valid values: %+v", invalidStatuses)
 	}
 
 	immediate := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved"})
@@ -269,6 +289,42 @@ func TestMCP(t *testing.T) {
 	detailValue := decodeObject(t, detail.StructuredContent)
 	if detailValue["run"].(map[string]any)["status"] != "succeeded" || !strings.Contains(detailValue["log"].(string), "mcp-finished") {
 		t.Fatalf("get_run did not return the finished run and log: %+v", detailValue)
+	}
+	newerRequest := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved"})
+	if newerRequest.IsError {
+		t.Fatalf("queue newer approved run: %s", textContent(newerRequest))
+	}
+	newerID := int64(decodeObject(t, newerRequest.StructuredContent)["run"].(map[string]any)["id"].(float64))
+	newerDetail := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": newerID, "wait_seconds": 5})
+	if newerDetail.IsError || decodeObject(t, newerDetail.StructuredContent)["run"].(map[string]any)["status"] != "succeeded" {
+		t.Fatalf("newer approved run did not finish: %+v", newerDetail)
+	}
+	newerQueued := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved", "in": "1h"})
+	if newerQueued.IsError {
+		t.Fatalf("queue newer approved run for status selection: %s", textContent(newerQueued))
+	}
+	newerQueuedID := int64(decodeObject(t, newerQueued.StructuredContent)["run"].(map[string]any)["id"].(float64))
+	byJob := callTool(t, ctx, clientSession, "get_run", map[string]any{"job": "approved", "project": root, "status": []string{"succeeded"}})
+	if byJob.IsError {
+		t.Fatalf("get_run by job and status: %s", textContent(byJob))
+	}
+	byJobRun := decodeObject(t, byJob.StructuredContent)["run"].(map[string]any)
+	if int64(byJobRun["id"].(float64)) != newerID || byJobRun["status"] != "succeeded" {
+		t.Fatalf("get_run by job/status did not select newest matching run: %+v", byJobRun)
+	}
+	byQueuedJob := callTool(t, ctx, clientSession, "get_run", map[string]any{"job": "approved", "status": []string{"queued"}})
+	if byQueuedJob.IsError || int64(decodeObject(t, byQueuedJob.StructuredContent)["run"].(map[string]any)["id"].(float64)) != newerQueuedID {
+		t.Fatalf("get_run by job did not allow explicitly selected queued run: %+v", byQueuedJob)
+	}
+	for _, tool := range []string{"list_runs", "get_run"} {
+		emptyJob := callTool(t, ctx, clientSession, tool, map[string]any{"job": ""})
+		if !emptyJob.IsError || decodeObject(t, emptyJob.StructuredContent)["error"].(map[string]any)["code"] != "not_found" {
+			t.Fatalf("%s treated an explicit empty job as all jobs: %+v", tool, emptyJob)
+		}
+	}
+	noMatchingJobRun := callTool(t, ctx, clientSession, "get_run", map[string]any{"job": "approved", "status": []string{"failed"}})
+	if !noMatchingJobRun.IsError || decodeObject(t, noMatchingJobRun.StructuredContent)["error"].(map[string]any)["code"] != "not_found" {
+		t.Fatalf("get_run by job accepted a status with no matching run: %+v", noMatchingJobRun)
 	}
 
 	searchRequest := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "search"})
@@ -394,6 +450,16 @@ func TestMCP(t *testing.T) {
 	cancelledRun := cancelledValue["run"].(map[string]any)
 	if cancelledRun["status"] != "cancelled" || cancelledValue["log"] != "" || cancelledRun["log"].(map[string]any)["available"] != false {
 		t.Fatalf("get_run cancelled run returned unavailable-log error or wrong details: %+v", cancelledValue)
+	}
+
+	writeManifest(t, root, "jobs:\n  keep: {run: 'true'}\n")
+	retainedRuns := callTool(t, ctx, clientSession, "list_runs", map[string]any{"job": "approved", "status": []string{"succeeded"}})
+	if retainedRuns.IsError || len(decodeObject(t, retainedRuns.StructuredContent)["runs"].([]any)) == 0 {
+		t.Fatalf("list_runs could not resolve removed job history: %+v", retainedRuns)
+	}
+	retainedJobRun := callTool(t, ctx, clientSession, "get_run", map[string]any{"job": "approved", "status": []string{"succeeded"}})
+	if retainedJobRun.IsError || decodeObject(t, retainedJobRun.StructuredContent)["run"].(map[string]any)["job"] != "approved" {
+		t.Fatalf("get_run could not resolve removed job history: %+v", retainedJobRun)
 	}
 }
 

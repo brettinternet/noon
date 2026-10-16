@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/brettinternet/noon/internal/config"
 	"github.com/brettinternet/noon/internal/store"
@@ -25,6 +26,23 @@ func ConfigError(err error) *Error {
 
 func UsageError(message, hint string) *Error {
 	return &Error{Code: "usage", Message: message, Hint: hint, Usage: true}
+}
+
+const validRunStatusNames = "queued, running, succeeded, failed, timed_out, cancelled, interrupted, skipped, missed, expired"
+
+var validRunStatuses = map[string]struct{}{
+	"queued": {}, "running": {}, "succeeded": {}, "failed": {}, "timed_out": {},
+	"cancelled": {}, "interrupted": {}, "skipped": {}, "missed": {}, "expired": {},
+}
+
+// ValidateRunStatuses checks status filters shared by CLI and MCP.
+func ValidateRunStatuses(statuses []string) error {
+	for _, status := range statuses {
+		if _, ok := validRunStatuses[status]; !ok {
+			return UsageError(fmt.Sprintf("invalid run status %q", status), "Valid statuses: "+validRunStatusNames)
+		}
+	}
+	return nil
 }
 
 // StateError is the CLI and MCP mapping for durable-state failures.
@@ -61,6 +79,14 @@ func MissingJobError(name, command string, jobs map[string]config.Job) *Error {
 
 func RunNotFoundError(id int64) *Error {
 	return &Error{Code: "not_found", Message: fmt.Sprintf("run %d not found", id), Hint: "Run noon history to list recent runs."}
+}
+
+func MatchingJobRunNotFoundError(job string, statuses []string) *Error {
+	message := fmt.Sprintf("no matching run for job %q", job)
+	if len(statuses) > 0 {
+		message = fmt.Sprintf("no runs of job %q match --status %s", job, strings.Join(statuses, ","))
+	}
+	return &Error{Code: "not_found", Message: message, Hint: "Run noon history to inspect retained runs."}
 }
 
 func MissingRunLogError(id int64) *Error {

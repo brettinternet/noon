@@ -83,8 +83,8 @@ Next: noon enable
 | `noon remove`, `rm` | Candidates | Remove a job from the file that defines it |
 | `noon pause`, `resume` | Candidates | Pause or resume background runs of a job |
 | `noon cancel` | Active runs | Cancel a run, or a job's active and queued runs |
-| `noon logs` | Latest run in project | `NAME` or `RUN`; `--tail/-n`, `--after-cursor/-c`, `--match/-m`, `--context`, `--limit-bytes/-b`; `--follow` accepts only tail/cursor; `--path` cannot combine with `--json`, `--follow`, or selection flags |
-| `noon history` | Recent runs | `NAME`; `--limit` |
+| `noon logs` | Latest started run in project | `NAME` or `RUN`; `--status` (repeated or comma-separated); `--tail/-n`, `--after-cursor/-c`, `--match/-m`, `--context`, `--limit-bytes/-b`; `--follow` accepts only tail/cursor; `--path` cannot combine with `--json`, `--follow`, or selection flags |
+| `noon history` | Recent runs | `NAME`; `--limit`; `--status` (repeated or comma-separated) |
 | `noon enable`, `disable` | Acts on current project | — |
 | `noon serve` | Foreground scheduler for enabled projects; signed webhooks when explicitly requested | `--listen ADDR` opts in to an HTTP listener; otherwise no listener starts |
 | `noon service` | Service status | `install`, `uninstall` |
@@ -438,9 +438,11 @@ Decided in decision-4: no plugin system. Commands are the integration boundary.
   `data` is the JSON payload, or a string when a webhook body is not JSON. Signature and authorization
   headers are never stored.
 - **MCP**: `noon mcp` over stdio with the official Go SDK exposes `status`, `list_jobs`, `run_job`,
-  `list_runs`, `get_run`, and `cancel_run`. `run_job` accepts optional JSON `data`. The first four accept an optional absolute `project`
-  path; run lookup and cancellation use globally unique run IDs. Agents cannot approve, add, or edit
-  unattended commands.
+  `list_runs`, `get_run`, and `cancel_run`. `run_job` accepts optional JSON `data`; `list_runs` accepts
+  status filters. `get_run` accepts either a globally unique `run_id` or a job name, with optional
+  absolute `project` and status filters for job selection. The first four accept an optional absolute
+  `project` path; run lookup and cancellation by ID use globally unique run IDs. Agents cannot
+  approve, add, or edit unattended commands.
 - **Crontab import**: preview YAML from a user crontab; `--write` adds the jobs to `.noon.yaml`.
   Unsupported cron features fail with line numbers.
 - Outbound HTTP calls are commands (`run: [curl, -fsS, ...]`), not a built-in action.
