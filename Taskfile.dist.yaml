@@ -49,6 +49,14 @@ tasks:
     cmds:
       - task: cli:build
       - mise exec go -- go test -tags shellintegration -run '^TestShellSmoke$' -count=1 -v ./integration
+  examples:db-backups:
+    desc: Opt-in real PostgreSQL/SQLite backup checks with host clients and Docker
+    cmds:
+      - task: cli:build
+      - bash scripts/db-backups-smoke.sh host
+  examples:db-backups:linux:
+    desc: Opt-in real backup checks with Debian clients and Docker
+    cmd: bash scripts/db-backups-smoke.sh linux
   ci:
     desc: Full local and CI gate
     cmds:
