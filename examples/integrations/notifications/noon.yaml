@@ -6,8 +6,8 @@ jobs:
     description: Nightly backup. Tell me about failures, and when it recovers.
     schedule: every day at 3am
     run: [./backup.sh]
-    on_failure: [/Users/me/.local/bin/noon-recovery]
-    on_success: [/Users/me/.local/bin/noon-recovery]
+    on_failure: [/Users/me/.local/bin/noon-on-change]
+    on_success: [/Users/me/.local/bin/noon-on-change]
 
   deploy-preview:
     description: Build a preview; post the outcome to the team channel either way.

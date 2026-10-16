@@ -1,0 +1,18 @@
+#!/bin/sh
+# Use both hooks: notify once per outage and once on recovery.
+set -eu
+notify=$(dirname "$0")/noon-notify
+case "${NOON_PREVIOUS_STATUS-}" in
+  failed|timed_out) previous=unhealthy ;;
+  *) previous=healthy ;;
+esac
+case "$NOON_STATUS" in
+  failed|timed_out)
+    [ "$previous" = healthy ] || exit 0
+    exec "$notify"
+    ;;
+  succeeded)
+    [ "$previous" = unhealthy ] || exit 0
+    NOON_STATUS=recovered exec "$notify"
+    ;;
+esac
