@@ -53,7 +53,7 @@ Scope:
 - Human output of `noon run NAME --detach|--in|--at` (`printQueuedRun` in internal/cli/queue.go): after the existing first line, print `Follow it: noon logs ID --follow` when the referenced run is queued or running, otherwise `Read it: noon logs ID`. Keep this before the existing offline-scheduler lines. It is not a `Next:` line, so the design rule of at most one `Next:` line still holds.
 - Update docs/design.md (shared run JSON, the `noon logs` row of the command table), README.md (Logs section), and docs/hooks.md (the stdin run object now carries these fields).
 
-Non-goals: new log reading modes (NOON-25), status filters (NOON-26), changing log storage or retention, exposing environment values, printing paths in human `history` output, and fixing the existing bug where `noon run h` shows help because `h` is a help alias.
+Non-goals: new log reading modes (NOON-25), status filters (NOON-26), changing log storage or retention, exposing environment values, and printing paths in human `history` output.
 
 Tests (critical regressions only):
 - internal/cli `TestHistoryAndLogs`: `logs --json` and `history --json` report a `log.path` that is absolute, exists, and equals `noon logs RUN --path` output. After retention prunes a run's log, `log.path` and `event_file` are null and `--path` exits 1 with the missing-log error. `--path --json` and `--path --follow` exit 2.
