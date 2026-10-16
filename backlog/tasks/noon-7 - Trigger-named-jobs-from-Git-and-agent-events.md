@@ -4,10 +4,11 @@ title: Trigger jobs from Git and agent hooks with payloads
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 16:16'
+updated_date: '2026-10-16 18:23'
 labels:
   - integration
   - security
+  - reviewed
 dependencies:
   - NOON-5
   - NOON-10
@@ -82,6 +83,8 @@ Worklease claim 0f9def78f7ece00e8e20954e795548d0 acquired by loop 53909a3c-e1ac-
 Implementation and independent verifier passed: atomic event publication, retention/migrations, cooldown ordering, recursion propagation and MCP payload checks; no code defects. Parent corrected Codex Stop example to send Noon status to stderr and emit {} on stdout, as required by current https://developers.openai.com/codex/hooks. Claude format confirmed at https://code.claude.com/docs/en/hooks. All four documented Git/agent hook commands executed successfully in isolated /tmp/noon-7-hooks.wTs9yJ with isolated HOME and no hooks installed; queued runs 2–5, Codex stdout {}. AC#1: task cli:test -- -run ^TestTriggers$ -count=1 -v -> exit 0, --- PASS: TestTriggers (independent verifier). AC#2: combined shell fixture command blocked by dynamic-shell guard; executed the same build, fixture contents and isolated invocation as separate operations: task cli:build; echo {"sha":"abc"} piped to env -i PATH="$PATH" HOME=/tmp/noon-7-ac-home.QECXhP bin/noon -C /tmp/noon-7-ac-project.hbrEH2 run t --data - -> exit 0, {"schema_version":1,"source":"cli","received_at":"2026-10-16T16:02:42.495Z","data":{"sha":"abc"}}. No acceptance behavior changed. Executor task ci passed; final committed-tree CI remains. LSP diagnostics for internal/app/triggers.go clean. All source changes within contract plus previously justified docs/design.md; no tests removed, skipped or weakened.
 
 Delivered commit 601c667ecd4e64825349de6024a9b11b8b14a55d (feat: add job trigger payloads and safeguards), fast-forward merged to main. task ci on committed implementation passed on main: gitleaks, govulncheck, formatting, vet, staticcheck, full tests, race tests, build and smoke. Worktrunk verified owned checkout/branch against creation receipt, removed both with post-remove hook; workspace wCN contained only its idle shell. No blockers or next implementation steps remain. Local temporary acceptance/smoke fixtures retained outside repository; no hooks/services installed.
+
+Review (post-merge): --data literal/@FILE/stdin with 256 KiB and JSON validation, event-file shape/permissions/atomic publish, retention with logs, NOON_EVENT_FILE scrubbed from inherited env, cooldown order (key, requirements, cooldown, coalesce, insert) under one transaction, depth persistence and +1 propagation to jobs and hooks, same-job and depth-3 refusal, MCP data argument, and trigger docs match the contract. No fix needed in this task. Fixed in 579c79b (via NOON-8): QueueRun applied the calling process recursion guard and NOON_DEPTH to webhook requests, which run in the scheduler. Low, not fixed: an event file is written before the run row commits, so a crash in that window leaves events/ID.json and, because SQLite reuses the rolled-back rowid, the next payload run with that ID fails "publish event file" until a payload-free run consumes the ID; hooks for payload-free runs get NOON_EVENT_FILE set to empty while jobs have it unset. AC1 and AC2 rerun and pass; task ci passes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

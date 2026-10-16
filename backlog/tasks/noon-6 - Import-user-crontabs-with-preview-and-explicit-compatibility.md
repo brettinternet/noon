@@ -4,10 +4,11 @@ title: Import crontabs with preview and faithful semantics
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 16:50'
+updated_date: '2026-10-16 18:23'
 labels:
   - config
   - integration
+  - reviewed
 dependencies:
   - NOON-20
 documentation:
@@ -90,6 +91,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 Continuation: resumed the same loop claim and adopted feat/noon-6-crontab using the creation receipt and prior session transcript; executor and reviewer finished. Single review found two parser defects (assignment whitespace and numeric commands); both fixed with a regression. No tests removed or weakened; changes stay within the modified-file contract. AC#1: task cli:test -- -run '^(TestImportCrontab|TestImportWrite)$' -count=1 -v -> exit 0; both tests print PASS, including review regressions. AC#2: mise exec go -- go test ./internal/cronimport -run '^$' -fuzz '^FuzzImportCrontab$' -fuzztime 30s -> exit 0, 217397 executions. AC#3: task cli:build plus the specified stdin fixture under env -i and isolated HOME/project -> line 3: @reboot, exit=1, project empty. The shell guard rejects the dynamic-variable command form; equivalent literal mktemp paths /tmp/noon-ac-home.uN9bWC and /tmp/noon-ac-project.2voehf were used. Next: final CI, commit, local integration and cleanup.
 
 Delivery: c5e42905574092b7d5c60e0f413319b1e8e8c891 (feat: import crontabs with faithful defaults) passed task check:staged and task ci on the committed implementation, including security, static analysis, all tests, race tests and smoke. Fast-forward merged into main. Worktrunk removed the verified adopted worktree and branch; its idle-shell Herdr workspace was closed by the post-remove hook and absence verified. Single review complete; both concrete findings fixed and focused checks rerun. No remaining blocker or resumable implementation step.
+
+Review (post-merge): parser (env lines, quote stripping, macros, refusals with line numbers, aggregated errors), naming/dedupe/truncation, faithful missed/timeout defaults, preview, all-or-nothing --write with comment preservation, explicit-config refusal, and JSON shape match the contract; DOM/DOW OR semantics verified on `0 2 1 * 1`. Fixed in 579c79b: (1) a command whose basename is `true`, `false`, or `null` produced an unquoted YAML key, so the preview did not load and --write failed with "job names must be strings" (the same bug made `noon add null ...` fail); job keys are now quoted when YAML would not read them as strings. (2) the YAML encoder emits the string `<<` as a plain merge key, so `@daily <<` produced `run: !!merge <<`, which does not load (found by a 20s FuzzImportCrontab run, also affects `noon add`); encodeJob now quotes such scalars. Regressions: TestImportCrontab preview case with a `true` command and the saved fuzz corpus entry; both fail before the fix. Low, not fixed: the six-field heuristic only triggers when the first five fields fail to parse, so `0 */5 * * * * cmd` imports with run `* cmd` (same as cron would run); env values under `env:` render with 8-space indent. AC1-AC3 rerun and pass; task ci passes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

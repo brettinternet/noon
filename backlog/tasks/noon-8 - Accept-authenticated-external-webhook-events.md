@@ -4,10 +4,11 @@ title: Accept signed webhooks
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 17:30'
+updated_date: '2026-10-16 18:23'
 labels:
   - http
   - security
+  - reviewed
 dependencies:
   - NOON-7
 documentation:
@@ -98,6 +99,8 @@ Review: one independent security/integrity pass found wrong state-directory sele
 Delivery: implementation 8384d3f; task check:staged and task ci passed on that commit. Merged locally as b3e4e97, preserving concurrent backlog planning commit 9554517. No push. Owned worktree/branch noon-8-webhooks removed with Worktrunk; matching Herdr workspace wD1 verified absent. No remaining item-scoped blocker or next implementation step.
 
 Post-merge validation: task ci passed on cc833e3. The first run hit EOF in the existing TestServeQueued/running_cancellation_kills_the_process_group; task cli:test -- -run ^TestServeQueued$ -count=5 passed, then full task ci passed without code/test changes. Final metadata commit records this evidence only.
+
+Review (post-merge): request order (404, 413, 401, 409, queue), constant-time HMAC over the raw body for both headers, delivery-ID keys with 400 on invalid/multiple values, header allowlist, non-JSON bodies as strings, server limits, loopback warning, graceful 5s shutdown, healthz, and missing-secret diagnostics match the contract. Fixed in 579c79b: (1) webhook requests ran the recursion guard and depth from the scheduler process environment, so a scheduler started with NOON_DEPTH>=3 or a matching NOON_PROJECT/NOON_JOB answered every delivery with 500 and stored a nonzero depth; webhook runs now start at depth 0 with no guard, as specified (regression in TestWebhooks, fails before the fix). (2) with --listen the scheduler ran config.Load every second for every registered but not-enabled project, and foreground `noon run` registers every project it touches; those configs are now cached and reloaded only when their file stamps change (verified with the built binary: 409 for a disabled project, 404 after removing the webhook job). Low, not fixed: idempotency keys share one namespace with CLI --key, so a delivery ID equal to an earlier CLI key returns that run as a duplicate; requested_by records the reverse proxy address, not the client. AC1 and AC2 (task race via task ci) rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
