@@ -4,6 +4,7 @@ title: Give lifecycle hooks the job's previous status
 status: To Do
 assignee: []
 created_date: '2026-10-16 22:07'
+updated_date: '2026-10-16 22:21'
 labels:
   - hooks
   - store
@@ -15,10 +16,12 @@ documentation:
   - docs/hooks.md
   - docs/design.md
 modified_files:
-  - internal/app/**
-  - internal/store/**
-  - internal/cli/**
+  - internal/app/hooks.go
+  - internal/store/store.go
+  - internal/store/store_test.go
+  - internal/cli/run_test.go
   - docs/hooks.md
+  - docs/design.md
 priority: medium
 type: feature
 ordinal: 3200
@@ -27,34 +30,41 @@ ordinal: 3200
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: a lifecycle hook can tell whether a job's outcome changed, so notification hooks report the first failure and the recovery instead of every run.
+Outcome: lifecycle hooks receive the previous job outcome so user-owned notification commands can report the first failure and recovery without querying Noon history.
 
-Why: on_success runs after every successful run and on_failure after every failed one. A notification hook on a job that runs every five minutes notifies every five minutes, both during an outage and in normal operation. Today a hook must run noon history NAME --json and parse it inside its 30-second budget, and every notification hook repeats that logic. Noon already holds the history when it starts the hook. Alternatives considered and rejected: slowing a failing job's schedule (delays noticing recovery; the next scheduled run already acts as a retry), retries (a different problem: transient failures), and throttling or a notification policy in Noon config (policy belongs in the user's hook; Noon supplies the fact). Callers such as Tell stay stateless and rely on this.
+Why: hooks run after every eligible result. Noon should supply a fact, not add notification policy, retries, throttling, or schedule backoff. Keep this a small extension of the shared foreground/scheduler hook path (decision-4).
 
-Definition: the previous status is the status of the most recent earlier run (lower id) of the same project and job whose status is succeeded, failed, or timed_out, the statuses that select a hook. Cancelled, skipped, expired, interrupted, missed, queued, and running runs are ignored. It is absent when no such run is retained (first run, or pruned by retention).
+Design:
+- Eligible history is retained runs of the same canonical project and job name with status succeeded, failed, or timed_out, whether or not they had hooks. Ignore cancelled, interrupted, skipped, missed, expired, queued, and running. Job-definition digest changes do not reset this history.
+- "Previous" means the latest eligible completed result available immediately before the current run's terminal transition: order by finished_at descending, then id descending to break equal stored timestamps. Exclude the current run, NOT all higher IDs. A queued one-shot receives its ID before execution and may run after a higher-ID manual run.
+- Capture once while the current run still owns its running slot, or inside its terminal transaction, and reuse for both outputs. Looking up unbounded latest history after FinishRun releases that slot can observe a subsequent execution. No new migration, persisted delivery state, or change to history ordering is needed.
+- NOON_PREVIOUS_STATUS is the raw status, or UNSET when no eligible history remains. Remove inherited/job-configured values even when absent. This follows existing optional hook metadata (setHookEnvironment removes empty values); do not change NOON_EVENT_FILE/NOON_LOG_FILE semantics.
+- Hook stdin gains top-level previous_status: a string or explicit null under schema_version 1. The nested run stays identical to shared run JSON; do not add this hook-only context to CLI/MCP history.
+- Look up only when a matching hook will run. A query error is not missing history: still attempt to record the child's actual terminal outcome, surface the state error, and do not invoke the hook with fabricated null or leave a never-started hook marked running. Existing state-error reporting applies. Successful lookups preserve durable completion-before-hook execution, hook time/output limits, and job exit-code semantics.
 
-Read first: docs/hooks.md, NOON-22, internal/app/hooks.go (FinishRunWithHook sets NOON_EVENT_FILE and NOON_LOG_FILE to an empty string when absent so inherited values never leak), and store.LastSuccess in internal/store/store.go. Today an inherited NOON_PREVIOUS_STATUS reaches hooks unchanged; the acceptance fixture currently prints leaked failed, leaked failed, leaked succeeded.
+Notification examples in docs/hooks.md remain policy, not core behavior: group failed and timed_out as unhealthy, succeeded as healthy. With both hooks configured, notify on the first unhealthy result and on return to healthy; a first success stays quiet. Switching failed to timed_out is not a new outage. Unknown/pruned history is treated as healthy by these wrappers. Raw-status-change notification is a different optional policy. This is not guaranteed delivery: failed hooks are not retried, and pruning can make an old outage appear new.
 
-Scope:
-- Hook environment: NOON_PREVIOUS_STATUS, always set, empty when absent.
-- Hook stdin JSON: top-level previous_status (string or null), additive under schema_version 1. run keeps the history JSON shape.
-- A store query beside LastSuccess.
-- docs/hooks.md: document both, and change the macOS and Linux notification wrappers to notify only on change, treating no history as success so a first success stays quiet: [ "$NOON_STATUS" = "${NOON_PREVIOUS_STATUS:-succeeded}" ] && exit 0. Note that the wrapper must be configured for both on_success and on_failure to report recovery.
+Read first: docs/hooks.md, docs/design.md#integrations, NOON-22, internal/app/hooks.go, store.LastSuccess and FinishRun in internal/store/store.go. Reuse store query conventions, not LastSuccess's ID-based ordering.
 
-Non-goals: schedule backoff, retries, throttling, deduplication, notification policy in config, new hook events (on_change or on_recovery), the previous run's ID or log, NOON_PREVIOUS_STATUS in the job (non-hook) environment, a schema_version bump.
+Scope: one bounded store lookup, shared hook env/payload plumbing, the macOS/Linux wrappers and contract documentation in docs/hooks.md and docs/design.md.
 
-Tests (critical regressions only):
-- internal/cli TestHooks: failure, failure, success records previous statuses empty, failed, failed in both the environment and previous_status (null for the first); an inherited NOON_PREVIOUS_STATUS does not reach the first hook.
-- internal/store TestStore: the query ignores non-hook statuses and the current run, and reports absent when no earlier hook-eligible run exists.
+Critical regressions to extend after implementation:
+- TestHooks: failed, failed, succeeded yields absent/failed/failed in env and null/failed/failed in JSON; inherited and job-configured values never leak; nested run JSON is unchanged.
+- TestStore: identity isolation, timed_out eligibility, ignored statuses, absent retained history, and queue-order inversion (a lower-ID delayed run sees the higher-ID result completed before it). Use supplied timestamps, including deterministic tie behavior.
+- Review the shared call ordering: capture before the terminal transition, reuse the value after it. Do not add timing-sensitive race tests merely to restate that ordering.
 
-Modified-file contract: the modified_files list plus this task's Backlog record. Justify any other path in Implementation Notes before changing it.
+Non-goals: notification deduplication/delivery guarantees, retry/backoff, new hook events, config policy, previous run IDs/logs, metadata injection into job environments, a schema bump, or changing LastSuccess/history/retention ordering.
+
+Dependencies: none; NOON-22 is implemented. NOON-36 adopts the fact in the shipped notification example.
+
+Modified-file contract: the modified_files list plus this task record. Justify other paths in Implementation Notes before changing them.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestHooks|TestStore)$' -count=1 -v` exits 0 and prints `--- PASS` for each, covering every case listed under Tests
-- [ ] #2 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  flip:\n    run: "test -e ok"\n    on_success: [sh, -c, "echo ${NOON_PREVIOUS_STATUS:-none} $NOON_STATUS >> hooks.txt"]\n    on_failure: [sh, -c, "echo ${NOON_PREVIOUS_STATUS:-none} $NOON_STATUS >> hooks.txt"]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" NOON_PREVIOUS_STATUS=leaked bin/noon -C "$noon_ac_project" run flip >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" NOON_PREVIOUS_STATUS=leaked bin/noon -C "$noon_ac_project" run flip >/dev/null 2>&1; touch "$noon_ac_project/ok" && env -i PATH="$PATH" HOME="$noon_ac_home" NOON_PREVIOUS_STATUS=leaked bin/noon -C "$noon_ac_project" run flip >/dev/null 2>&1; cat "$noon_ac_project/hooks.txt"` prints `none failed`, `failed failed`, then `failed succeeded`
-- [ ] #3 `rg -n 'NOON_PREVIOUS_STATUS|previous_status' docs/hooks.md` shows the environment variable, the JSON field, and the change-only check in both the macOS and Linux notification wrappers
+- [ ] #1 `task cli:test -- -run '^(TestHooks|TestStore)$' -count=1 -v` exits 0 and prints PASS for both tests, covering the env/JSON agreement, cleared inherited values, identity/status filtering, missing history, and queue-order inversion above.
+- [ ] #2 From the repository root, `(set -eu; task cli:build; noon_ac_home=$(mktemp -d); noon_ac_project=$(mktemp -d); printf 'jobs:\n  flip:\n    run: "test -e ok"\n    on_success: [sh, -c, "echo ${NOON_PREVIOUS_STATUS:-none} $NOON_STATUS >> hooks.txt"]\n    on_failure: [sh, -c, "echo ${NOON_PREVIOUS_STATUS:-none} $NOON_STATUS >> hooks.txt"]\n' > "$noon_ac_project/noon.yaml"; for noon_ac_attempt in 1 2; do noon_ac_code=0; env -i PATH="$PATH" HOME="$noon_ac_home" NOON_PREVIOUS_STATUS=leaked bin/noon -C "$noon_ac_project" run flip >/dev/null 2>&1 || noon_ac_code=$?; test "$noon_ac_code" -eq 1; done; touch "$noon_ac_project/ok"; env -i PATH="$PATH" HOME="$noon_ac_home" NOON_PREVIOUS_STATUS=leaked bin/noon -C "$noon_ac_project" run flip >/dev/null 2>&1; test "$(cat "$noon_ac_project/hooks.txt")" = "$(printf 'none failed\nfailed failed\nfailed succeeded')")` exits 0: foreground results are failure/failure/success, and hook output is exactly none failed, failed failed, failed succeeded. Setup errors or unexpected exits fail the command.
+- [ ] #3 `rg -n 'NOON_PREVIOUS_STATUS|previous_status' docs/hooks.md docs/design.md` shows the env and top-level JSON fields, unset/null and snapshot-order semantics. Both notification wrappers group failed/timed_out into one outage and explain first-success silence, recovery, retention, and lack of notification retries.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -65,3 +75,9 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Design refinement: QueueRun allocates IDs before dispatch, so lower-ID history can miss the actual prior execution. FinishRun releases the same-job running slot before hook execution, so take one pre-transition snapshot. setHookEnvironment already unsets absent metadata; align with that rather than promise an exported empty string. Keep raw status in core, but group failed/timed_out in the first-failure/recovery wrappers. No implementation or passing acceptance is claimed.
+<!-- SECTION:NOTES:END -->

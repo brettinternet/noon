@@ -1,10 +1,10 @@
 ---
 id: DRAFT-1
 title: Attach tmux or Herdr sessions to long agent runs
-status: To Do
+status: Draft
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 01:43'
+updated_date: '2026-10-16 22:21'
 labels:
   - runner
   - integration

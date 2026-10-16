@@ -4,6 +4,7 @@ title: Chain follow-up jobs through completion hooks
 status: Draft
 assignee: []
 created_date: '2026-10-16 19:20'
+updated_date: '2026-10-16 22:21'
 labels:
   - integration
   - hooks
@@ -38,3 +39,9 @@ Acceptance direction when promoted: real local job A completing queues B with co
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Refinement: hook-composition recipes now ship in examples/local-dev/pipelines and examples/ai/failure-triage. NOON-35 owns their offline executable validation. Keep this as a draft for a demonstrated remaining product gap; do not promote it merely to duplicate those recipes or tests.
+<!-- SECTION:NOTES:END -->
