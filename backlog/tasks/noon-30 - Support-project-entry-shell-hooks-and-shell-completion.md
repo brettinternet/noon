@@ -1,9 +1,10 @@
 ---
 id: NOON-30
 title: Support project-entry shell hooks and shell completion
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 19:19'
+updated_date: '2026-10-16 20:53'
 labels:
   - shell
   - integration
@@ -66,17 +67,44 @@ Acceptance commands below are future targets to implement, not claims about curr
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestShellEntry|TestShellCompletion)$' -count=1 -v` exits 0 and prints PASS for both named tests, covering the critical entry, authorization, payload-safety, completion-selection, and no-side-effect regressions above through public interfaces.
-- [ ] #2 `task shell:smoke` builds the binary and exits 0 after real Bash, Zsh, and Fish checks of generated integration and completion: initial load/reload queues nothing; project entry queues exactly once; same-project movement does not; a completion query yields expected commands/flags/job names without mutating state. Existing hooks and exit status are preserved. Missing supported shells fail with an actionable prerequisite message rather than silently skipping coverage.
-- [ ] #3 `task cli:build && noon_ac_home=$(mktemp -d) && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon shell --help` exits 0 and documents explicit shell selection, completion-only setup, and optional --on-enter; help/init are verified by the focused tests to leave config/state untouched.
-- [ ] #4 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon` exits 0. README.md and docs/shell.md document tested Bash/Zsh/Fish setup/removal, project-entry and offline behavior, cooldown guidance, completion safety, and the distinction between queued work and parent-shell environment changes.
+- [x] #1 `task cli:test -- -run '^(TestShellEntry|TestShellCompletion)$' -count=1 -v` exits 0 and prints PASS for both named tests, covering the critical entry, authorization, payload-safety, completion-selection, and no-side-effect regressions above through public interfaces.
+- [x] #2 `task shell:smoke` builds the binary and exits 0 after real Bash, Zsh, and Fish checks of generated integration and completion: initial load/reload queues nothing; project entry queues exactly once; same-project movement does not; a completion query yields expected commands/flags/job names without mutating state. Existing hooks and exit status are preserved. Missing supported shells fail with an actionable prerequisite message rather than silently skipping coverage.
+- [x] #3 `task cli:build && noon_ac_home=$(mktemp -d) && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon shell --help` exits 0 and documents explicit shell selection, completion-only setup, and optional --on-enter; help/init are verified by the focused tests to leave config/state untouched.
+- [x] #4 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon` exits 0. README.md and docs/shell.md document tested Bash/Zsh/Fish setup/removal, project-entry and offline behavior, cooldown guidance, completion safety, and the distinction between queued work and parent-shell environment changes.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add a shared project-entry operation using canonical discovery, recorded enabled config, and the existing queue authorization path. 2. Ship Bash/Zsh/Fish glue and urfave completion callbacks, preserving hook/status behavior and treating paths as argv data. 3. Add focused security/state-transition regressions and real-shell smoke coverage, then document setup/removal. 4. Run every AC and task ci, perform one independent scoped review, commit and merge locally, finalize task and remove the owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Contract expansion: internal/store/queue.go needs an opt-in RequireUnpaused queue input so shell entry can reject paused jobs atomically with insertion. Existing manual queued requests intentionally do not check pauses (only webhooks currently do); preserve that behavior rather than change all clients or rely on a racy preflight check. internal/app/queue.go will forward this option only for shell entry.
+
+AC#1: task cli:test -- -run '^(TestShellEntry|TestShellCompletion)$' -count=1 -v -> exit 0; both named tests PASS. Covers canonical boundaries, initialization/symlink/subdir deduplication, re-entry, coalescing/cooldown, recorded explicit config, pause/approval/disabled/recursion guards, event payload safety, read-only and position-aware completion.
+AC#2: task shell:smoke -> exit 0 for real Bash, Zsh, Fish. A temporary PATH shim points to the already installed Fish 4.9.3 package binary because the default mise fish shim has no selected version; no shell was installed or startup file modified. Both modern Bash and /bin/bash 3.2 paths passed. Missing/broken shell prerequisites were confirmed to fail actionably. Fish explicit quoted/newline project completion regression is included.
+AC#3: task cli:build && noon_ac_home=$(mktemp -d) && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon shell --help -> exit 0, explicit bash|zsh|fish, completion-only and --on-enter documented. Executed verbatim via temporary acceptance script; focused tests verify help/init leave config/state untouched.
+AC#4: CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon -> exit 0. README/docs/shell.md cover setup/removal, offline queueing, cooldown, read-only completion and no parent-shell environment activation. Design/triggers updated.
+Verification: task ci -> exit 0 (security, formatting/vet/staticcheck, full tests, race tests, built CLI smoke). LSP diagnostics clean. No existing tests deleted/skipped/weakened.
+One scoped independent reviewer pass completed. Its Fish newline-path finding was reproduced, fixed and regression-covered. Follow-up real PTY Bash/Zsh probes confirmed quoted path candidates with spaces/apostrophes/metacharacters; Bash quote retention was corrected with non-evaluating completion-only quote removal and regression coverage. No remaining validated item-scoped defects. Next: commit implementation, integrate current main, rerun final checks, finalize record, remove owned worktree and release Worklease.
+
+Delivery: implementation commit 0c0114969a3ca3260e9ad39888e9159ccff22106 merged into current main as befed898281e2018218a60603f49ce11130021a5, preserving concurrent unrelated work. task ci and task shell:smoke both passed again on the integrated source commit. Owned worktree/branch feat/noon-30-shell removed with Worktrunk after verifying the session creation receipt; its exact Herdr workspace wDM was inspected and confirmed removed by the hook. Unrelated feat/tui-design worktree/workspace preserved. No push performed. No blocker or remaining implementation step; final administrative commit and claim release only.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented explicit Bash/Zsh/Fish completion and optional approved project-entry queueing. Canonical project/config selection, atomic pause checks, event safety, hook/status preservation, and read-only completion are covered by focused tests, real-shell smoke and terminal probes. Full CI and race suite pass; merged locally and owned worktree/workspace cleaned up.
+<!-- SECTION:FINAL_SUMMARY:END -->
