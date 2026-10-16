@@ -51,10 +51,11 @@ type RunHook struct {
 }
 
 type RunLogInfo struct {
-	Path      *string `json:"path"`
-	Bytes     int64   `json:"bytes"`
-	Truncated bool    `json:"truncated"`
-	Available bool    `json:"available"`
+	Path       *string `json:"path"`
+	Bytes      int64   `json:"bytes"`
+	Truncated  bool    `json:"truncated"`
+	Available  bool    `json:"available"`
+	HookOffset *int64  `json:"hook_offset"`
 }
 
 type RunsView struct {
@@ -82,6 +83,10 @@ func RunFromStore(state *store.Store, run store.Run) Run {
 	}
 	if path, ok := state.RunLogFilePath(run); ok {
 		result.Log.Path = &path
+	}
+	if run.HookLogOffset.Valid {
+		offset := run.HookLogOffset.Int64
+		result.Log.HookOffset = &offset
 	}
 	if path, ok := state.EventFilePath(run); ok {
 		result.EventFile = &path

@@ -97,12 +97,13 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	if err := app.ValidateRunStatuses(statuses); err != nil {
 		return err
 	}
+	sectionSet := cmd.IsSet("section")
 	tailSet := cmd.IsSet("tail")
 	afterSet := cmd.IsSet("after-cursor")
 	matchSet := cmd.IsSet("match")
 	contextSet := cmd.IsSet("context")
 	limitSet := cmd.IsSet("limit-bytes")
-	hasSelection := tailSet || afterSet || matchSet || contextSet || limitSet
+	hasSelection := sectionSet || tailSet || afterSet || matchSet || contextSet || limitSet
 	if pathOnly && (follow || cmd.Bool("json")) {
 		return usageError("logs --path cannot be used with --json or --follow", "Run noon logs [NAME|RUN] --json and read .run.log.path")
 	}
@@ -112,10 +113,17 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	if follow && cmd.Bool("json") {
 		return usageError("logs --follow cannot be used with --json", "Run noon logs without --follow to get JSON")
 	}
+	if follow && sectionSet {
+		return usageError("logs --section cannot be used with --follow", "Read a section after the run finishes")
+	}
 	if follow && (matchSet || contextSet || limitSet) {
 		return usageError("logs --follow cannot be used with --match, --context, or --limit-bytes", "Use --tail or --after-cursor to choose where following starts")
 	}
 	var query app.LogQuery
+	query.Section = cmd.String("section")
+	if sectionSet && query.Section == "" {
+		return usageError("section must be all, job, or hook", "")
+	}
 	if tailSet {
 		value := cmd.Int("tail")
 		query.Tail = &value
@@ -231,7 +239,11 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if hasSelection {
-		_, err = fmt.Fprintf(cmd.ErrWriter, "next: noon logs %d --after-cursor %d\n", run.ID, selection.Next)
+		if sectionSet {
+			_, err = fmt.Fprintf(cmd.ErrWriter, "next: noon logs %d --section %s --after-cursor %d\n", run.ID, query.Section, selection.Next)
+		} else {
+			_, err = fmt.Fprintf(cmd.ErrWriter, "next: noon logs %d --after-cursor %d\n", run.ID, selection.Next)
+		}
 	}
 	return err
 }

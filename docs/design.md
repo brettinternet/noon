@@ -83,7 +83,7 @@ Next: noon enable
 | `noon remove`, `rm` | Candidates | Remove a job from the file that defines it |
 | `noon pause`, `resume` | Candidates | Pause or resume background runs of a job |
 | `noon cancel` | Active runs | Cancel a run, or a job's active and queued runs |
-| `noon logs` | Latest started run in project | `NAME` or `RUN`; `--status` (repeated or comma-separated); `--tail/-n`, `--after-cursor/-c`, `--match/-m`, `--context`, `--limit-bytes/-b`; `--follow` accepts only tail/cursor; `--path` cannot combine with `--json`, `--follow`, or selection flags |
+| `noon logs` | Latest started run in project | `NAME` or `RUN`; `--status` (repeated or comma-separated); `--section all|job|hook`, `--tail/-n`, `--after-cursor/-c`, `--match/-m`, `--context`, `--limit-bytes/-b`; `--follow` accepts only tail/cursor; `--path` cannot combine with `--json`, `--follow`, or selection flags |
 | `noon history` | Recent runs | `NAME`; `--limit`; `--status` (repeated or comma-separated) |
 | `noon enable`, `disable` | Acts on current project | — |
 | `noon serve` | Foreground scheduler for enabled projects; signed webhooks when explicitly requested | `--listen ADDR` opts in to an HTTP listener; otherwise no listener starts |
@@ -363,8 +363,12 @@ the same.
   Go RE2 expressions and `--context` adds bounded grep-style line context. `--tail` applies after
   match/context, then `--limit-bytes` keeps whole lines (newest without a cursor, earliest with one),
   cutting a single oversized line on a UTF-8 rune boundary. JSON returns `log`, `next`, `size`,
-  `truncated`, and nullable `matched_lines`; pass `next` back as `--after-cursor` to page. Follow
-  remains separate and accepts only `--tail` and `--after-cursor` to choose its starting point.
+  `truncated`, and nullable `matched_lines`; pass `next` back as `--after-cursor` to page, keeping the
+  selected section. `--section`
+  selects `all` (default), `job`, or `hook`; section ranges intersect `[after,size)` and cursors remain
+  absolute file offsets. The optional separator newline before a hook marker belongs to the job section.
+  While a hook has not yet been appended, `job` covers everything written so far and `hook` is empty.
+  Follow remains separate and accepts only `--tail` and `--after-cursor` to choose its starting point.
 - A foreground run streams the job's stdout to stdout and stderr to stderr, so
   `noon run report > report.md` works; Noon's own status lines go to stderr. SIGINT, SIGTERM, or
   SIGHUP to `noon run` cancels the job as above; a second signal kills the group immediately.
@@ -404,7 +408,8 @@ pollutes worktrees, and lets one scheduler see every enabled project.
   `id`, `project`, `job`, `status`, `trigger`, `digest`, `scheduled_at`, `created_at`, `started_at`,
   `finished_at`, `duration_ms`, `exit_code`, `signal`, `error`, `requested_by`, `idempotency_key`,
   `due_at`, `cancel_requested_at`, `event_file`, `depth`, `log` (`path`, `bytes`, `truncated`,
-  `available`), and `hook`. `project` is the canonical absolute project path; `log.path` is the absolute
+  `available`, `hook_offset`), and `hook`. `log.hook_offset` is the nullable absolute byte offset where
+  the appended hook marker begins. `project` is the canonical absolute project path; `log.path` is the absolute
   retained log path and `event_file` is the absolute payload path. Missing request context, unavailable
   paths, and other absent values are null. `noon logs [NAME|RUN] --path` prints the selected retained
   log's absolute path; it conflicts with `--json` and `--follow`, which can instead inspect
@@ -423,7 +428,8 @@ Decided in decision-4: no plugin system. Commands are the integration boundary.
 
 - **Hooks**: `on_success` and `on_failure` commands get a versioned JSON run summary on
   stdin plus `NOON_*` variables. 30s timeout, 64 KiB captured output, recorded on the run, no hooks
-  for hook failures. Desktop notifications and chat posts are examples, not built-ins.
+  for hook failures. The marker offset separates job and hook log sections. Desktop notifications
+  and chat posts are examples, not built-ins.
 - **Triggers**: Git hooks and agent hooks call `noon run NAME --detach --key ID [--data JSON]`.
   CLI data accepts a JSON value, `@FILE`, or stdin `-`, up to 256 KiB; MCP `run_job` accepts an
   optional JSON `data` value with the same limit. A queued run and its event file are committed in
@@ -450,8 +456,9 @@ Decided in decision-4: no plugin system. Commands are the integration boundary.
 - **MCP**: `noon mcp` over stdio with the official Go SDK exposes `status`, `list_jobs`, `run_job`,
   `list_runs`, `get_run`, and `cancel_run`. `run_job` accepts optional JSON `data`; `list_runs` accepts
   status filters. `get_run` accepts either a globally unique `run_id` or a job name, with optional
-  absolute `project` and status filters for job selection. The first four accept an optional absolute
-  `project` path; run lookup and cancellation by ID use globally unique run IDs. Agents cannot
+  absolute `project` and status filters for job selection, plus `section` (`all`, `job`, or `hook`);
+  agents should use `section: "job"` when diagnosing a failure. The first four accept an optional
+  absolute `project` path; run lookup and cancellation by ID use globally unique run IDs. Agents cannot
   approve, add, or edit unattended commands.
 - **Crontab import**: preview YAML from a user crontab; `--write` adds the jobs to `.noon.yaml`.
   Unsupported cron features fail with line numbers.

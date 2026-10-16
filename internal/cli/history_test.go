@@ -399,6 +399,9 @@ func TestHistoryAndLogs(t *testing.T) {
 			{"logs", "tests", "--match", "("},
 			{"logs", "tests", "--follow", "--match", "boom"},
 			{"logs", "tests", "--path", "--tail", "1"},
+			{"logs", "tests", "--section", "nope"},
+			{"logs", "tests", "--section="},
+			{"logs", "tests", "--section", "job", "--follow"},
 		} {
 			out.Reset()
 			stderr.Reset()

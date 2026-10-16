@@ -2,10 +2,17 @@ package app
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/brettinternet/noon/internal/store"
 )
 
 func TestSelectLog(t *testing.T) {
+	hookLog := []byte("job-one\njob-two\n[noon: on_failure hook exited 0]\nhook-output\n")
+	hookOffset := int64(len("job-one\njob-two\n"))
 	tests := []struct {
 		name          string
 		data          []byte
@@ -44,6 +51,34 @@ func TestSelectLog(t *testing.T) {
 			data:     []byte("complete\npartial"),
 			want:     []byte("complete\npartial"),
 			wantNext: int64(len("complete\npartial")),
+		},
+		{
+			name:     "job section intersects after cursor before hook boundary",
+			data:     hookLog,
+			query:    LogQuery{Section: "job", HookOffset: &hookOffset, After: int64Pointer(hookOffset - 4)},
+			want:     []byte("two\n"),
+			wantNext: hookOffset,
+		},
+		{
+			name:     "hook section intersects after cursor within hook range",
+			data:     hookLog,
+			query:    LogQuery{Section: "hook", HookOffset: &hookOffset, After: int64Pointer(hookOffset + int64(len("[noon: ")))},
+			want:     []byte("on_failure hook exited 0]\nhook-output\n"),
+			wantNext: int64(len(hookLog)),
+		},
+		{
+			name:     "empty job intersection keeps cursor absolute and nondecreasing",
+			data:     hookLog,
+			query:    LogQuery{Section: "job", HookOffset: &hookOffset, After: int64Pointer(int64(len(hookLog)) - 1)},
+			want:     []byte{},
+			wantNext: int64(len(hookLog)) - 1,
+		},
+		{
+			name:     "hook section is empty without a recorded offset",
+			data:     hookLog,
+			query:    LogQuery{Section: "hook", After: int64Pointer(4)},
+			want:     []byte{},
+			wantNext: 4,
 		},
 	}
 	for _, tt := range tests {
@@ -156,6 +191,56 @@ func TestSelectLog(t *testing.T) {
 			t.Fatalf("long-line tail = %q, truncated=%v; want rune-safe %q, true", selected.Bytes, selected.Truncated, "δε\n")
 		}
 	})
+}
+
+// A hook append can be visible before its offset transaction commits; job-only
+// reads must not mistake those bytes for the job's final error output.
+func TestReadRunLogSelectionUncommittedHook(t *testing.T) {
+	stateDir := t.TempDir()
+	state, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	project, err := state.RegisterProject(t.TempDir(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := state.CreateRun(store.NewRun{ProjectID: project, Job: "hook", Trigger: "manual", Digest: "test", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := state.RunLog(project, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := log.Write([]byte("job-error")); err != nil {
+		t.Fatal(err)
+	}
+	logBytes, truncated, err := log.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit := 3
+	if err := state.FinishRun(run.ID, project, "hook", store.Outcome{Status: "failed", FinishedAt: now, ExitCode: &exit, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated, HookEvent: "on_failure"}); err != nil {
+		t.Fatal(err)
+	}
+	// Model the exact disk/row snapshot between CompleteHook's append and commit.
+	file, err := os.OpenFile(filepath.Join(stateDir, log.Path()), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("\n[noon: on_failure hook exited 0]\nhook-output\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, selected, err := ReadRunLogSelection(stateDir, run.ID, LogQuery{Section: "job"})
+	if err != nil || string(selected.Bytes) != "job-error" || selected.Next != logBytes {
+		t.Fatalf("uncommitted hook selection = %+v, err=%v", selected, err)
+	}
 }
 
 func int64Pointer(value int64) *int64    { return &value }

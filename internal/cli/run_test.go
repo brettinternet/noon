@@ -440,6 +440,9 @@ wait
   empty_override:
     run: 'true'
     on_success: []
+  hooked:
+    run: 'printf job-out; exit 3'
+    on_failure: 'printf hook-out'
   hook_failure:
     run: 'true'
     on_success: [%s]
@@ -450,7 +453,7 @@ wait
     run: 'exit 7'
     on_failure: 'mv "$NOON_LOG_FILE" "$NOON_LOG_FILE.saved"; mkdir "$NOON_LOG_FILE"; exit 1'
   slow_follow:
-    run: 'while test ! -f follow-release; do sleep 0.01; done'
+    run: 'printf job-partial; while test ! -f follow-release; do sleep 0.01; done'
     on_success: [%s]
   hook_timeout:
     run: 'true'
@@ -575,6 +578,27 @@ wait
 	if _, err := os.Stat(capture + ".calls"); !os.IsNotExist(err) {
 		t.Fatalf("disabled inherited hook ran: %v", err)
 	}
+	if logInfo := run["log"].(map[string]any); logInfo["hook_offset"] != nil {
+		t.Fatalf("run without a hook has hook_offset=%v, want null", logInfo["hook_offset"])
+	}
+	var noHookOut, noHookErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(run["id"]), "--section", "hook"}, config.BuildOpts{}, &noHookOut, &noHookErr); code != 0 || noHookOut.Len() != 0 {
+		t.Fatalf("empty hook section: exit=%d stdout=%q stderr=%q", code, noHookOut.String(), noHookErr.String())
+	}
+
+	run = runJSON("hooked", 3)
+	hookOffset := run["log"].(map[string]any)["hook_offset"]
+	if hookOffset != float64(len("job-out\n")) {
+		t.Fatalf("hook_offset=%v, want job section length %d including separator", hookOffset, len("job-out\n"))
+	}
+	var jobOut, jobErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(run["id"]), "--section", "job", "--tail", "1"}, config.BuildOpts{}, &jobOut, &jobErr); code != 0 || jobOut.String() != "job-out\n" || !strings.Contains(jobErr.String(), "--section job --after-cursor") {
+		t.Fatalf("job section tail: exit=%d stdout=%q stderr=%q", code, jobOut.String(), jobErr.String())
+	}
+	var hookOut, hookErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(run["id"]), "--section", "hook"}, config.BuildOpts{}, &hookOut, &hookErr); code != 0 || hookOut.String() != "[noon: on_failure hook exited 0]\nhook-out" {
+		t.Fatalf("hook section: exit=%d stdout=%q stderr=%q", code, hookOut.String(), hookErr.String())
+	}
 
 	run = runJSON("hook_failure", 0)
 	if run["status"] != "succeeded" {
@@ -642,6 +666,26 @@ wait
 	}()
 	if err := os.WriteFile(filepath.Join(root, "follow-release"), nil, 0o600); err != nil {
 		t.Fatal(err)
+	}
+	hookStarted := false
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		current, err := state.RunByID(slowRun.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.Status == "succeeded" && current.HookStatus.Valid && current.HookStatus.String == "running" {
+			hookStarted = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !hookStarted {
+		t.Fatal("slow hook did not enter its running state")
+	}
+	var jobWhileHook, jobWhileHookErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "logs", strconv.FormatInt(slowRun.ID, 10), "--section", "job"}, config.BuildOpts{}, &jobWhileHook, &jobWhileHookErr); code != 0 || jobWhileHook.String() != "job-partial" {
+		t.Fatalf("job section while hook runs: exit=%d stdout=%q stderr=%q", code, jobWhileHook.String(), jobWhileHookErr.String())
 	}
 	select {
 	case result := <-slowDone:

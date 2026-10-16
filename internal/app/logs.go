@@ -12,6 +12,8 @@ import (
 // LogQuery selects a bounded view of one retained run log. Nil values mean the
 // corresponding option was not supplied.
 type LogQuery struct {
+	Section              string
+	HookOffset           *int64
 	After                *int64
 	Tail                 *int
 	Match                *string
@@ -43,6 +45,9 @@ type selectedLogLine struct {
 
 // ValidateLogQuery validates query fields that do not depend on the file size.
 func ValidateLogQuery(query LogQuery) error {
+	if query.Section != "" && query.Section != "all" && query.Section != "job" && query.Section != "hook" {
+		return UsageError("section must be all, job, or hook", "Use --section all, --section job, or --section hook")
+	}
 	if query.After != nil && *query.After < 0 {
 		return UsageError("after must not be negative", "")
 	}
@@ -72,17 +77,43 @@ func SelectLog(data []byte, active bool, query LogQuery) (LogSelection, error) {
 		return LogSelection{}, err
 	}
 	size := int64(len(data))
-	start := int64(0)
+	after := int64(0)
 	if query.After != nil {
-		start = *query.After
-		if start < 0 {
+		after = *query.After
+		if after < 0 {
 			return LogSelection{}, UsageError("after must not be negative", "")
 		}
-		if start > size {
+		if after > size {
 			return LogSelection{}, UsageError("after must not exceed log size", "")
 		}
 	}
-	end := size
+	rangeStart, rangeEnd := int64(0), size
+	hookOffset := int64(0)
+	hasHookOffset := query.HookOffset != nil
+	if hasHookOffset {
+		hookOffset = max(0, min(*query.HookOffset, size))
+	}
+	section := query.Section
+	if section == "" {
+		section = "all"
+	}
+	switch section {
+	case "job":
+		if hasHookOffset {
+			rangeEnd = hookOffset
+		}
+	case "hook":
+		if hasHookOffset {
+			rangeStart = hookOffset
+		} else {
+			rangeEnd = 0
+		}
+	}
+	start := max(after, rangeStart)
+	end := min(size, rangeEnd)
+	if end < start {
+		end = start
+	}
 	if active && !query.IncludeActivePartial && end > start && data[end-1] != '\n' {
 		completeEnd := int64(bytes.LastIndexByte(data[:end], '\n') + 1)
 		if completeEnd < start {
@@ -227,6 +258,19 @@ func ReadRunLogSelection(stateDir string, id int64, query LogQuery) (Run, LogSel
 		data = nil
 	} else if err != nil {
 		return Run{}, LogSelection{}, err
+	}
+	if stored.HookLogOffset.Valid {
+		offset := stored.HookLogOffset.Int64
+		query.HookOffset = &offset
+	}
+	if query.Section == "job" && stored.Status != "running" && stored.HookStatus.Valid && stored.HookStatus.String == "running" {
+		query.IncludeActivePartial = true
+		if !stored.HookLogOffset.Valid {
+			// The hook append precedes its database commit. Until the boundary
+			// is published, only the recorded job bytes belong to this section.
+			offset := stored.LogBytes
+			query.HookOffset = &offset
+		}
 	}
 	selection, err := SelectLog(data, activeStoredRun(stored), query)
 	if err != nil {

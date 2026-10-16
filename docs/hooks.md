@@ -42,7 +42,8 @@ same path and null when unavailable. Stdin is one JSON object:
       "path": "/home/me/.local/state/noon/logs/1/12.log",
       "bytes": 42,
       "truncated": false,
-      "available": true
+      "available": true,
+      "hook_offset": null
     },
     "hook": {"event": "on_success", "status": "running", "exit_code": null}
   }
@@ -53,10 +54,13 @@ same path and null when unavailable. Stdin is one JSON object:
 path, `log.path` (null if unavailable), `event_file` (null without a payload), and the stored `digest`,
 `requested_by`, `idempotency_key`, `due_at`, `cancel_requested_at`, and `depth` request context. A
 hook gets 30 seconds; Noon then sends TERM to its process group, waits five seconds, and sends KILL if
-needed. The first 64 KiB of
-combined stdout and stderr are appended to the run log after a status marker. The run JSON records
-the hook event, status, and exit code. `noon logs RUN --follow` continues following while a hook
-is running. Hook output is subject to the existing per-job log retention.
+needed. The first 64 KiB of combined stdout and stderr are appended to the run log after a status
+marker. Run JSON records `log.hook_offset`, the absolute byte offset where that marker begins, or null
+when no hook was appended. If job output lacks a trailing newline, Noon inserts a separator newline
+before the marker; that separator remains part of the job section. Read just one part with
+`noon logs RUN --section job` or `noon logs RUN --section hook`. The run JSON also records the hook
+event, status, and exit code. `noon logs RUN --follow` continues following while a hook is running.
+Hook output is subject to the existing per-job log retention.
 
 ## macOS notification
 

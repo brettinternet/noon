@@ -71,18 +71,21 @@ ALTER TABLE runs ADD COLUMN hook_exit_code INTEGER;
 `, `
 ALTER TABLE runs ADD COLUMN event_path TEXT;
 ALTER TABLE runs ADD COLUMN depth INTEGER NOT NULL DEFAULT 0;
+`, `
+ALTER TABLE runs ADD COLUMN hook_log_offset INTEGER;
 `}
 
 type Store struct {
-	dir            string
-	db             *sql.DB
-	hasLogOverflow bool
-	hasApprovals   bool
-	hasScheduler   bool
-	hasQueue       bool
-	hasPauses      bool
-	hasHooks       bool
-	hasTriggers    bool
+	dir              string
+	db               *sql.DB
+	hasLogOverflow   bool
+	hasApprovals     bool
+	hasScheduler     bool
+	hasQueue         bool
+	hasPauses        bool
+	hasHooks         bool
+	hasTriggers      bool
+	hasHookLogOffset bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -120,6 +123,7 @@ type Run struct {
 	HookExitCode                 sql.NullInt64
 	EventPath                    sql.NullString
 	Depth                        int
+	HookLogOffset                sql.NullInt64
 }
 
 const (
@@ -154,7 +158,13 @@ func (s *Store) runSelectColumns() string {
 	} else {
 		columns += `, NULL, 0`
 	}
-	return columns + `, (SELECT path FROM projects WHERE id=runs.project_id)`
+	columns += `, (SELECT path FROM projects WHERE id=runs.project_id)`
+	if s.hasHookLogOffset {
+		columns += `, hook_log_offset`
+	} else {
+		columns += `, NULL`
+	}
+	return columns
 }
 
 func (s *Store) qualifiedRunSelectColumns() string {
@@ -182,7 +192,13 @@ func (s *Store) qualifiedRunSelectColumns() string {
 	} else {
 		columns += `, NULL, 0`
 	}
-	return columns + `, projects.path`
+	columns += `, projects.path`
+	if s.hasHookLogOffset {
+		columns += `, runs.hook_log_offset`
+	} else {
+		columns += `, NULL`
+	}
+	return columns
 }
 
 type runScanner interface {
@@ -192,7 +208,7 @@ type runScanner interface {
 func scanRun(row runScanner) (Run, error) {
 	var run Run
 	var startedAt sql.NullString
-	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt, &run.HookStatus, &run.HookExitCode, &run.EventPath, &run.Depth, &run.ProjectPath)
+	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt, &run.HookStatus, &run.HookExitCode, &run.EventPath, &run.Depth, &run.ProjectPath, &run.HookLogOffset)
 	run.StartedAt = startedAt.String
 	return run, err
 }
@@ -295,6 +311,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasPauses = version >= 6
 		state.hasHooks = version >= 7
 		state.hasTriggers = version >= 8
+		state.hasHookLogOffset = version >= 9
 		return state, nil
 	}
 	for {
@@ -335,6 +352,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasPauses = true
 	state.hasHooks = true
 	state.hasTriggers = true
+	state.hasHookLogOffset = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}
@@ -823,6 +841,7 @@ func (s *Store) CompleteHook(runID int64, event, status string, exitCode *int, o
 		return fmt.Errorf("hook for run %d is not running", runID)
 	}
 	logBytes := run.LogBytes
+	var hookLogOffset sql.NullInt64
 	var logErr error
 	if path, ok := s.RunLogFilePath(run); ok {
 		file, openErr := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0)
@@ -839,21 +858,35 @@ func (s *Store) CompleteHook(runID int64, event, status string, exitCode *int, o
 				}
 				marker += fmt.Sprintf("exited %d]\n", code)
 			}
-			prefix := []byte(nil)
-			if run.LogBytes > 0 {
-				var last [1]byte
-				if n, readErr := file.ReadAt(last[:], run.LogBytes-1); readErr == nil && n == 1 && last[0] != '\n' {
-					prefix = append(prefix, '\n')
+			fileInfo, statErr := file.Stat()
+			var writeErr error
+			var markerOffset int64
+			if statErr != nil {
+				writeErr = statErr
+			} else {
+				markerOffset = fileInfo.Size()
+				prefix := []byte(nil)
+				if markerOffset > 0 {
+					var last [1]byte
+					if n, readErr := file.ReadAt(last[:], markerOffset-1); readErr == nil && n == 1 && last[0] != '\n' {
+						prefix = append(prefix, '\n')
+					}
 				}
-			}
-			payload := append(prefix, marker...)
-			payload = append(payload, output...)
-			written, writeErr := file.Write(payload)
-			if writeErr == nil && written != len(payload) {
-				writeErr = fmt.Errorf("short hook log write")
-			}
-			if writeErr == nil {
-				writeErr = file.Sync()
+				markerOffset += int64(len(prefix))
+				payload := append(prefix, marker...)
+				payload = append(payload, output...)
+				written, appendErr := file.Write(payload)
+				// Preserve the boundary even if only part of the hook was appended.
+				if written > len(prefix) {
+					hookLogOffset = sql.NullInt64{Int64: markerOffset, Valid: true}
+				}
+				writeErr = appendErr
+				if writeErr == nil && written != len(payload) {
+					writeErr = fmt.Errorf("short hook log write")
+				}
+				if writeErr == nil {
+					writeErr = file.Sync()
+				}
 			}
 			if closeErr := file.Close(); writeErr == nil {
 				writeErr = closeErr
@@ -877,7 +910,19 @@ func (s *Store) CompleteHook(runID int64, event, status string, exitCode *int, o
 	if exitCode != nil {
 		exit = *exitCode
 	}
-	result, err := tx.Exec(`UPDATE runs SET hook_status=?, hook_exit_code=?, log_bytes=? WHERE id=? AND hook_status='running'`, status, exit, logBytes, runID)
+	query := `UPDATE runs SET hook_status=?, hook_exit_code=?, log_bytes=?`
+	args := []any{status, exit, logBytes}
+	if s.hasHookLogOffset {
+		query += `, hook_log_offset=?`
+		var offset any
+		if hookLogOffset.Valid {
+			offset = hookLogOffset.Int64
+		}
+		args = append(args, offset)
+	}
+	query += ` WHERE id=? AND hook_status='running'`
+	args = append(args, runID)
+	result, err := tx.Exec(query, args...)
 	if err != nil {
 		return errors.Join(logErr, fmt.Errorf("complete hook: %w", err))
 	}

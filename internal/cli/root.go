@@ -52,6 +52,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "logs", Usage: "Read a run log, follow it, or print its path", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "follow", Usage: "Follow a running run until it finishes"},
 				&urfave.BoolFlag{Name: "path", Usage: "Print the absolute log path"},
+				&urfave.StringFlag{Name: "section", Value: "all", Usage: "read all, job, or hook output"},
 				&urfave.IntFlag{Name: "tail", Aliases: []string{"n"}, Usage: "keep the last 1–10000 selected lines"},
 				&urfave.Int64Flag{Name: "after-cursor", Aliases: []string{"c"}, Usage: "read from byte offset BYTES and return a resumable cursor"},
 				&urfave.StringFlag{Name: "match", Aliases: []string{"m"}, Usage: "select lines matching a Go RE2 regular expression"},

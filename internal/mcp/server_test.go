@@ -44,7 +44,7 @@ func TestMCP(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Dir(stateDir))
 	input := config.Input{CWD: root, UserConfigDir: userConfigDir, StateDirDefault: stateDir}
 
-	manifest := "jobs:\n  shared: {run: 'true'}\n  approved: {run: 'printf mcp-finished'}\n  queued-cancel: {run: 'true'}\n  search: {run: \"printf 'before\\nneedle\\nafter\\n'\"}\n  large: {run: 'seq 1 5000'}\n  invalid: {run: \"printf '\\\\377\\\\n'\"}\n"
+	manifest := "jobs:\n  shared: {run: 'true'}\n  approved: {run: 'printf mcp-finished'}\n  queued-cancel: {run: 'true'}\n  search: {run: \"printf 'before\\nneedle\\nafter\\n'\"}\n  hooked: {run: 'printf job-out; exit 3', on_failure: 'printf hook-out'}\n  large: {run: 'seq 1 5000'}\n  invalid: {run: \"printf '\\\\377\\\\n'\"}\n"
 	writeManifest(t, root, manifest)
 	cfg, err := config.Load(input)
 	if err != nil {
@@ -262,6 +262,12 @@ func TestMCP(t *testing.T) {
 	if !invalidContext.IsError || decodeObject(t, invalidContext.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
 		t.Fatalf("get_run accepted context without match: %+v", invalidContext)
 	}
+	for _, section := range []string{"bad", ""} {
+		invalidSection := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": immediateID, "section": section})
+		if !invalidSection.IsError || decodeObject(t, invalidSection.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
+			t.Fatalf("get_run accepted invalid section: %+v", invalidSection)
+		}
+	}
 
 	schedulerCtx, stopScheduler := context.WithCancel(ctx)
 	schedulerDone := make(chan error, 1)
@@ -345,6 +351,20 @@ func TestMCP(t *testing.T) {
 	searchPage := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": searchID, "after": searchNext, "match": "needle", "context": 1})
 	if searchPage.IsError || decodeObject(t, searchPage.StructuredContent)["log"] != "" {
 		t.Fatalf("get_run after terminal next: error=%v result=%+v", searchPage.IsError, searchPage.StructuredContent)
+	}
+
+	hookedRequest := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "hooked"})
+	if hookedRequest.IsError {
+		t.Fatalf("queue hooked job: %s", textContent(hookedRequest))
+	}
+	hookedID := int64(decodeObject(t, hookedRequest.StructuredContent)["run"].(map[string]any)["id"].(float64))
+	hookedJob := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": hookedID, "wait_seconds": 5, "section": "job"})
+	if hookedJob.IsError {
+		t.Fatalf("get_run hooked job section: %s", textContent(hookedJob))
+	}
+	hookedValue := decodeObject(t, hookedJob.StructuredContent)
+	if hookedValue["log"] != "job-out\n" || strings.Contains(hookedValue["log"].(string), "hook-out") {
+		t.Fatalf("get_run section=job returned hook bytes: %+v", hookedValue)
 	}
 
 	invalidRequest := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "invalid"})

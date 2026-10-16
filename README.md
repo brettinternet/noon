@@ -51,6 +51,8 @@ bin/noon logs            # print the latest started run log
 bin/noon logs tests      # print this job's latest started log
 bin/noon logs tests --status failed # print its latest failure
 bin/noon logs 12 --follow # follow a running run
+bin/noon logs 12 --section job # read only the job output
+bin/noon logs 12 --section hook # read only hook output
 bin/noon logs 12 --path   # print the absolute path of its retained log
 bin/noon config          # effective settings and source files
 bin/noon config check    # validate without writing anything
@@ -136,15 +138,19 @@ output and exits 1 with code `orphaned` and a `noon cancel RUN` hint. Inspection
 cancels runs. `--status S` selects runs by one or more statuses,
 using the same repeated or comma-separated values as `history`; only an explicit status filter can
 select a queued or otherwise never-started run. Numeric RUN selectors cannot be combined with
-`--status`. `--tail/-n N` keeps the last 1–10000 lines;
-`--after-cursor/-c BYTES` reads forward from a byte offset; `--match/-m REGEX` searches lines with a
-case-sensitive Go RE2 expression, and `--context N` adds up to 50 lines around matches. Context
-requires `--match`. `--limit-bytes/-b N` caps output while keeping whole lines where possible.
-Unflagged CLI snapshots, including JSON, include the full current log; bounded CLI and MCP snapshots
-omit an active unfinished trailing line. JSON returns `log`, `next`, `size`, `truncated`, and
-`matched_lines`; pass `next` back as `--after-cursor` for a forward page. Bounded human reads keep
-selected text on stdout and print the resume command to stderr. Follow accepts only `--tail` and
-`--after-cursor`; `--path` cannot be combined with selection flags, `--json`, or `--follow`.
+`--status`. `--section all|job|hook` selects the whole log (default), job output, or hook output;
+`--tail/-n N` keeps the last 1–10000 lines; `--after-cursor/-c BYTES` reads forward from an absolute
+file byte offset; `--match/-m REGEX` searches lines with a case-sensitive Go RE2 expression, and
+`--context N` adds up to 50 lines around matches. Context requires `--match`.
+`--limit-bytes/-b N` caps output while keeping whole lines where possible. Unflagged CLI snapshots,
+including JSON, include the full current log; bounded CLI and MCP snapshots omit an active unfinished
+trailing line. JSON returns `log`, `next`, `size`, `truncated`, and `matched_lines`; pass `next` back
+as `--after-cursor` for a forward page, keeping the selected `--section`. Run JSON includes nullable `log.hook_offset`, the absolute
+byte offset where the hook marker starts. Any separator newline is part of the job section; before a
+hook is appended, `job` includes all bytes written so far and `hook` is empty. Bounded human reads
+keep selected text on stdout and print the resume command to stderr. Follow accepts only `--tail` and
+`--after-cursor`, not `--section`; `--path` cannot be combined with selection flags, `--json`, or
+`--follow`.
 
 `noon logs [NAME|RUN] --path` prints the absolute path of the selected retained log. Run JSON (from
 `history`, `logs`, `run --json`, MCP run tools, `last_run`, and hook stdin) includes the canonical
@@ -196,9 +202,11 @@ MCP can inspect jobs and runs, queue only jobs permitted by the same project ena
 shared-job approval rules as the CLI, pass an optional JSON `data` value to `run_job`, read bounded
 log tails or pages, search `get_run` with `match` and `context`, and cancel runs. `list_runs` accepts
 an optional status array. `get_run` accepts either a global `run_id` or a `job`; job selection uses
-the newest started matching run, with optional absolute `project` and status array. `get_run` returns
-`next`, `size`, `truncated`, nullable `matched_lines`, and `orphaned` (a boolean). Its optional
-`wait_seconds` stops early if the run or hook owner exits without recording a result; pass `next` as `after` to page forward.
+the newest started matching run, with optional absolute `project` and status array. Its `section` is
+`all` (default), `job`, or `hook`; use `section: "job"` when diagnosing a failure so hook output
+does not obscure the job's error. `get_run` returns `next`, `size`, `truncated`, nullable
+`matched_lines`, and `orphaned` (a boolean). Its optional `wait_seconds` stops early if the run or
+hook owner exits without recording a result; pass `next` as `after` to page forward.
 It cannot add, edit, remove, enable, approve, pause, or resume jobs. The initialize client's name and version
 are recorded as metadata on queued runs; identity does not grant authority. Optional `project`
 paths on `status`, `list_jobs`, `run_job`, `list_runs`, and `get_run` job selection must be absolute.

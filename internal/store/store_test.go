@@ -133,7 +133,7 @@ func TestStore(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 8 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 9 {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		for _, statement := range []string{
@@ -144,6 +144,7 @@ func TestStore(t *testing.T) {
 			`SELECT idempotency_key, cancel_requested_at FROM runs`,
 			`SELECT hook_status, hook_exit_code FROM runs`,
 			`SELECT event_path, depth FROM runs`,
+			`SELECT hook_log_offset FROM runs`,
 		} {
 			rows, err := s.db.Query(statement)
 			if err != nil {
@@ -255,12 +256,53 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 8 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 8", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 9 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 9", version, err)
 		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.LogOverflow {
 			t.Fatalf("migrated legacy run = %+v err=%v", migrated, err)
+		}
+	})
+
+	t.Run("read-only previous-schema inspection exposes no hook offset", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, databaseName)
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, migration := range migrations[:8] {
+			if _, err := db.Exec(migration); err != nil {
+				t.Fatalf("apply previous migration %d: %v", i+1, err)
+			}
+			if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version=%d", i+1)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		created := FormatTime(time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC))
+		if _, err := db.Exec(`INSERT INTO projects(path, created_at) VALUES(?, ?)`, "/previous-project", created); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, created_at, started_at, log_path, log_bytes, log_truncated)
+VALUES(1, 'previous', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)`, created, created); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		state, err := OpenExisting(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		previous, err := state.RunByID(1)
+		if err != nil || previous.Job != "previous" {
+			t.Fatalf("previous-schema run = %+v err=%v", previous, err)
+		}
+		if previous.HookLogOffset.Valid {
+			t.Fatalf("previous-schema hook offset = %+v; want null", previous.HookLogOffset)
 		}
 	})
 
@@ -271,7 +313,7 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=9"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=10"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -283,8 +325,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 9 {
-			t.Fatalf("Open error = %v, want StateTooNewError(9)", err)
+		if !errors.As(err, &newer) || newer.Version != 10 {
+			t.Fatalf("Open error = %v, want StateTooNewError(10)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {

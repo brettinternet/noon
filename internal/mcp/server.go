@@ -49,6 +49,7 @@ type getRunArgs struct {
 	Tail        *int     `json:"tail,omitempty" jsonschema:"keep the last 1 to 10000 selected log lines"`
 	Match       *string  `json:"match,omitempty" jsonschema:"case-sensitive Go RE2 regular expression matched against each line"`
 	Context     *int     `json:"context,omitempty" jsonschema:"include 0 to 50 lines around each match; requires match"`
+	Section     *string  `json:"section,omitempty" jsonschema:"select all, job, or hook output; use job when diagnosing a failure"`
 }
 
 type cancelRunArgs struct {
@@ -218,7 +219,14 @@ func NewServer(input config.Input, version string) *protocol.Server {
 		if args.LogBytes != nil {
 			logBytes = *args.LogBytes
 		}
-		query := app.LogQuery{After: args.After, Tail: args.Tail, Match: args.Match, Context: args.Context, LimitBytes: &logBytes, RepairUTF8: true}
+		section := "all"
+		if args.Section != nil {
+			section = *args.Section
+			if section == "" {
+				return toolFailure(app.UsageError("section must be all, job, or hook", ""))
+			}
+		}
+		query := app.LogQuery{Section: section, After: args.After, Tail: args.Tail, Match: args.Match, Context: args.Context, LimitBytes: &logBytes, RepairUTF8: true}
 		var view app.RunDetail
 		if args.RunID != nil {
 			view, err = app.GetRun(ctx, stateDir, *args.RunID, waitSeconds, query)
