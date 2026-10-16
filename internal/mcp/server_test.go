@@ -280,7 +280,7 @@ func TestServeStdioCanonicalIDsAndEOFDrain(t *testing.T) {
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
 		marshalProtocolLine(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": map[string]any{}}),
 	}
-	output, err, elapsed := serveStdio(t, server, strings.Join(lines, "\n")+"\n", 2*time.Second)
+	output, elapsed, err := serveStdio(t, server, strings.Join(lines, "\n")+"\n", 2*time.Second)
 	if err != nil {
 		t.Fatalf("ServeStdio: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestServeStdioConcurrentCancellationAndEOFDrain(t *testing.T) {
 		marshalProtocolLine(t, map[string]any{"jsonrpc": "2.0", "method": "notifications/cancelled", "params": map[string]any{"requestId": 2, "reason": "test cancellation"}}),
 		marshalProtocolLine(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "cancel_run", "arguments": map[string]any{"run_id": runID}}}),
 	}
-	output, err, elapsed := serveStdio(t, server, strings.Join(lines, "\n")+"\n", 2*time.Second)
+	output, elapsed, err := serveStdio(t, server, strings.Join(lines, "\n")+"\n", 2*time.Second)
 	if err != nil {
 		t.Fatalf("ServeStdio concurrent requests: %v", err)
 	}
@@ -396,7 +396,7 @@ func stdioFixture(t *testing.T) (config.Input, string, int64) {
 	return input, stateDir, queued.Run.ID
 }
 
-func serveStdio(t *testing.T, server *protocol.Server, input string, timeout time.Duration) ([]byte, error, time.Duration) {
+func serveStdio(t *testing.T, server *protocol.Server, input string, timeout time.Duration) ([]byte, time.Duration, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -408,10 +408,10 @@ func serveStdio(t *testing.T, server *protocol.Server, input string, timeout tim
 	}()
 	select {
 	case err := <-done:
-		return append([]byte(nil), output.Bytes()...), err, time.Since(started)
+		return append([]byte(nil), output.Bytes()...), time.Since(started), err
 	case <-ctx.Done():
 		t.Fatalf("ServeStdio did not finish before %s", timeout)
-		return nil, ctx.Err(), time.Since(started)
+		return nil, time.Since(started), ctx.Err()
 	}
 }
 
