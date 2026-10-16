@@ -281,6 +281,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 				if err != nil {
 					return store.SchedulerPlan{}, err
 				}
+				snapshot = withoutUnloaded(snapshot, configs)
 				states, err := plannerStates(snapshot.States)
 				if err != nil {
 					return store.SchedulerPlan{}, err
@@ -309,7 +310,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 				if err != nil {
 					return store.DispatchPlan{}, err
 				}
-				runs, err := plannerRuns(snapshot.Runs)
+				runs, err := plannerRuns(withoutUnloaded(snapshot, configs).Runs)
 				if err != nil {
 					return store.DispatchPlan{}, err
 				}
@@ -388,7 +389,7 @@ func (l *schedulerLock) writeOwner(pid int, identity, startedAt string) error {
 	if _, err := l.file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("write scheduler lock owner: %w", err)
 	}
-	if _, err := fmt.Fprintf(l.file, "%d %s %s\\n", pid, identity, startedAt); err != nil {
+	if _, err := fmt.Fprintf(l.file, "%d %s %s\n", pid, identity, startedAt); err != nil {
 		return fmt.Errorf("write scheduler lock owner: %w", err)
 	}
 	if err := l.file.Sync(); err != nil {
@@ -507,11 +508,47 @@ func sameStamps(a, b []fileStamp) bool {
 	return true
 }
 
+// loadedConfig returns the project's validated snapshot for its current selection.
+func loadedConfig(project store.EnabledProject, configs map[int64]*projectConfig) *projectConfig {
+	cached := configs[project.ID]
+	if cached == nil || cached.config == nil || cached.configSelection != configSelection(project) {
+		return nil
+	}
+	return cached
+}
+
+// withoutUnloaded hides enabled projects that have no valid configuration yet
+// from the planners, so a transient config error neither resets their schedule
+// watermarks nor cancels their queued runs. Running runs still count toward caps.
+func withoutUnloaded(snapshot store.SchedulerSnapshot, configs map[int64]*projectConfig) store.SchedulerSnapshot {
+	unloaded := map[int64]bool{}
+	for _, project := range snapshot.Projects {
+		if loadedConfig(project, configs) == nil {
+			unloaded[project.ID] = true
+		}
+	}
+	if len(unloaded) == 0 {
+		return snapshot
+	}
+	filtered := store.SchedulerSnapshot{Projects: snapshot.Projects}
+	for _, state := range snapshot.States {
+		if !unloaded[state.ProjectID] {
+			filtered.States = append(filtered.States, state)
+		}
+	}
+	for _, run := range snapshot.Runs {
+		if run.Status == "running" || !unloaded[run.ProjectID] {
+			filtered.Runs = append(filtered.Runs, run)
+		}
+	}
+	return filtered
+}
+
 func makeJobInputs(snapshot store.SchedulerSnapshot, configs map[int64]*projectConfig) ([]JobInput, error) {
 	jobs := make([]JobInput, 0)
 	for _, project := range snapshot.Projects {
-		cached := configs[project.ID]
-		if cached == nil || cached.config == nil || cached.configSelection != configSelection(project) {
+		cached := loadedConfig(project, configs)
+		if cached == nil {
 			continue
 		}
 		location, err := time.LoadLocation(cached.config.Timezone)

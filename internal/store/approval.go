@@ -127,6 +127,10 @@ func (s *Store) EnableAddedJob(path string, configFile *string, name, digest str
 	}
 	defer tx.Rollback()
 	stamp := FormatTime(now)
+	wasEnabled := false
+	if err := tx.QueryRow(`SELECT enabled FROM projects WHERE path=?`, path).Scan(&wasEnabled); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	_, err = tx.Exec(`INSERT INTO projects(path,created_at,enabled,enabled_at,config_file) VALUES(?,?,1,?,?) ON CONFLICT(path) DO UPDATE SET enabled=1, enabled_at=CASE WHEN projects.enabled=0 THEN excluded.enabled_at ELSE projects.enabled_at END, config_file=excluded.config_file`, path, stamp, stamp, configFile)
 	if err != nil {
 		return err
@@ -140,7 +144,14 @@ func (s *Store) EnableAddedJob(path string, configFile *string, name, digest str
 			return err
 		}
 	}
-	if _, err = tx.Exec(`DELETE FROM job_state WHERE project_id=? AND job=?`, id, name); err != nil {
+	// Activation resets every watermark, as EnableProject does, so jobs never
+	// catch up on occurrences that passed while the project was disabled.
+	if wasEnabled {
+		_, err = tx.Exec(`DELETE FROM job_state WHERE project_id=? AND job=?`, id, name)
+	} else {
+		_, err = tx.Exec(`DELETE FROM job_state WHERE project_id=?`, id)
+	}
+	if err != nil {
 		return err
 	}
 	return tx.Commit()
