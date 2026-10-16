@@ -343,6 +343,43 @@ jobs:
 }
 
 func TestCancelQueued(t *testing.T) {
+	t.Run("retention clears cancelled run payload path", func(t *testing.T) {
+		root := sandbox(t)
+		if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte("jobs:\n  tests: {run: 'true'}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if code, _ := invoke(t, "enable", "--json"); code != 0 {
+			t.Fatal("enable failed")
+		}
+		code, queued := invoke(t, "run", "tests", "--in", "24h", "--data", `{"source":"retention"}`, "--json")
+		if code != 0 {
+			t.Fatalf("queue: %v", queued)
+		}
+		run := queued["run"].(map[string]any)
+		id := fmt.Sprint(run["id"])
+		eventPath := run["event_file"].(string)
+		if _, err := os.Stat(eventPath); err != nil {
+			t.Fatal(err)
+		}
+		for range 50 {
+			var out, stderr bytes.Buffer
+			if code := cli.Run(context.Background(), []string{"noon", "run", "tests"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+				t.Fatalf("foreground run: exit=%d stderr=%s", code, &stderr)
+			}
+		}
+		code, cancelled := invoke(t, "cancel", id, "--json")
+		if code != 0 {
+			t.Fatalf("cancel: %v", cancelled)
+		}
+		result := cancelled["runs"].([]any)[0].(map[string]any)
+		log := result["log"].(map[string]any)
+		if result["status"] != "cancelled" || result["event_file"] != nil || log["path"] != nil || log["available"] != false {
+			t.Fatalf("pruned cancellation metadata: %v", result)
+		}
+		if _, err := os.Stat(eventPath); !os.IsNotExist(err) {
+			t.Fatalf("event file not pruned: %v", err)
+		}
+	})
 	root := sandbox(t)
 	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte("timezone: UTC\njobs:\n  tests: {run: 'true'}\n"), 0o600); err != nil {
 		t.Fatal(err)

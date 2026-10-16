@@ -17,20 +17,43 @@ on_failure: [/Users/me/.local/bin/noon-notify]
 ```
 
 Hooks run after Noon durably records the terminal run status and outside scheduler concurrency
-limits. They use the job's working directory and environment, plus `NOON_STATUS`,
-`NOON_EXIT_CODE`, and `NOON_LOG_FILE` (an absolute path, omitted when no run log exists). Stdin is
-one JSON object:
+limits. They use the job's working directory and environment, plus `NOON_STATUS`, `NOON_EXIT_CODE`, and
+`NOON_LOG_FILE` (an absolute path, omitted when no run log exists). The JSON `run.log.path` is the
+same path and null when unavailable. Stdin is one JSON object:
 
 ```json
 {
   "schema_version": 1,
   "project": {"path": "/path/to/project", "name": "project"},
-  "run": {"id": 12, "job": "backup", "status": "succeeded", "hook": {"event": "on_success", "status": "running", "exit_code": null}}
+  "run": {
+    "id": 12,
+    "project": "/path/to/project",
+    "job": "backup",
+    "status": "succeeded",
+    "trigger": "manual",
+    "digest": "…",
+    "requested_by": null,
+    "idempotency_key": null,
+    "due_at": null,
+    "cancel_requested_at": null,
+    "event_file": null,
+    "depth": 0,
+    "log": {
+      "path": "/home/me/.local/state/noon/logs/1/12.log",
+      "bytes": 42,
+      "truncated": false,
+      "available": true
+    },
+    "hook": {"event": "on_success", "status": "running", "exit_code": null}
+  }
 }
 ```
 
-`run` uses the same JSON shape as `noon history --json`. A hook gets 30 seconds; Noon then sends
-TERM to its process group, waits five seconds, and sends KILL if needed. The first 64 KiB of
+`run` uses the same JSON shape as `noon history --json`: it includes the canonical absolute `project`
+path, `log.path` (null if unavailable), `event_file` (null without a payload), and the stored `digest`,
+`requested_by`, `idempotency_key`, `due_at`, `cancel_requested_at`, and `depth` request context. A
+hook gets 30 seconds; Noon then sends TERM to its process group, waits five seconds, and sends KILL if
+needed. The first 64 KiB of
 combined stdout and stderr are appended to the run log after a status marker. The run JSON records
 the hook event, status, and exit code. `noon logs RUN --follow` continues following while a hook
 is running. Hook output is subject to the existing per-job log retention.

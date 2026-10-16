@@ -103,6 +103,7 @@ func (e *AlreadyRunningError) Error() string {
 type Run struct {
 	ID, ProjectID                int64
 	Job, Status, Trigger, Digest string
+	ProjectPath                  string
 	ScheduledAt                  sql.NullString
 	CreatedAt, StartedAt         string
 	FinishedAt, Error, Signal    sql.NullString
@@ -149,9 +150,11 @@ func (s *Store) runSelectColumns() string {
 		columns += `, NULL, NULL`
 	}
 	if s.hasTriggers {
-		return columns + `, event_path, depth`
+		columns += `, event_path, depth`
+	} else {
+		columns += `, NULL, 0`
 	}
-	return columns + `, NULL, 0`
+	return columns + `, (SELECT path FROM projects WHERE id=runs.project_id)`
 }
 
 func (s *Store) qualifiedRunSelectColumns() string {
@@ -175,9 +178,11 @@ func (s *Store) qualifiedRunSelectColumns() string {
 		columns += `, NULL, NULL`
 	}
 	if s.hasTriggers {
-		return columns + `, runs.event_path, runs.depth`
+		columns += `, runs.event_path, runs.depth`
+	} else {
+		columns += `, NULL, 0`
 	}
-	return columns + `, NULL, 0`
+	return columns + `, projects.path`
 }
 
 type runScanner interface {
@@ -187,7 +192,7 @@ type runScanner interface {
 func scanRun(row runScanner) (Run, error) {
 	var run Run
 	var startedAt sql.NullString
-	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt, &run.HookStatus, &run.HookExitCode, &run.EventPath, &run.Depth)
+	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt, &run.HookStatus, &run.HookExitCode, &run.EventPath, &run.Depth, &run.ProjectPath)
 	run.StartedAt = startedAt.String
 	return run, err
 }

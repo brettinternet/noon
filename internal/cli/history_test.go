@@ -67,7 +67,7 @@ func TestHistoryAndLogs(t *testing.T) {
 		if int64(newest["id"].(float64)) != badID || newest["status"] != "failed" || newest["exit_code"] != float64(7) || int64(previous["id"].(float64)) != testsID || previous["status"] != "succeeded" {
 			t.Fatalf("history order/status/exit = %+v", runs)
 		}
-		for _, key := range []string{"id", "job", "status", "trigger", "scheduled_at", "created_at", "started_at", "finished_at", "duration_ms", "exit_code", "signal", "error", "log"} {
+		for _, key := range []string{"id", "project", "job", "status", "trigger", "digest", "scheduled_at", "created_at", "started_at", "finished_at", "duration_ms", "exit_code", "signal", "error", "requested_by", "idempotency_key", "due_at", "cancel_requested_at", "event_file", "depth", "log"} {
 			if _, ok := newest[key]; !ok {
 				t.Fatalf("run JSON missing %q: %+v", key, newest)
 			}
@@ -75,9 +75,24 @@ func TestHistoryAndLogs(t *testing.T) {
 		if newest["scheduled_at"] != nil || newest["signal"] != nil || newest["error"] != nil {
 			t.Fatalf("nullable run values were not null: %+v", newest)
 		}
+		canonicalProject, err := filepath.EvalSymlinks(project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, digestIsString := newest["digest"].(string)
+		if newest["project"] != canonicalProject || !digestIsString || digest == "" || newest["depth"] != float64(0) || newest["event_file"] != nil || newest["requested_by"] != nil || newest["idempotency_key"] != nil || newest["due_at"] != nil || newest["cancel_requested_at"] != nil {
+			t.Fatalf("run project/request context: %+v", newest)
+		}
 		newestLog := newest["log"].(map[string]any)
 		if newestLog["available"] != true || newestLog["bytes"] == float64(0) {
 			t.Fatalf("run log metadata: %+v", newestLog)
+		}
+		newestPath, ok := newestLog["path"].(string)
+		if !ok || !filepath.IsAbs(newestPath) {
+			t.Fatalf("history log path is not absolute: %+v", newestLog)
+		}
+		if _, err := os.Stat(newestPath); err != nil {
+			t.Fatalf("history log path does not exist: %q: %v", newestPath, err)
 		}
 		code, listJSON := invoke(t, "list", "--json")
 		if code != 0 {
@@ -117,6 +132,33 @@ func TestHistoryAndLogs(t *testing.T) {
 		if code != 0 || int64(bareLog["run"].(map[string]any)["id"].(float64)) != badID || bareLog["log"] != "bad-log" {
 			t.Fatalf("bare logs selection: %d %+v", code, bareLog)
 		}
+		logRun := bareLog["run"].(map[string]any)
+		logPath, ok := logRun["log"].(map[string]any)["path"].(string)
+		if !ok || logPath != newestPath {
+			t.Fatalf("logs and history paths differ: logs=%+v history=%q", logRun["log"], newestPath)
+		}
+		var pathOut, pathErr bytes.Buffer
+		code = cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(badID), "--path"}, config.BuildOpts{}, &pathOut, &pathErr)
+		if code != 0 || pathErr.Len() != 0 || pathOut.String() != newestPath+"\n" {
+			t.Fatalf("logs --path: exit=%d stdout=%q stderr=%q want=%q", code, pathOut.String(), pathErr.String(), newestPath+"\n")
+		}
+		for _, args := range [][]string{{"logs", fmt.Sprint(badID), "--path", "--json"}, {"logs", fmt.Sprint(badID), "--path", "--follow"}} {
+			var conflictOut, conflictErr bytes.Buffer
+			code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &conflictOut, &conflictErr)
+			if code != 2 || !strings.Contains(conflictOut.String()+conflictErr.String(), "log.path") {
+				t.Fatalf("logs --path conflict %v: exit=%d stdout=%q stderr=%q", args, code, conflictOut.String(), conflictErr.String())
+			}
+			if args[len(args)-1] == "--json" {
+				var errorOutput map[string]any
+				if err := json.Unmarshal(conflictOut.Bytes(), &errorOutput); err != nil {
+					t.Fatalf("logs --path --json did not return JSON error: %v stdout=%q", err, conflictOut.String())
+				}
+				failure := errorOutput["error"].(map[string]any)
+				if failure["code"] != "usage" || !strings.Contains(failure["hint"].(string), "log.path") || conflictErr.Len() != 0 {
+					t.Fatalf("logs --path --json error = %+v stderr=%q", failure, conflictErr.String())
+				}
+			}
+		}
 		code, namedLog := invoke(t, "logs", "tests", "--json")
 		if code != 0 || int64(namedLog["run"].(map[string]any)["id"].(float64)) != testsID || namedLog["log"] != "tests-log�" {
 			t.Fatalf("job logs selection or UTF-8 replacement: %d %+v", code, namedLog)
@@ -141,7 +183,7 @@ func TestHistoryAndLogs(t *testing.T) {
 		var oldRun int64
 		for i := range 22 {
 			now := time.Now().Add(time.Duration(i) * time.Millisecond)
-			run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: "prune", Trigger: "manual", Digest: "test", Now: now, OwnerPID: os.Getpid(), OwnerStart: "test"})
+			run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: "prune", Trigger: "manual", Digest: "test", Now: now, OwnerPID: os.Getpid(), OwnerStart: "test", EventData: []byte(`{"pruned":true}`), EventSource: "cli"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -179,6 +221,12 @@ func TestHistoryAndLogs(t *testing.T) {
 		if code != 1 || !strings.Contains(missingErr.String(), "Logs are kept for the newest 10 runs per job") {
 			t.Fatalf("missing terminal log follow did not explain retention: exit=%d stdout=%s stderr=%s", code, missingOut.String(), missingErr.String())
 		}
+		missingOut.Reset()
+		missingErr.Reset()
+		code = cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(testsID), "--path"}, config.BuildOpts{}, &missingOut, &missingErr)
+		if code != 1 || missingOut.Len() != 0 || !strings.Contains(missingErr.String(), "Logs are kept for the newest 10 runs per job") {
+			t.Fatalf("missing terminal log path did not explain retention: exit=%d stdout=%s stderr=%s", code, missingOut.String(), missingErr.String())
+		}
 		code, defaultHistory := invoke(t, "history", "--json")
 		if code != 0 || len(defaultHistory["runs"].([]any)) != 20 {
 			t.Fatalf("default history limit: %d %+v", code, defaultHistory)
@@ -187,10 +235,26 @@ func TestHistoryAndLogs(t *testing.T) {
 		if code != 0 || len(maximumHistory["runs"].([]any)) != 24 {
 			t.Fatalf("maximum history limit: %d %+v", code, maximumHistory)
 		}
+		code, prunedHistory := invoke(t, "history", "prune", "--limit", "50", "--json")
+		var prunedRun map[string]any
+		for _, raw := range prunedHistory["runs"].([]any) {
+			run := raw.(map[string]any)
+			if int64(run["id"].(float64)) == oldRun {
+				prunedRun = run
+				break
+			}
+		}
+		if code != 0 || prunedRun == nil {
+			t.Fatalf("pruned run missing from history: exit=%d history=%+v", code, prunedHistory)
+		}
+		prunedLog := prunedRun["log"].(map[string]any)
+		if prunedLog["available"] != false || prunedLog["path"] != nil || prunedRun["event_file"] != nil {
+			t.Fatalf("pruned run paths were not null: run=%+v", prunedRun)
+		}
 		var out, stderr bytes.Buffer
-		code = cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(oldRun)}, config.BuildOpts{}, &out, &stderr)
+		code = cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(oldRun), "--path"}, config.BuildOpts{}, &out, &stderr)
 		if code != 1 || !strings.Contains(stderr.String(), "Logs are kept for the newest 10 runs per job") {
-			t.Fatalf("pruned log explanation: exit=%d stdout=%s stderr=%s", code, out.String(), stderr.String())
+			t.Fatalf("pruned log path error: exit=%d stdout=%s stderr=%s", code, out.String(), stderr.String())
 		}
 	})
 

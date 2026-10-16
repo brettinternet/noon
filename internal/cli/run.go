@@ -263,7 +263,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 			command = strings.Join(quoted, " ")
 		}
 	}
-	fmt.Fprintf(cmd.ErrWriter, "▶ %s · %s\n", name, cell(command, 240))
+	fmt.Fprintf(cmd.ErrWriter, "▶ %s · run %d · %s\n", name, run.ID, cell(command, 240))
 	var result runner.Result
 	if startErr != nil {
 		now := time.Now()
@@ -333,7 +333,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		if err != nil {
 			return stateError(err)
 		}
-		if err := emit(cmd, map[string]any{"run": app.RunFromStore(stored)}); err != nil {
+		if err := emit(cmd, map[string]any{"run": app.RunFromStore(state, stored)}); err != nil {
 			return err
 		}
 	}

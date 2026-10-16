@@ -83,6 +83,10 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		return usageError("logs accepts at most one job name or run ID", "Run noon logs [NAME|RUN]")
 	}
 	follow := cmd.Bool("follow")
+	pathOnly := cmd.Bool("path")
+	if pathOnly && (follow || cmd.Bool("json")) {
+		return usageError("logs --path cannot be used with --json or --follow", "Run noon logs [NAME|RUN] --json and read .run.log.path")
+	}
 	if follow && cmd.Bool("json") {
 		return usageError("logs --follow cannot be used with --json", "Run noon logs without --follow to get JSON")
 	}
@@ -133,6 +137,16 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 			return noRuns(cmd, "")
 		}
 		run = runs[0]
+	}
+	if pathOnly {
+		if !run.Log.Available || run.Log.Path == nil {
+			return prunedLogError(run.ID)
+		}
+		if _, _, err := app.ReadRunLog(cfg.StateDir, run.ID); err != nil {
+			return logReadError(run.ID, err)
+		}
+		_, err := fmt.Fprintln(cmd.Writer, *run.Log.Path)
+		return err
 	}
 	if follow {
 		if err := app.FollowLog(ctx, cfg.StateDir, run.ID, cmd.Writer); err != nil {

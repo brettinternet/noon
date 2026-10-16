@@ -94,7 +94,7 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 		}
 		return QueuedRun{}, err
 	}
-	return QueuedRun{SchemaVersion: 1, Run: RunFromStore(result.Run), Created: result.Created, Reason: result.Reason, Scheduler: result.Scheduler, CooldownUntil: result.CooldownUntil}, nil
+	return QueuedRun{SchemaVersion: 1, Run: RunFromStore(state, result.Run), Created: result.Created, Reason: result.Reason, Scheduler: result.Scheduler, CooldownUntil: result.CooldownUntil}, nil
 }
 
 // QueueDueAt applies the same one-shot time syntax as the CLI.
@@ -165,7 +165,7 @@ func QueuedRuns(stateDir, project string) ([]Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mapRuns(stored), nil
+	return mapRuns(state, stored), nil
 }
 
 // ActiveRuns lists queued and running work for a project without creating state.
@@ -182,13 +182,13 @@ func ActiveRuns(stateDir, project string) ([]Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mapRuns(stored), nil
+	return mapRuns(state, stored), nil
 }
 
-func mapRuns(stored []store.Run) []Run {
+func mapRuns(state *store.Store, stored []store.Run) []Run {
 	runs := make([]Run, len(stored))
 	for i, run := range stored {
-		runs[i] = RunFromStore(run)
+		runs[i] = RunFromStore(state, run)
 	}
 	return runs
 }
@@ -234,13 +234,17 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 				stored[i] = current
 			} else if !errors.Is(err, sql.ErrNoRows) {
 				return CancelResult{}, err
+			} else {
+				// Retention may prune this run as cancellation makes it terminal.
+				stored[i].LogPath = sql.NullString{}
+				stored[i].EventPath = sql.NullString{}
 			}
 			if stored[i].Status == "running" {
 				pendingIDs = append(pendingIDs, stored[i].ID)
 			}
 		}
 		if len(pendingIDs) == 0 {
-			return CancelResult{SchemaVersion: 1, Runs: mapRuns(stored), AlreadyFinished: alreadyFinished}, nil
+			return CancelResult{SchemaVersion: 1, Runs: mapRuns(state, stored), AlreadyFinished: alreadyFinished}, nil
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -253,10 +257,13 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 					stored[i] = current
 				} else if !errors.Is(err, sql.ErrNoRows) {
 					return CancelResult{}, err
+				} else {
+					stored[i].LogPath = sql.NullString{}
+					stored[i].EventPath = sql.NullString{}
 				}
 				pending = pending || stored[i].Status == "running"
 			}
-			return CancelResult{SchemaVersion: 1, Runs: mapRuns(stored), Pending: pending, AlreadyFinished: alreadyFinished}, nil
+			return CancelResult{SchemaVersion: 1, Runs: mapRuns(state, stored), Pending: pending, AlreadyFinished: alreadyFinished}, nil
 		}
 		budget := min(remaining-100*time.Millisecond, 10*time.Second)
 		if budget <= 0 {

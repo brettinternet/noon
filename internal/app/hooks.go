@@ -51,7 +51,7 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 	if err != nil {
 		return nil, err
 	}
-	payload := hookPayload{SchemaVersion: 1, Run: RunFromStore(stored)}
+	payload := hookPayload{SchemaVersion: 1, Run: RunFromStore(state, stored)}
 	payload.Project.Path = project
 	payload.Project.Name = filepath.Base(project)
 	stdin, err := json.Marshal(payload)

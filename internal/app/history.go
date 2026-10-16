@@ -19,20 +19,28 @@ const maxFollowLogBytes = 1 << 20
 
 // Run is the shared nullable run representation exposed by every client.
 type Run struct {
-	ID          int64      `json:"id"`
-	Job         string     `json:"job"`
-	Status      string     `json:"status"`
-	Trigger     string     `json:"trigger"`
-	ScheduledAt *string    `json:"scheduled_at"`
-	CreatedAt   string     `json:"created_at"`
-	StartedAt   *string    `json:"started_at"`
-	FinishedAt  *string    `json:"finished_at"`
-	DurationMS  *int64     `json:"duration_ms"`
-	ExitCode    *int       `json:"exit_code"`
-	Signal      *string    `json:"signal"`
-	Error       *string    `json:"error"`
-	Log         RunLogInfo `json:"log"`
-	Hook        *RunHook   `json:"hook"`
+	ID                int64      `json:"id"`
+	Project           string     `json:"project"`
+	Job               string     `json:"job"`
+	Status            string     `json:"status"`
+	Trigger           string     `json:"trigger"`
+	Digest            string     `json:"digest"`
+	RequestedBy       *string    `json:"requested_by"`
+	IdempotencyKey    *string    `json:"idempotency_key"`
+	DueAt             *string    `json:"due_at"`
+	CancelRequestedAt *string    `json:"cancel_requested_at"`
+	EventFile         *string    `json:"event_file"`
+	Depth             int        `json:"depth"`
+	ScheduledAt       *string    `json:"scheduled_at"`
+	CreatedAt         string     `json:"created_at"`
+	StartedAt         *string    `json:"started_at"`
+	FinishedAt        *string    `json:"finished_at"`
+	DurationMS        *int64     `json:"duration_ms"`
+	ExitCode          *int       `json:"exit_code"`
+	Signal            *string    `json:"signal"`
+	Error             *string    `json:"error"`
+	Log               RunLogInfo `json:"log"`
+	Hook              *RunHook   `json:"hook"`
 }
 
 type RunHook struct {
@@ -42,9 +50,10 @@ type RunHook struct {
 }
 
 type RunLogInfo struct {
-	Bytes     int64 `json:"bytes"`
-	Truncated bool  `json:"truncated"`
-	Available bool  `json:"available"`
+	Path      *string `json:"path"`
+	Bytes     int64   `json:"bytes"`
+	Truncated bool    `json:"truncated"`
+	Available bool    `json:"available"`
 }
 
 type RunsView struct {
@@ -59,11 +68,29 @@ type RunDetail struct {
 }
 
 // RunFromStore maps persisted state to the client-independent run JSON shape.
-func RunFromStore(run store.Run) Run {
+func RunFromStore(state *store.Store, run store.Run) Run {
 	result := Run{
-		ID: run.ID, Job: run.Job, Status: run.Status, Trigger: run.Trigger,
-		CreatedAt: run.CreatedAt,
-		Log:       RunLogInfo{Bytes: run.LogBytes, Truncated: run.LogTruncated, Available: run.LogPath.Valid},
+		ID: run.ID, Project: run.ProjectPath, Job: run.Job, Status: run.Status, Trigger: run.Trigger,
+		Digest: run.Digest, Depth: run.Depth, CreatedAt: run.CreatedAt,
+		Log: RunLogInfo{Bytes: run.LogBytes, Truncated: run.LogTruncated, Available: run.LogPath.Valid},
+	}
+	if path, ok := state.RunLogFilePath(run); ok {
+		result.Log.Path = &path
+	}
+	if path, ok := state.EventFilePath(run); ok {
+		result.EventFile = &path
+	}
+	if run.RequestedBy.Valid {
+		result.RequestedBy = &run.RequestedBy.String
+	}
+	if run.IdempotencyKey.Valid {
+		result.IdempotencyKey = &run.IdempotencyKey.String
+	}
+	if run.DueAt.Valid {
+		result.DueAt = &run.DueAt.String
+	}
+	if run.CancelRequestedAt.Valid {
+		result.CancelRequestedAt = &run.CancelRequestedAt.String
 	}
 	if run.ScheduledAt.Valid {
 		result.ScheduledAt = &run.ScheduledAt.String
@@ -128,7 +155,7 @@ func Runs(stateDir, project, job string, limit int) ([]Run, error) {
 	}
 	runs := make([]Run, len(stored))
 	for i, run := range stored {
-		runs[i] = RunFromStore(run)
+		runs[i] = RunFromStore(state, run)
 	}
 	return runs, nil
 }
@@ -175,7 +202,7 @@ func WithLastRuns(view Inspection, stateDir string) (Inspection, error) {
 	}
 	latest := make(map[string]Run, len(stored))
 	for _, run := range stored {
-		latest[run.Job] = RunFromStore(run)
+		latest[run.Job] = RunFromStore(state, run)
 	}
 	for i := range view.Jobs {
 		if run, ok := latest[view.Jobs[i].Name]; ok {
@@ -196,7 +223,7 @@ func RunByID(stateDir string, id int64) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	return RunFromStore(stored), nil
+	return RunFromStore(state, stored), nil
 }
 
 // ReadRunLog retrieves a run and its exact stored bytes without modifying state.
@@ -211,7 +238,7 @@ func ReadRunLog(stateDir string, id int64) (Run, []byte, error) {
 		return Run{}, nil, err
 	}
 	data, err := state.ReadRunLog(stored)
-	return RunFromStore(stored), data, err
+	return RunFromStore(state, stored), data, err
 }
 
 // GetRun optionally waits for a terminal status and returns at most logBytes of log tail.
@@ -259,6 +286,7 @@ func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds, logByte
 		}
 		if IsMissingLog(err) {
 			run.Log.Available = false
+			run.Log.Path = nil
 			data = nil
 		} else {
 			return RunDetail{}, StateError(err)

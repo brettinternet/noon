@@ -83,7 +83,7 @@ Next: noon enable
 | `noon remove`, `rm` | Candidates | Remove a job from the file that defines it |
 | `noon pause`, `resume` | Candidates | Pause or resume background runs of a job |
 | `noon cancel` | Active runs | Cancel a run, or a job's active and queued runs |
-| `noon logs` | Latest run in project | `NAME` or `RUN`; `--follow` |
+| `noon logs` | Latest run in project | `NAME` or `RUN`; `--follow`; `--path` (not with `--json` or `--follow`) |
 | `noon history` | Recent runs | `NAME`; `--limit` |
 | `noon enable`, `disable` | Acts on current project | — |
 | `noon serve` | Foreground scheduler for enabled projects; signed webhooks when explicitly requested | `--listen ADDR` opts in to an HTTP listener; otherwise no listener starts |
@@ -382,6 +382,15 @@ pollutes worktrees, and lets one scheduler see every enabled project.
   `idempotency_key` is unique per project and job, while `cancel_requested_at` records a durable
   request for the run owner to stop its process group. `event_path` points to an optional payload
   file and `depth` stores the request's recursion depth (scheduled runs start at zero).
+- Shared run JSON, returned by CLI history/logs/run, MCP run tools, `last_run`, and hook stdin, contains
+  `id`, `project`, `job`, `status`, `trigger`, `digest`, `scheduled_at`, `created_at`, `started_at`,
+  `finished_at`, `duration_ms`, `exit_code`, `signal`, `error`, `requested_by`, `idempotency_key`,
+  `due_at`, `cancel_requested_at`, `event_file`, `depth`, `log` (`path`, `bytes`, `truncated`,
+  `available`), and `hook`. `project` is the canonical absolute project path; `log.path` is the absolute
+  retained log path and `event_file` is the absolute payload path. Missing request context, unavailable
+  paths, and other absent values are null. `noon logs [NAME|RUN] --path` prints the selected retained
+  log's absolute path; it conflicts with `--json` and `--follow`, which can instead inspect
+  `.run.log.path` in JSON output.
 - Times are stored as UTC text, `2006-01-02T15:04:05.000Z`, so they sort as strings.
 - Retention: the newest 50 terminal runs per job; logs and event payloads for the newest 10 of them.
   Queued and running runs are never pruned. Idempotency keys and webhook delivery IDs deduplicate

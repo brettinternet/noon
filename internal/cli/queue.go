@@ -74,6 +74,11 @@ func printQueuedRun(cmd *urfave.Command, queued app.QueuedRun, now time.Time, lo
 		}
 		fmt.Fprintf(cmd.Writer, "Already requested as run %d (%s %s)\n", run.ID, run.Status, app.RelativeTime(at, now))
 	}
+	if run.Status == "queued" || run.Status == "running" {
+		fmt.Fprintf(cmd.Writer, "Follow it: noon logs %d --follow\n", run.ID)
+	} else {
+		fmt.Fprintf(cmd.Writer, "Read it: noon logs %d\n", run.ID)
+	}
 }
 
 func queueDueDescription(value *string, now time.Time, location *time.Location) string {

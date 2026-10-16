@@ -49,6 +49,7 @@ bin/noon history         # inspect recent runs
 bin/noon logs            # print the latest run log
 bin/noon logs tests      # print this job's latest log
 bin/noon logs 12 --follow # follow a running run
+bin/noon logs 12 --path   # print the absolute path of its retained log
 bin/noon config          # effective settings and source files
 bin/noon config check    # validate without writing anything
 bin/noon --json status
@@ -105,9 +106,8 @@ immediately or asks the run owner to stop a running process group; `noon cancel 
 cancellation for every active run of that job. `noon disable` also cancels queued runs. SIGINT,
 SIGTERM, or SIGHUP cancels a foreground run's process group (TERM, then KILL after 10s); a second
 signal kills it immediately.
-`noon history` shows the newest 20 runs (up to 50); `noon logs` prints stored bytes, and
-`noon logs --follow` waits for a running job. Logs are retained for the newest 10 runs per job.
-`noon list` and bare `noon` show each job's latest run in the LAST column. Read-only commands
+`noon history` shows the newest 20 runs (up to 50). `noon list` and bare `noon` show each job's
+latest run in the LAST column. Read-only commands
 do not create the state directory. Bare `noon` and `noon status` show jobs, scheduler status,
 queued work and up to three prioritized notices, with one suggested next action. Their JSON
 includes `project`, `scheduler`, `service`, `jobs`, `queued`, `notices`, and `next`.
@@ -119,6 +119,16 @@ Warnings exit 0; failing checks exit 1. JSON contains `ok` and `checks`
 with `name`, `status` (`ok`, `warn`, `fail`), `message`, and `hint`.
 
 Existing local users: stop all old/new processes and back up your data; move `~/.local/state/bump` to `~/.local/state/noon` and `~/.config/bump` to `~/.config/noon` only if the destinations do not exist, then rename `bump.db` to `noon.db` inside the moved state directory, along with any `bump.db-wal`/`bump.db-shm` sidecars to `noon.db-wal`/`noon.db-shm`; never overwrite existing destinations, and keep the `logs/` tree intact.
+
+## Logs
+
+`noon logs` prints the latest run's stored bytes; `noon logs NAME` selects a job's latest run, and
+`noon logs RUN --follow` follows a running job. `noon logs [NAME|RUN] --path` prints the absolute
+path of the selected retained log; `--path` cannot be combined with `--json` or `--follow`. Run
+JSON (from `history`, `logs`, `run --json`, MCP run tools, `last_run`, and hook stdin) includes the
+canonical project path, retained `log.path`, optional event-file path, and stored request context.
+Foreground run start lines include the run ID; queued run output suggests whether to follow or read
+its log. Logs are retained for the newest 10 runs per job.
 
 ## Safety
 

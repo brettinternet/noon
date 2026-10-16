@@ -48,8 +48,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
 				&urfave.IntFlag{Name: "limit", Value: 20, Usage: "Limit history to 1–50 runs"},
 			}, Action: historyRuns},
-			{Name: "logs", Usage: "Read the latest run log, a job's latest log, or a run ID", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
+			{Name: "logs", Usage: "Read a run log, follow it, or print its path", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "follow", Usage: "Follow a running run until it finishes"},
+				&urfave.BoolFlag{Name: "path", Usage: "Print the absolute log path"},
 			}, Action: runLogs},
 			{Name: "enable", Usage: "Enable this checkout and approve current shared job definitions", Action: enableProject},
 			{Name: "disable", Usage: "Disable this checkout and revoke approvals; keep history", Action: disableProject},
@@ -107,6 +108,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 // JSON actions emit one object; help/version/completion retain standard CLI text.
 func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut io.Writer) int {
 	root := NewRootCommand(build, out, errOut)
+	jsonOutput := jsonRequested(root, args)
 	if err := root.Run(ctx, args); err != nil {
 		var exit runExit
 		if errors.As(err, &exit) {
@@ -116,7 +118,7 @@ func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut
 		if !errors.As(err, &failure) {
 			failure = &Error{Code: "error", Message: err.Error()}
 		}
-		if jsonRequested(root, args) {
+		if jsonOutput {
 			_ = json.NewEncoder(out).Encode(map[string]any{"schema_version": 1, "error": failure})
 		} else {
 			fmt.Fprintf(errOut, "noon: %s\n", failure.Message)

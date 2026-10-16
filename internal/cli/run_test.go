@@ -521,6 +521,10 @@ wait
 		if len(env) != 4 || env[0] != job || env[1] != status || env[2] != code || !filepath.IsAbs(env[3]) {
 			t.Fatalf("hook environment = %q", env)
 		}
+		log := run["log"].(map[string]any)
+		if log["path"] != env[3] {
+			t.Fatalf("hook run.log.path = %v, NOON_LOG_FILE = %q", log["path"], env[3])
+		}
 		return run
 	}
 
