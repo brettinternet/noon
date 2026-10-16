@@ -1,10 +1,10 @@
 ---
 id: BUMP-2
 title: Run a named job in the foreground
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 01:41'
+updated_date: '2026-10-16 03:04'
 labels:
   - runner
   - cli
@@ -60,17 +60,42 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^TestRunner$' -count=1 -v` exits 0 on macOS and Linux and prints `--- PASS: TestRunner`, with subtests for every behavior listed under Tests
-- [ ] #2 `task cli:test -- -run '^TestRunCommand$' -count=1 -v` exits 0: bare `bump run` exits 0 and lists jobs; `bump run tset` exits 1 with `error.code` `not_found` and a hint naming `tests`; `bump run --json NAME` writes exactly one JSON object to stdout while job output appears on stderr, and exits with the job's code
-- [ ] #3 `task cli:build && bin/bump --config examples/jobs.yaml run; echo "exit=$?"` lists runnable jobs, starts nothing, and prints `exit=0`
-- [ ] #4 `task race` exits 0
+- [x] #1 `task cli:test -- -run '^TestRunner$' -count=1 -v` exits 0 on macOS and Linux and prints `--- PASS: TestRunner`, with subtests for every behavior listed under Tests
+- [x] #2 `task cli:test -- -run '^TestRunCommand$' -count=1 -v` exits 0: bare `bump run` exits 0 and lists jobs; `bump run tset` exits 1 with `error.code` `not_found` and a hint naming `tests`; `bump run --json NAME` writes exactly one JSON object to stdout while job output appears on stderr, and exits with the job's code
+- [x] #3 `task cli:build && bin/bump --config examples/jobs.yaml run; echo "exit=$?"` lists runnable jobs, starts nothing, and prints `exit=0`
+- [x] #4 `task race` exits 0
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Inspect existing job/CLI contracts and hum process implementation. 2. Implement foreground runner and run command with bounded group cleanup and signal handling. 3. Add critical process/CLI regression tests; run acceptance commands and CI; review lifecycle risks. 4. Commit, merge to main, record completion, and remove owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented the process-group runner, shared job-to-spec adaptation, foreground run CLI, docs and critical regression tests. No new modules or modified-file contract deviations. Adapted explicit pipe ownership and job-PATH resolution from hum; identity persistence remains for BUMP-3. Adjacent transpositions count as one suggestion edit, so tset suggests tests as required.
+AC#1: task cli:test -- -run '^TestRunner$' -count=1 -v -> exit 0, PASS: TestRunner on macOS arm64 and Linux arm64 (dedicated Colima container, pinned Go 1.27.2 and Task 3.53.1). Covers argv/shell, cwd/env/metadata, stdin, PATH, all exit classes, timeout/cancel/forced cleanup, and leader exit with grandchild-held pipes.
+AC#2: task cli:test -- -run '^TestRunCommand$' -count=1 -v -> exit 0 on macOS and Linux; guidance, suggestion, disabled/extra-argument refusal, stdout JSON purity and propagated exit all pass.
+AC#3: task cli:build && bin/bump --config examples/jobs.yaml run; echo "exit=$?" -> report/tests listed, Next: bump run report, exit=0; nothing executes.
+AC#4: task race -> exit 0 on macOS; go test -race ./... also passes in Linux Go 1.27.2 container.
+Additional verification: task ci passed; LSP diagnostics clean for runner and CLI. Built-binary isolated signal check sent SIGHUP then SIGINT after observing the child TERM trap: exit 130, cancelled JSON, no hang. Independent reviewer (read-only, process lifecycle/exit mapping/JSON risk focus) reported no validated findings. No tests removed, skipped or weakened. README/configuration/help updated; design execution contract unchanged. Dedicated Linux test VM/profile was deleted; default stopped profile untouched. Next: commit, run CI on commit, merge and clean up owned worktree.
+
+Delivery: implementation commit c7dd8b36d8c32b51441f6de14eab5fec319fc44a passed task ci after committing, then fast-forward merged to main. Verified session-owned worktree receipt and idle shell pane; Worktrunk removed bump-2-run checkout and branch, and the matching Herdr workspace wBQ disappeared. No retained worktree/workspace or external blocker. Remaining step: commit this completion record, recheck final main CI, and release the Worklease claim.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added bump run NAME with exact argv or shell commands, job environment/PATH, streamed output, timeout/cancellation and bounded process-group cleanup. Bare run lists runnable jobs; JSON remains one stdout object and child exit codes propagate. macOS/Linux acceptance tests, race checks, full CI, built-binary signal check, and independent review passed. Merged c7dd8b3 to main and removed the owned worktree/branch/workspace.
+<!-- SECTION:FINAL_SUMMARY:END -->
