@@ -180,7 +180,7 @@ Implemented foundations and planned extensions ([design](docs/design.md), [decis
   triggers run through the shared execution path; signed webhooks and a TUI remain planned
   integrations. Commands are the integration boundary: no plugin system.
 
-## Docker bootstrap
+## Docker
 
 ```sh
 task docker:smoke
@@ -188,7 +188,9 @@ docker run --rm noon:dev --help
 ```
 
 The image supports the host CLI, including `noon serve`; enable projects explicitly and keep the
-scheduler in the foreground. See [Docker](docs/docker.md).
+scheduler in the foreground. The [Compose example](examples/compose.yaml) uses an init process,
+a read-only project mount, and persistent state. `task docker:integration` verifies scheduling,
+shutdown, child reaping, offline timezones, and history persistence. See [Docker](docs/docker.md).
 
 ## Documentation
 

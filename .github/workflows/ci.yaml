@@ -48,3 +48,5 @@ jobs:
       - run: task ci
       - if: runner.os == 'Linux'
         run: task docker:smoke
+      - if: runner.os == 'Linux'
+        run: task docker:integration

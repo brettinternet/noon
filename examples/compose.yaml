@@ -1,0 +1,19 @@
+services:
+  noon:
+    # No image is published yet. Build locally with task docker:build.
+    image: ${NOON_IMAGE:-noon:dev}
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    working_dir: /workspace
+    volumes:
+      - .:/workspace:ro
+      - state:/state
+    # Trust the deployed config at EVERY start; review changes before deploying.
+    # Override ENTRYPOINT, not command (which would become "noon sh -c ...").
+    entrypoint: ["/bin/sh", "-c", "noon enable && exec noon serve"]
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+volumes:
+  state:

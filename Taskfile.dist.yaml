@@ -64,6 +64,11 @@ tasks:
   docker:build:
     desc: Build the local noon development image
     cmd: docker build -t noon:dev .
+  docker:integration:
+    desc: Verify production scheduling, signals, and persistence on a Linux Docker engine
+    cmds:
+      - task: docker:build
+      - mise exec go -- go test -tags dockerintegration -count=1 -v -timeout=5m ./scripts/dockerintegration
   docker:smoke:
     desc: Check the container bootstrap without running jobs
     cmds:
