@@ -4,9 +4,10 @@ title: Run lifecycle hooks after jobs finish
 status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 15:31'
+updated_date: '2026-10-16 18:32'
 labels:
   - integration
+  - reviewed
 dependencies:
   - NOON-4
   - NOON-17
@@ -82,6 +83,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 AC#1: task cli:test -- -run '^(TestHooks|TestJobDigest)$' -count=1 -v -> exit 0; both PASS. Covers success/failure/job timeout, inherited-default disabling, hook timeout/process group, bounded output, log following from a running job, and hook digest changes. AC#2: exact isolated build/run fixture executed via /tmp/noon-22-ac2.sh -> exit=3; jq confirmed hook.json run.status=failed (fixture /var/folders/jp/1mwx72h172955139pth4h8800000gn/T/tmp.KCH21Nsigd). Single independent review found hook log-write errors replacing job exit; corrected and regression tested. Retention now runs after hook completion so cleanup failure cannot prevent execution after the running-hook transition; existing retention-failure regression extended. Direct permission-denied fixture now returns job exit 7 with failed hook/1 JSON. Documented wrappers tested with fake osascript, notify-send, curl: quoted argv and stdin preserved, no external notifications/network. All paths remain within modified-file contract; no tests weakened. Executor timed out after its CI passed; parent resumed and completed focused corrections. No outstanding review findings.
 
 Delivery: implementation commit dd965cf passed task ci (security/vulnerability scans, formatting/vet/staticcheck, all tests, race tests, CLI smoke) and was fast-forward merged into main. Clean session-owned noon-22-hooks worktree and branch removed via Worktrunk; matching Herdr workspace removed. No blockers or remaining item-scoped work. Final backlog-only commit follows; no push requested or performed.
+
+Review (post-merge): hook selection by status, source restriction of top-level defaults, empty-list disabling, durable running transition before execution, job cwd/env plus NOON_STATUS/EXIT_CODE/LOG_FILE, JSON stdin, 30s+5s group kill, 64 KiB capture with marker, follow-through-hook, recovery to interrupted, unchanged job status/exit code, and argv-safe docs examples match the contract. Fixed in 4d39aea: inherited hook defaults from user config were folded into every shared job digest (with a test asserting it), so adding or editing a personal notify hook revoked approval of every shared job in every enabled project and halted their schedules until noon enable was rerun (reproduced with the built binary: needs approval after adding on_failure to user config). The spec digests hooks defined on shared jobs, and user-controlled agent commands are likewise excluded; now only job-defined hooks, or defaults from an approval-gated explicit --config file, join the digest. The subtest now asserts both directions; docs/configuration.md and docs/hooks.md updated. Users who already approved jobs with a user default hook re-approve once. Low, not fixed: hooks run under context.Background, so scheduler shutdown waits up to 35s for an in-progress hook and a second signal does not force-kill it. AC1 rerun and passes; task ci passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

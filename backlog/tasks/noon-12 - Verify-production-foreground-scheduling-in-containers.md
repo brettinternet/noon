@@ -4,9 +4,10 @@ title: Run the scheduler in production containers
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 16:26'
+updated_date: '2026-10-16 18:32'
 labels:
   - ops
+  - reviewed
 dependencies:
   - NOON-5
   - NOON-17
@@ -83,6 +84,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 Implemented digest-pinned images, production Compose example, tagged Go Docker integration test, Linux CI step, and deployment documentation within the modified-file contract. The integration fixture lives under scripts/dockerintegration temporarily so Linux VM Docker engines can bind the shared checkout (host OS temp paths may not be shared). AC#1: task docker:smoke -> exit 0. AC#2: task docker:integration -> exit 0 on Linux Docker engine, prefix noon-integration-d5c5f5134167b6a1271869ce; Compose dispatch, orphan reaping, interrupted shutdown/restart, recreation persistence, offline Asia/Kolkata next time all passed; cleanup assertions found no prefixed containers, volumes, or images. task ci -> exit 0 (security, vet/staticcheck, tests, race, smoke). Independent scoped review pending.
 
 AC#2 rerun: task docker:integration -> exit 0 after review fix, prefix noon-integration-3039bbcf5b464dc4f2765e8f; cleanup assertions passed. AC#3: yq -o=json .jobs.go.steps .github/workflows/ci.yaml piped to jq assertion -> true / exit 0: docker:integration follows docker:smoke and both are Linux-only. go vet -tags dockerintegration ./scripts/dockerintegration -> exit 0. Independent reviewer PASS after fixing validated offline-container timeout leak (killing Docker CLI alone leaves its container running; dedicated cleanup now removes it). No other validated findings. task check:staged passed; implementation commit 3d147beac9ef245c2035ebaa32cca4f98c4de101; task ci passed on that commit. Fast-forward merged into main. Worktrunk removed the verified owned worktree and branch; its exact Herdr workspace was removed. No tests deleted, skipped, or weakened; only new opt-in Docker acceptance tests added. All changed paths are within contract; docs match implemented behavior and existing design contract. No blocker or remaining implementation step; nothing pushed.
+
+Review (post-merge): digest-pinned bases, UID 10001, empty CMD, /state ownership, Compose overriding entrypoint with init/read_only/tmpfs/ro mount/named volume, and the integration scenarios (Compose dispatch, reaping, stop under 15s with interrupted history, recreation persistence, offline non-UTC preview, prefixed cleanup) match the scope; CI runs docker:integration after docker:smoke on Linux. Fixed in 4d39aea (docs only): the documented FROM example adding git produced an image where every git command in /workspace fails with "detected dubious ownership", because the bind-mounted checkout is owned by a host UID and HOME is read-only at runtime; the example now sets git config --system safe.directory /workspace (reproduced and verified with throwaway images on the local Linux engine). Low, not fixed: a scheduler shutdown that lands while a lifecycle hook runs waits up to 35s for it (second signal does not force it), exceeding the 15s stop_grace_period; Docker then SIGKILLs and recovery marks the hook interrupted (see NOON-22 note). Integration target not rerun; no container files changed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

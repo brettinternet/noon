@@ -4,10 +4,11 @@ title: Serve MCP tools over stdio
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 14:50'
+updated_date: '2026-10-16 18:32'
 labels:
   - mcp
   - security
+  - reviewed
 dependencies:
   - NOON-21
 references:
@@ -92,6 +93,8 @@ Modified-file contract expansion: docs/design.md may be updated narrowly to desc
 Single independent review completed: three reproduced P2 defects (get_run rejects existing runs without logs; stdio serial forwarding blocks cancellation during waits; raw escaped JSON-RPC IDs hang response draining). Corrections and critical regression tests are in progress. Initial task ci and AC1/AC3 passed; AC2 equivalent pipe passed, with mktemp performed separately because shell guard rejects inline command substitution. Final checks will be rerun after corrections.
 
 AC#1: task cli:test -- -run ^TestMCP$ -count=1 -v -> exit 0, PASS: TestMCP, covering six tools, CLI list parity, approval rejection, queued client metadata, finished wait and cancellation. AC#2: task cli:build followed by the specified initialize/initialized/tools-list printf pipe -> exit 0, two JSON-RPC response lines, exactly the six required tools. Shell guard rejects inline $(mktemp -d), so mktemp -d ran separately and its literal temporary path was supplied as NOON_STATE_DIR; protocol bytes and invocation otherwise unchanged. AC#3: CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon -> exit 0. Final task ci passed on integrated implementation commit a8582a6 (unit/integration, race, vet, Staticcheck, secrets, vulnerabilities, build and smoke). MCP SDK v1.8.0 is the official required v1 dependency; no replacement SDK or runtime added. All three review findings fixed with regression coverage; direct built-binary probes return queued/cancelled details without logs, escaped IDs exit normally, and cancellation during a 3s wait completes in 112ms. No tests deleted, skipped or weakened. Source commits f8a5525 and cc1bb4e; integrated concurrent main changes in a8582a6 and fast-forwarded main. Owned worktree/branch noon-10-mcp removed with Worktrunk and Herdr workspace wCE removed; no retained task checkout. No remaining blocker or resumable implementation step.
+
+Review (post-merge): six tools, annotations, CLI-parity errors/hints, approval and opt-in enforcement through app.QueueRun, requested_by metadata, bounded wait/log tail, global run-ID get/cancel, and no config-mutating tools match the contract; concurrent cancellation and EOF drain are covered. Fixed in 4d39aea: the stdio wrapper rejected whitespace-only lines as protocol errors, so a blank line from a client ended the session and dropped responses to requests already received (the SDK decoder it wraps skips such whitespace); blank lines are now skipped (regression in TestServeStdioCanonicalIDsAndEOFDrain, fails before the fix). Low, not fixed: an invalid JSON line still ends the session without a -32700 response and drops pending responses, matching the SDK transport fatal-on-decode behavior; run_job reports --in/--at conflicts with CLI flag wording. AC1-AC3 rerun and pass; task ci passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
