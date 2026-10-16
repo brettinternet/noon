@@ -4,10 +4,11 @@ title: Run a named job in the foreground
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 03:04'
+updated_date: '2026-10-16 14:21'
 labels:
   - runner
   - cli
+  - reviewed
 dependencies:
   - NOON-1
 references:
@@ -92,6 +93,8 @@ AC#4: task race -> exit 0 on macOS; go test -race ./... also passes in Linux Go 
 Additional verification: task ci passed; LSP diagnostics clean for runner and CLI. Built-binary isolated signal check sent SIGHUP then SIGINT after observing the child TERM trap: exit 130, cancelled JSON, no hang. Independent reviewer (read-only, process lifecycle/exit mapping/JSON risk focus) reported no validated findings. No tests removed, skipped or weakened. README/configuration/help updated; design execution contract unchanged. Dedicated Linux test VM/profile was deleted; default stopped profile untouched. Next: commit, run CI on commit, merge and clean up owned worktree.
 
 Delivery: implementation commit c7dd8b36d8c32b51441f6de14eab5fec319fc44a passed task ci after committing, then fast-forward merged to main. Verified session-owned worktree receipt and idle shell pane; Worktrunk removed noon-2-run checkout and branch, and the matching Herdr workspace wBQ disappeared. No retained worktree/workspace or external blocker. Remaining step: commit this completion record, recheck final main CI, and release the Worklease claim.
+
+Review (post-merge): runner and `noon run` match the contract. Probed the built binary: exact argv and shell strings, 127 not found, 126 not executable, 125 missing cwd, and a backgrounded `sleep 30` grandchild that is reaped once the leader exits with no survivor; signal handling, edit-distance suggestion, extra-argument refusal, and JSON purity checked in code. Low-severity note for NOON-12: the cleanup loop checks liveness with `kill(-pgid, 0)`, which still succeeds for zombie group members. If noon runs as PID 1 with no reaper (the current Dockerfile ENTRYPOINT), an orphaned grandchild becomes an unreaped zombie, so every such run waits the full 10s grace and the zombies pile up. `processGroupAlive` already skips zombies; run under an init (`--init`/tini) or use that check. ACs 1-3 rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

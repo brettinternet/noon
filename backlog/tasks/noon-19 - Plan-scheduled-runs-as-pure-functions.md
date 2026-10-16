@@ -4,9 +4,10 @@ title: Plan scheduled runs as pure functions
 status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 04:44'
+updated_date: '2026-10-16 14:21'
 labels:
   - scheduler
+  - reviewed
 dependencies:
   - NOON-1
 documentation:
@@ -93,6 +94,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 AC#1: task cli:test -- -run '^(TestPlanDue|TestPlanDispatch)$' -count=1 -v -> exit 0; both named tests PASS, with all specified cases plus inclusive timing boundaries, input immutability and replay suppression. AC#2: rg -n 'time\.Now\(|"os"|database/sql|go func' internal/scheduler/plan.go -> no output (exit 1, expected no matches). Initial task ci passed: security, formatting, vet, Staticcheck, full tests, race and smoke. LSP diagnostics clean for both Go files. No existing tests modified; changes limited to internal/scheduler/** and docs/design.md. Independent review pending; next step review result, implementation commit, main integration, final-commit CI and cleanup.
 
 Implementation commit 4b42af9 (feat(scheduler): plan due runs and dispatch) fast-forward merged into main. task check:staged passed before commit; task ci passed on committed implementation 4b42af9. Independent reviewer reported no validated findings and confirmed every specified case is covered. Design documents implemented pure planners while leaving persistence/serve explicitly unimplemented. No blockers or remaining implementation steps; final delivery is task-record commit and owned-worktree cleanup.
+
+Review (post-merge): Due and Dispatch implement every rule. Checked the 60s on-time boundary, catch-up and `missed: skip` record fields, the interval phase arithmetic (`now + interval - (now-NextAt) mod interval`, which is strictly after now even on exact multiples), overlap and pending suppression, future one-shots, cancel-before-expire, FIFO with ID tie-break, and project/global capacity including running runs of removed jobs. No defects. Low-severity notes: (1) ScheduleKey uses `Location.String()`, so a job on `timezone: Local` keeps its state when the host zone changes and catches up from the old zone instead of resetting; (2) changing only the timezone resets interval jobs too, which matches the spec even though intervals ignore the zone. ACs 1-2 rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

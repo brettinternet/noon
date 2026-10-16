@@ -4,10 +4,11 @@ title: Run agent prompt jobs through agent profiles
 status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 03:18'
+updated_date: '2026-10-16 14:21'
 labels:
   - config
   - runner
+  - reviewed
 dependencies:
   - NOON-2
 documentation:
@@ -88,6 +89,8 @@ AC#2: task cli:test -- -run '^TestLoadJobs$' -count=1 -v -> exit 0; PASS includi
 AC#3: task cli:build && bin/noon --config examples/jobs.yaml --json list -> exit 0; review example reports agent=claude. CLI execution used env -i with isolated temporary HOME per development instructions.
 Review: one independent reviewer pass found canonical digest mismatch and FIFO preflight hang. Fixed both; TestJobDigest now checks independently computed canonical SHA-256 and default/explicit equivalence; TestPromptJobs FIFO case passes immediately with exit 125 and no child start. No tests deleted, skipped, or weakened. All affected LSP diagnostics clean.
 Delivery: c50603f (feat: run agent prompt jobs through profiles) fast-forward merged to main. task check:staged and task ci passed on that final implementation commit (security, vet, staticcheck, full tests, race, build, smoke). Docs/examples updated; Claude/Codex flags verified with local --help. Owned worktree and branch removed via Worktrunk; matching Herdr workspace wBR removed. No retained worktree, blocker, or remaining item step; no push performed.
+
+Review (post-merge): prompt jobs match the contract. Probed the built binary with fake agents: argument mode sends the prompt as one exact final argv element (newlines, literal `$HOME`, quotes) with empty stdin; stdin mode delivers bytes exactly; `NOON_AGENT` is set; `config --json` lists built-in and user profiles. The FIFO-safe nonblocking open and the 64 KiB preflight are correct. Verified the built-in flags against the local CLIs: `claude -p --permission-prompts none` and `codex exec -` both exist. Low-severity findings, not fixed: (1) `prompt_file: ../outside.md` is accepted and reads outside the project root, because validation only rejects absolute paths; symlinks escape too. (2) The approval digest covers the prompt_file path but not its contents, so an approved shared job can change its prompt without re-approval. That matches how `run: ./script.sh` works, but users may not expect it for prompts. (3) An inline `prompt: ""` is accepted and sends empty input. ACs 1-3 rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
