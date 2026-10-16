@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/brettinternet/noon/internal/app"
-	"github.com/brettinternet/noon/internal/schedule"
 	"github.com/brettinternet/noon/internal/store"
 	urfave "github.com/urfave/cli/v3"
 )
@@ -33,52 +32,7 @@ func runQueueMode(cmd *urfave.Command) (string, error) {
 }
 
 func queueDueAt(mode, inValue, atValue string, now time.Time, location *time.Location) (time.Time, error) {
-	switch mode {
-	case "detach":
-		return now, nil
-	case "in":
-		duration, err := schedule.ParseDuration(inValue)
-		if err != nil {
-			return time.Time{}, err
-		}
-		if duration < time.Second {
-			return time.Time{}, fmt.Errorf("--in must be at least 1s")
-		}
-		return now.Add(duration), nil
-	case "at":
-		value := atValue
-		var due time.Time
-		switch {
-		case len(value) == len("15:04"):
-			clock, err := time.ParseInLocation("15:04", value, location)
-			if err != nil {
-				return time.Time{}, fmt.Errorf("invalid --at time %q: use HH:MM, YYYY-MM-DD HH:MM, or RFC 3339", value)
-			}
-			local := now.In(location)
-			due = time.Date(local.Year(), local.Month(), local.Day(), clock.Hour(), clock.Minute(), 0, 0, location)
-			if !due.After(now) {
-				due = time.Date(local.Year(), local.Month(), local.Day()+1, clock.Hour(), clock.Minute(), 0, 0, location)
-			}
-		case len(value) == len("2006-01-02 15:04"):
-			parsed, err := time.ParseInLocation("2006-01-02 15:04", value, location)
-			if err != nil {
-				return time.Time{}, fmt.Errorf("invalid --at time %q: use HH:MM, YYYY-MM-DD HH:MM, or RFC 3339", value)
-			}
-			due = parsed
-		default:
-			parsed, err := time.Parse(time.RFC3339, value)
-			if err != nil {
-				return time.Time{}, fmt.Errorf("invalid --at time %q: use HH:MM, YYYY-MM-DD HH:MM, or RFC 3339", value)
-			}
-			due = parsed
-		}
-		if due.Before(now) {
-			return time.Time{}, fmt.Errorf("--at time %s is in the past", value)
-		}
-		return due, nil
-	default:
-		return time.Time{}, fmt.Errorf("missing queued run time")
-	}
+	return app.QueueDueAt(mode, inValue, atValue, now, location)
 }
 
 func queueError(err error) error {

@@ -32,13 +32,14 @@ type Notice struct {
 	Message string `json:"message"`
 }
 type DashboardView struct {
-	Project   DashboardProject `json:"project"`
-	Scheduler SchedulerView    `json:"scheduler"`
-	Service   DashboardService `json:"service"`
-	Jobs      []Job            `json:"jobs"`
-	Queued    []Run            `json:"queued"`
-	Notices   []Notice         `json:"notices"`
-	Next      string           `json:"next"`
+	SchemaVersion int              `json:"schema_version"`
+	Project       DashboardProject `json:"project"`
+	Scheduler     SchedulerView    `json:"scheduler"`
+	Service       DashboardService `json:"service"`
+	Jobs          []Job            `json:"jobs"`
+	Queued        []Run            `json:"queued"`
+	Notices       []Notice         `json:"notices"`
+	Next          string           `json:"next"`
 }
 
 // inspectionForDiagnostics preserves a config failure while resolving enough
@@ -87,8 +88,9 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 		view.Project.ConfigError = configError
 	}
 	result := DashboardView{
-		Project:   DashboardProject{Path: view.Project.Path, Name: filepath.Base(view.Project.Path), Timezone: view.Project.Timezone, Enabled: view.Project.Enabled, ConfigError: view.Project.ConfigError},
-		Scheduler: SchedulerView{State: view.Project.Scheduler}, Jobs: view.Jobs, Notices: []Notice{},
+		SchemaVersion: 1,
+		Project:       DashboardProject{Path: view.Project.Path, Name: filepath.Base(view.Project.Path), Timezone: view.Project.Timezone, Enabled: view.Project.Enabled, ConfigError: view.Project.ConfigError},
+		Scheduler:     SchedulerView{State: view.Project.Scheduler}, Jobs: view.Jobs, Notices: []Notice{},
 	}
 	result.Queued, err = QueuedRuns(view.StateDir, view.Project.Path)
 	if err != nil {

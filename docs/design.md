@@ -313,7 +313,7 @@ project in its state directory. It does **not** self-daemonize, and it is **not*
   before insertion. A due-now duplicate returns the existing queued run; future one-shots remain
   independent. When the scheduler heartbeat is stale or absent, the CLI says queued work waits until
   the scheduler starts and points to the service or `noon serve`.
-- Future clients that need the scheduler (MCP `run_job`) will use the same shared queue operation.
+- MCP `run_job` uses the same shared queue operation as the CLI.
 
 ### Enable and approve
 
@@ -403,8 +403,10 @@ Decided in decision-4: no plugin system. Commands are the integration boundary.
 - **Event files**: one JSON object for every payload with keys `schema_version` (1), `source`
   (`cli` or `webhook`), `received_at`, `data`, and, for webhooks only, `headers`. `data` is the
   JSON payload, or a string when a webhook body is not JSON.
-- **MCP**: `noon mcp` over stdio with the official Go SDK. Inspect, queue approved jobs, read logs,
-  cancel. Agents cannot approve, add, or edit unattended commands.
+- **MCP**: `noon mcp` over stdio with the official Go SDK exposes `status`, `list_jobs`, `run_job`,
+  `list_runs`, `get_run`, and `cancel_run`. The first four accept an optional absolute `project`
+  path; run lookup and cancellation use globally unique run IDs. Agents cannot approve, add, or edit
+  unattended commands.
 - **Crontab import**: preview YAML from a user crontab; `--write` adds the jobs to `.noon.yaml`.
   Unsupported cron features fail with line numbers.
 - Outbound HTTP calls are commands (`run: [curl, -fsS, ...]`), not a built-in action.

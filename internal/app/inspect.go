@@ -42,9 +42,10 @@ type Job struct {
 }
 
 type Inspection struct {
-	Project  Project `json:"project"`
-	Jobs     []Job   `json:"jobs"`
-	StateDir string  `json:"-"`
+	SchemaVersion int     `json:"schema_version"`
+	Project       Project `json:"project"`
+	Jobs          []Job   `json:"jobs"`
+	StateDir      string  `json:"-"`
 }
 
 // Inspect validates the effective configuration without executing or writing.
@@ -58,7 +59,7 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 	if err != nil {
 		return Inspection{}, err
 	}
-	result := Inspection{Project: Project{Path: cfg.Project, Timezone: cfg.Timezone, Scheduler: "offline"}, Jobs: []Job{}, StateDir: cfg.StateDir}
+	result := Inspection{SchemaVersion: 1, Project: Project{Path: cfg.Project, Timezone: cfg.Timezone, Scheduler: "offline"}, Jobs: []Job{}, StateDir: cfg.StateDir}
 	names := make([]string, 0, len(cfg.Jobs))
 	for name := range cfg.Jobs {
 		names = append(names, name)
@@ -88,4 +89,25 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 		result.Jobs = append(result.Jobs, view)
 	}
 	return result, nil
+}
+
+// ListJobs returns the complete JSON list view shared by CLI and MCP.
+func ListJobs(input config.Input, now time.Time) (Inspection, error) {
+	view, err := Inspect(input, now)
+	if err != nil {
+		return Inspection{}, ConfigError(err)
+	}
+	view, err = WithApprovals(view)
+	if err != nil {
+		return Inspection{}, StateError(err)
+	}
+	view, err = WithLastRuns(view, view.StateDir)
+	if err != nil {
+		return Inspection{}, StateError(err)
+	}
+	view, err = WithScheduler(view, now)
+	if err != nil {
+		return Inspection{}, StateError(err)
+	}
+	return view, nil
 }

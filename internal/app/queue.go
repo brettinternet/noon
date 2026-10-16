@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/schedule"
 	"github.com/brettinternet/noon/internal/store"
 )
 
@@ -22,10 +23,11 @@ type QueueError struct {
 func (e *QueueError) Error() string { return e.Message }
 
 type QueuedRun struct {
-	Run       Run    `json:"run"`
-	Created   bool   `json:"created"`
-	Reason    string `json:"reason,omitempty"`
-	Scheduler string `json:"scheduler"`
+	SchemaVersion int    `json:"schema_version"`
+	Run           Run    `json:"run"`
+	Created       bool   `json:"created"`
+	Reason        string `json:"reason,omitempty"`
+	Scheduler     string `json:"scheduler"`
 }
 
 // QueueRun is the shared client operation for durable one-shot requests.
@@ -62,7 +64,61 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 		}
 		return QueuedRun{}, err
 	}
-	return QueuedRun{Run: RunFromStore(result.Run), Created: result.Created, Reason: result.Reason, Scheduler: result.Scheduler}, nil
+	return QueuedRun{SchemaVersion: 1, Run: RunFromStore(result.Run), Created: result.Created, Reason: result.Reason, Scheduler: result.Scheduler}, nil
+}
+
+// QueueDueAt applies the same one-shot time syntax as the CLI.
+func QueueDueAt(mode, inValue, atValue string, now time.Time, location *time.Location) (time.Time, error) {
+	switch mode {
+	case "detach":
+		return now, nil
+	case "in":
+		duration, err := schedule.ParseDuration(inValue)
+		if err != nil {
+			return time.Time{}, err
+		}
+		if duration < time.Second {
+			return time.Time{}, fmt.Errorf("--in must be at least 1s")
+		}
+		return now.Add(duration), nil
+	case "at":
+		value := atValue
+		var due time.Time
+		switch {
+		case len(value) == len("15:04"):
+			clock, err := time.ParseInLocation("15:04", value, location)
+			if err != nil {
+				return time.Time{}, invalidQueueAt(value)
+			}
+			local := now.In(location)
+			due = time.Date(local.Year(), local.Month(), local.Day(), clock.Hour(), clock.Minute(), 0, 0, location)
+			if !due.After(now) {
+				due = time.Date(local.Year(), local.Month(), local.Day()+1, clock.Hour(), clock.Minute(), 0, 0, location)
+			}
+		case len(value) == len("2006-01-02 15:04"):
+			parsed, err := time.ParseInLocation("2006-01-02 15:04", value, location)
+			if err != nil {
+				return time.Time{}, invalidQueueAt(value)
+			}
+			due = parsed
+		default:
+			parsed, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				return time.Time{}, invalidQueueAt(value)
+			}
+			due = parsed
+		}
+		if due.Before(now) {
+			return time.Time{}, fmt.Errorf("--at time %s is in the past", value)
+		}
+		return due, nil
+	default:
+		return time.Time{}, fmt.Errorf("missing queued run time")
+	}
+}
+
+func invalidQueueAt(value string) error {
+	return fmt.Errorf("invalid --at time %q: use HH:MM, YYYY-MM-DD HH:MM, or RFC 3339", value)
 }
 
 // QueuedRuns lists queued work for a project without creating state.
@@ -108,6 +164,7 @@ func mapRuns(stored []store.Run) []Run {
 }
 
 type CancelResult struct {
+	SchemaVersion   int   `json:"schema_version"`
 	Runs            []Run `json:"runs"`
 	Pending         bool  `json:"pending"`
 	AlreadyFinished bool  `json:"-"`
@@ -153,7 +210,7 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 			}
 		}
 		if len(pendingIDs) == 0 {
-			return CancelResult{Runs: mapRuns(stored), AlreadyFinished: alreadyFinished}, nil
+			return CancelResult{SchemaVersion: 1, Runs: mapRuns(stored), AlreadyFinished: alreadyFinished}, nil
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -169,7 +226,7 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 				}
 				pending = pending || stored[i].Status == "running"
 			}
-			return CancelResult{Runs: mapRuns(stored), Pending: pending, AlreadyFinished: alreadyFinished}, nil
+			return CancelResult{SchemaVersion: 1, Runs: mapRuns(stored), Pending: pending, AlreadyFinished: alreadyFinished}, nil
 		}
 		budget := min(remaining-100*time.Millisecond, 10*time.Second)
 		if budget <= 0 {

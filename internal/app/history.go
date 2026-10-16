@@ -9,7 +9,9 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/brettinternet/noon/internal/config"
 	"github.com/brettinternet/noon/internal/store"
 )
 
@@ -36,6 +38,17 @@ type RunLogInfo struct {
 	Bytes     int64 `json:"bytes"`
 	Truncated bool  `json:"truncated"`
 	Available bool  `json:"available"`
+}
+
+type RunsView struct {
+	SchemaVersion int   `json:"schema_version"`
+	Runs          []Run `json:"runs"`
+}
+
+type RunDetail struct {
+	SchemaVersion int    `json:"schema_version"`
+	Run           Run    `json:"run"`
+	Log           string `json:"log"`
 }
 
 // RunFromStore maps persisted state to the client-independent run JSON shape.
@@ -96,6 +109,29 @@ func Runs(stateDir, project, job string, limit int) ([]Run, error) {
 	return runs, nil
 }
 
+// ListRuns returns the CLI JSON history view for one project.
+func ListRuns(input config.Input, job *string, limit int) (RunsView, error) {
+	if limit < 1 || limit > 50 {
+		return RunsView{}, UsageError("--limit must be between 1 and 50", "")
+	}
+	cfg, err := config.Load(input)
+	if err != nil {
+		return RunsView{}, ConfigError(err)
+	}
+	jobName := ""
+	if job != nil {
+		jobName = *job
+		if _, ok := cfg.Jobs[jobName]; !ok {
+			return RunsView{}, MissingJobError(jobName, "history", cfg.Jobs)
+		}
+	}
+	runs, err := Runs(cfg.StateDir, cfg.Project, jobName, limit)
+	if err != nil {
+		return RunsView{}, StateError(err)
+	}
+	return RunsView{SchemaVersion: 1, Runs: runs}, nil
+}
+
 // WithLastRuns adds the latest run of each job to an inspection without creating state.
 func WithLastRuns(view Inspection, stateDir string) (Inspection, error) {
 	if len(view.Jobs) == 0 {
@@ -152,6 +188,67 @@ func ReadRunLog(stateDir string, id int64) (Run, []byte, error) {
 	}
 	data, err := state.ReadRunLog(stored)
 	return RunFromStore(stored), data, err
+}
+
+// GetRun optionally waits for a terminal status and returns at most logBytes of log tail.
+func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds, logBytes int) (RunDetail, error) {
+	if waitSeconds < 0 || waitSeconds > 60 {
+		return RunDetail{}, UsageError("wait_seconds must be between 0 and 60", "")
+	}
+	if logBytes < 0 || logBytes > 65536 {
+		return RunDetail{}, UsageError("log_bytes must be between 0 and 65536", "")
+	}
+	run, err := RunByID(stateDir, id)
+	if err != nil {
+		if IsMissingRun(err) || NoDatabase(err) {
+			return RunDetail{}, RunNotFoundError(id)
+		}
+		return RunDetail{}, StateError(err)
+	}
+	if waitSeconds > 0 && (run.Status == "queued" || run.Status == "running") {
+		timer := time.NewTimer(time.Duration(waitSeconds) * time.Second)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer timer.Stop()
+		defer ticker.Stop()
+		wait := true
+		for wait && (run.Status == "queued" || run.Status == "running") {
+			select {
+			case <-ctx.Done():
+				return RunDetail{}, ctx.Err()
+			case <-timer.C:
+				wait = false
+			case <-ticker.C:
+				run, err = RunByID(stateDir, id)
+				if err != nil {
+					if IsMissingRun(err) || NoDatabase(err) {
+						return RunDetail{}, RunNotFoundError(id)
+					}
+					return RunDetail{}, StateError(err)
+				}
+			}
+		}
+	}
+	run, data, err := ReadRunLog(stateDir, id)
+	if err != nil {
+		if IsMissingRun(err) || NoDatabase(err) {
+			return RunDetail{}, RunNotFoundError(id)
+		}
+		if IsMissingLog(err) {
+			run.Log.Available = false
+			data = nil
+		} else {
+			return RunDetail{}, StateError(err)
+		}
+	}
+	if len(data) > logBytes {
+		data = data[len(data)-logBytes:]
+	}
+	log := ValidLogText(data)
+	for len(log) > logBytes {
+		_, size := utf8.DecodeRuneInString(log)
+		log = log[size:]
+	}
+	return RunDetail{SchemaVersion: 1, Run: run, Log: log}, nil
 }
 
 // FollowLog streams live file growth and waits for a running run to finish.

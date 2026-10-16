@@ -24,21 +24,9 @@ func inspectJobs(cmd *urfave.Command) error {
 		return err
 	}
 	now := time.Now()
-	view, err := app.Inspect(values, now)
+	view, err := app.ListJobs(values, now)
 	if err != nil {
-		return configError(err)
-	}
-	view, err = app.WithApprovals(view)
-	if err != nil {
-		return stateError(err)
-	}
-	view, err = app.WithLastRuns(view, view.StateDir)
-	if err != nil {
-		return stateError(err)
-	}
-	view, err = app.WithScheduler(view, now)
-	if err != nil {
-		return stateError(err)
+		return err
 	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "jobs": view.Jobs})

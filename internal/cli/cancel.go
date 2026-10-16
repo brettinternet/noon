@@ -53,7 +53,7 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 	if id, parseErr := strconv.ParseInt(selector, 10, 64); parseErr == nil {
 		result, err := app.Cancel(cfg.StateDir, cfg.Project, &id, "", time.Now())
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, store.ErrNoDatabase) {
-			return &Error{Code: "not_found", Message: fmt.Sprintf("run %d not found", id), Hint: "Run noon history to list recent runs."}
+			return app.RunNotFoundError(id)
 		}
 		if err != nil {
 			return stateError(err)

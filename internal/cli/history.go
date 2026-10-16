@@ -17,28 +17,21 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 		return usageError("history accepts at most one job name", "Run noon history [NAME]")
 	}
 	limit := cmd.Int("limit")
-	if limit < 1 || limit > 50 {
-		return usageError("--limit must be between 1 and 50", "")
-	}
 	values, err := input(cmd)
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(values)
-	if err != nil {
-		return configError(err)
-	}
 	job := ""
+	var jobFilter *string
 	if cmd.Args().Len() == 1 {
 		job = cmd.Args().First()
-		if _, ok := cfg.Jobs[job]; !ok {
-			return missingJobError(job, "history", cfg.Jobs)
-		}
+		jobFilter = &job
 	}
-	runs, err := app.Runs(cfg.StateDir, cfg.Project, job, limit)
+	history, err := app.ListRuns(values, jobFilter, limit)
 	if err != nil {
-		return stateError(err)
+		return err
 	}
+	runs := history.Runs
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"runs": runs})
 	}
@@ -113,14 +106,14 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 				return noRuns(cmd, "")
 			}
 			if app.IsMissingRun(err) {
-				return &Error{Code: "not_found", Message: fmt.Sprintf("run %d not found", id), Hint: "Run noon history to list recent runs."}
+				return app.RunNotFoundError(id)
 			}
 			if err != nil {
 				return stateError(err)
 			}
 		} else {
 			if _, ok := cfg.Jobs[selector]; !ok {
-				return missingJobError(selector, "logs", cfg.Jobs)
+				return app.MissingJobError(selector, "logs", cfg.Jobs)
 			}
 			runs, runsErr := app.Runs(cfg.StateDir, cfg.Project, selector, 1)
 			if runsErr != nil {
@@ -180,16 +173,4 @@ func logReadError(id int64, err error) error {
 	return stateError(err)
 }
 
-func prunedLogError(id int64) error {
-	return &Error{Code: "not_found", Message: fmt.Sprintf("log for run %d is unavailable", id), Hint: "Logs are kept for the newest 10 runs per job."}
-}
-
-func missingJobError(name, command string, jobs map[string]config.Job) error {
-	hint, best := "Run noon list to see available jobs.", 3
-	for candidate := range jobs {
-		if distance := editDistance(name, candidate); distance < best {
-			hint, best = fmt.Sprintf("Did you mean noon %s %s?", command, candidate), distance
-		}
-	}
-	return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: hint}
-}
+func prunedLogError(id int64) error { return app.MissingRunLogError(id) }

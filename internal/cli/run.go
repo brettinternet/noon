@@ -111,13 +111,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	}
 	job, ok := cfg.Jobs[name]
 	if !ok {
-		hint, best := "Run noon run to list jobs", 3
-		for _, candidate := range names {
-			if distance := editDistance(name, candidate); distance < best {
-				hint, best = "Did you mean noon run "+candidate+"?", distance
-			}
-		}
-		return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: hint}
+		return app.MissingJobError(name, "run", cfg.Jobs)
 	}
 	if !job.Enabled {
 		return &Error{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
@@ -332,39 +326,4 @@ func setRunEnv(env []string, key, value string) []string {
 	return filtered
 }
 
-func stateError(err error) error {
-	var newer *store.StateTooNewError
-	if errors.As(err, &newer) {
-		return &Error{Code: "state_too_new", Message: newer.Error(), Hint: "Upgrade Noon before using this state database."}
-	}
-	var running *store.AlreadyRunningError
-	if errors.As(err, &running) {
-		return &Error{Code: "already_running", Message: fmt.Sprintf("job is already running as run %d, started at %s", running.RunID, running.StartedAt), Hint: fmt.Sprintf("Follow it: noon logs %d --follow", running.RunID)}
-	}
-	return &Error{Code: "error", Message: err.Error()}
-}
-
-func editDistance(a, b string) int {
-	// Adjacent transpositions count as one edit (tset -> tests).
-	var beforePrevious []int
-	previous := make([]int, len(b)+1)
-	for i := range previous {
-		previous[i] = i
-	}
-	for i := range len(a) {
-		row := make([]int, len(b)+1)
-		row[0] = i + 1
-		for j := range len(b) {
-			cost := 0
-			if a[i] != b[j] {
-				cost = 1
-			}
-			row[j+1] = min(row[j]+1, previous[j+1]+1, previous[j]+cost)
-			if i > 0 && j > 0 && a[i] == b[j-1] && a[i-1] == b[j] {
-				row[j+1] = min(row[j+1], beforePrevious[j-1]+1)
-			}
-		}
-		beforePrevious, previous = previous, row
-	}
-	return previous[len(b)]
-}
+func stateError(err error) error { return app.StateError(err) }

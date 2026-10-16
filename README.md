@@ -11,8 +11,8 @@ layered settings, non-destructive initialization, strict job validation, byte-pr
 schedule parsing and previews, foreground command and agent-prompt execution, durable per-user run records and bounded
 logs, queued one-shot runs with idempotency and cancellation, explicit project opt-in and shared-job
 approvals, pausing and resuming background jobs, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
-systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics, and development tooling. Cron import,
-hooks, MCP, and TUI are designed but **not implemented**. Noon never backgrounds itself; keep
+systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics, stdio MCP tools, and development tooling. Cron import,
+hooks, and TUI are designed but **not implemented**. Noon never backgrounds itself; keep
 `noon serve` in the foreground or use the explicit service installer or an OS/container supervisor.
 
 ## Try it
@@ -130,6 +130,35 @@ files. Only enable repositories you would run by hand. Keep `.noon.yaml` ignored
 in Git: local jobs and whole-job local overrides bypass approval. Approval is not
 a sandbox and cannot protect against an agent or user with local shell access.
 
+## MCP
+
+`noon mcp` serves six tools over stdio: `status`, `list_jobs`, `run_job`, `list_runs`,
+`get_run`, and `cancel_run`. In Claude Code or Codex, add Noon with:
+
+```sh
+claude mcp add noon -- noon mcp
+codex mcp add noon -- noon mcp
+```
+
+A generic client can use this configuration:
+
+```json
+{
+  "mcpServers": {
+    "noon": { "command": "noon", "args": ["mcp"] }
+  }
+}
+```
+
+MCP can inspect jobs and runs, queue only jobs permitted by the same project enablement and
+shared-job approval rules as the CLI, read bounded log tails, and cancel runs. It cannot add,
+edit, remove, enable, approve, pause, or resume jobs. The initialize client's name and version
+are recorded as metadata on queued runs; identity does not grant authority. Optional `project`
+paths on `status`, `list_jobs`, `run_job`, and `list_runs` must be absolute. `get_run` and
+`cancel_run` use globally unique run IDs, like the CLI. MCP is a local stdio transport, not a
+sandbox: approval is not isolation, and a client running with your account has your account's
+local permissions.
+
 ## Direction
 
 Implemented foundations and planned extensions ([design](docs/design.md), [decisions](backlog/decisions)):
@@ -142,8 +171,8 @@ Implemented foundations and planned extensions ([design](docs/design.md), [decis
 - Nothing from a repository runs unattended until you `noon enable` that
   checkout, and changed shared jobs wait for re-approval.
 - After sleep, a missed job runs once, never in a burst.
-- Hooks, Git and agent triggers, webhooks, MCP, and a TUI build on the store. Commands are the
-  integration boundary: no plugin system.
+- MCP's local stdio tools use the shared app operations. Hooks, Git and agent triggers,
+  webhooks, and a TUI build on the store. Commands are the integration boundary: no plugin system.
 
 ## Docker bootstrap
 
