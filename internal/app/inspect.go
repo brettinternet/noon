@@ -9,6 +9,7 @@ import (
 )
 
 type Project struct {
+	ID          int64  `json:"-"`
 	Path        string `json:"path"`
 	Timezone    string `json:"timezone"`
 	Enabled     bool   `json:"enabled"`
@@ -39,6 +40,8 @@ type Job struct {
 	Overrides   bool       `json:"overrides"`
 	Digest      string     `json:"digest"`
 	Approval    string     `json:"approval"`
+	WebhookPath string     `json:"webhook_path,omitempty"`
+	HasWebhook  bool       `json:"-"`
 }
 
 type Inspection struct {
@@ -67,7 +70,7 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 	slices.Sort(names)
 	for _, name := range names {
 		job := cfg.Jobs[name]
-		view := Job{Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, Agent: job.Agent, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest}
+		view := Job{Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, Agent: job.Agent, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
 		view.Approval = "not_required"
 		if job.Shared {
 			view.Approval = "needs_approval"

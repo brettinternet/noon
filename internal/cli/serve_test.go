@@ -148,3 +148,40 @@ func TestListUsesPersistedIntervalPhase(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestListJSONWebhookPath(t *testing.T) {
+	root := sandbox(t)
+	manifest := "jobs:\n  hook:\n    run: 'true'\n    webhook:\n      secret_env: HOOK_SECRET\n  plain:\n    run: 'true'\n"
+	if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "enable"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+		t.Fatalf("enable: code=%d stdout=%s stderr=%s", code, &out, &stderr)
+	}
+	out.Reset()
+	stderr.Reset()
+	if code := cli.Run(context.Background(), []string{"noon", "list", "--json"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+		t.Fatalf("list: code=%d stdout=%s stderr=%s", code, &out, &stderr)
+	}
+	var result struct {
+		Jobs []map[string]any `json:"jobs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("list JSON: %v: %s", err, out.String())
+	}
+	var path string
+	for _, job := range result.Jobs {
+		switch job["name"] {
+		case "hook":
+			path, _ = job["webhook_path"].(string)
+		case "plain":
+			if _, exists := job["webhook_path"]; exists {
+				t.Fatalf("non-webhook job has webhook_path: %+v", job)
+			}
+		}
+	}
+	if path == "" || !strings.HasPrefix(path, "/hooks/") || !strings.HasSuffix(path, "/hook") {
+		t.Fatalf("webhook path = %q", path)
+	}
+}

@@ -40,6 +40,11 @@ func TestLoadJobs(t *testing.T) {
 				t.Fatalf("cooldown = %s, want 2m", got)
 			}
 		}},
+		{name: "webhook", shared: "jobs: {tests: {run: 'true', webhook: {secret_env: GITHUB_SECRET}}}", check: func(t *testing.T, c config.Config) {
+			if got := c.Jobs["tests"].Webhook; got == nil || got.SecretEnv != "GITHUB_SECRET" {
+				t.Fatalf("webhook: %+v", got)
+			}
+		}},
 		{name: "whole override", shared: "jobs: {tests: {run: original, env: {TOKEN: secret}, schedule: daily, timeout: 5m}}", local: "jobs: {tests: {run: replacement}}", check: func(t *testing.T, c config.Config) {
 			j := c.Jobs["tests"]
 			if j.Run != "replacement" || len(j.Env) != 0 || j.Schedule != nil || j.Timeout != "1h" || j.Shared || !j.Overrides || filepath.Base(j.Source) != ".noon.yaml" {
@@ -116,6 +121,16 @@ func TestLoadJobs(t *testing.T) {
 				tc.check(t, cfg)
 			}
 		})
+	}
+	for _, test := range []struct{ manifest, message string }{
+		{"jobs: {tests: {run: 'true', webhook: {}}}", "jobs.tests.webhook.secret_env: required"},
+		{"jobs: {tests: {run: 'true', webhook: {secret_env: 'NOT VALID'}}}", "must be a valid environment variable name"},
+	} {
+		root := canonical(t, t.TempDir())
+		put(t, filepath.Join(root, "noon.yaml"), test.manifest)
+		if _, err := config.Load(config.Input{CWD: root}); err == nil || !strings.Contains(err.Error(), test.message) {
+			t.Fatalf("webhook config error = %v, want %q", err, test.message)
+		}
 	}
 	t.Run("inherited hook defaults and job opt-out", func(t *testing.T) {
 		root := canonical(t, t.TempDir())
@@ -219,6 +234,11 @@ func TestJobDigest(t *testing.T) {
 	hookDigest := load(hookDefinition, "{}")
 	if load(strings.Replace(hookDefinition, "done", "failed", 1), "{}") == hookDigest {
 		t.Fatal("changing a shared job hook did not change its digest")
+	}
+	webhookBase := "    run: echo hi\n    webhook: {secret_env: SECRET_ONE}\n"
+	webhookDigest := load(webhookBase, "{}")
+	if load(strings.Replace(webhookBase, "SECRET_ONE", "SECRET_TWO", 1), "{}") == webhookDigest {
+		t.Fatal("changing a webhook secret environment name did not change the shared job digest")
 	}
 	t.Run("inherited hook defaults participate in shared digest", func(t *testing.T) {
 		root := canonical(t, t.TempDir())

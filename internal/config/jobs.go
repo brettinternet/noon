@@ -23,6 +23,10 @@ type AgentProfile struct {
 	Prompt  string
 }
 
+type Webhook struct {
+	SecretEnv string
+}
+
 type Job struct {
 	Name         string
 	Description  string
@@ -32,6 +36,7 @@ type Job struct {
 	OnFailure    any
 	Prompt       *string
 	PromptFile   *string
+	Webhook      *Webhook
 	Agent        string
 	AgentCommand []string
 	PromptMode   string
@@ -337,6 +342,32 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				return Job{}, jobError(file, value, field, "must be a non-empty path relative to the project root")
 			}
 			job.PromptFile, execution[key] = &text, text
+		case "webhook":
+			webhookFields, err := jobMapping(file, field, value)
+			if err != nil {
+				return Job{}, err
+			}
+			webhook := &Webhook{}
+			for j := 0; j < len(value.Content); j += 2 {
+				fieldNode, fieldValue := value.Content[j], value.Content[j+1]
+				webhookField := field + "." + fieldNode.Value
+				if fieldNode.Value != "secret_env" {
+					return Job{}, jobError(file, fieldNode, webhookField, "unknown field")
+				}
+				secretEnv, err := jobString(file, webhookField, fieldValue)
+				if err != nil {
+					return Job{}, err
+				}
+				if !envName.MatchString(secretEnv) {
+					return Job{}, jobError(file, fieldValue, webhookField, "must be a valid environment variable name")
+				}
+				webhook.SecretEnv = secretEnv
+			}
+			if _, exists := webhookFields["secret_env"]; !exists {
+				return Job{}, jobError(file, value, field+".secret_env", "required")
+			}
+			job.Webhook = webhook
+			execution[key] = map[string]string{"secret_env": webhook.SecretEnv}
 		case "agent":
 			text, err := jobString(file, field, value)
 			if err != nil {

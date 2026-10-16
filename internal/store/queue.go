@@ -11,6 +11,7 @@ var (
 	ErrProjectNotEnabled = errors.New("project is not enabled")
 	ErrJobNotFound       = errors.New("job not found")
 	ErrJobDisabled       = errors.New("job is disabled")
+	ErrJobPaused         = errors.New("job is paused")
 	ErrNeedsApproval     = errors.New("job needs approval")
 )
 
@@ -20,6 +21,7 @@ type QueueRunInput struct {
 	ProjectID                        int64
 	Job, Digest, IdempotencyKey      string
 	RequestedBy                      string
+	Trigger                          string
 	DueAt, Now                       time.Time
 	NowFunc                          func() time.Time
 	JobExists, JobEnabled, JobShared bool
@@ -28,6 +30,7 @@ type QueueRunInput struct {
 	Depth                            int
 	EventData                        []byte
 	EventSource                      string
+	EventHeaders                     map[string]string
 }
 
 type QueueRunResult struct {
@@ -63,6 +66,13 @@ func (s *Store) QueueRun(input QueueRunInput) (QueueRunResult, error) {
 		}
 	}
 
+	eligibilityChecked := false
+	if input.Trigger == "webhook" {
+		if err := s.checkQueueEligibility(tx, input); err != nil {
+			return QueueRunResult{}, err
+		}
+		eligibilityChecked = true
+	}
 	if input.IdempotencyKey != "" {
 		run, err := scanRun(tx.QueryRow(`SELECT `+s.runSelectColumns()+` FROM runs WHERE project_id=? AND job=? AND idempotency_key=?`, input.ProjectID, input.Job, input.IdempotencyKey))
 		if err == nil {
@@ -77,24 +87,9 @@ func (s *Store) QueueRun(input QueueRunInput) (QueueRunResult, error) {
 		}
 	}
 
-	var enabled bool
-	if err := tx.QueryRow(`SELECT enabled FROM projects WHERE id=?`, input.ProjectID).Scan(&enabled); errors.Is(err, sql.ErrNoRows) || (err == nil && !enabled) {
-		return QueueRunResult{}, ErrProjectNotEnabled
-	} else if err != nil {
-		return QueueRunResult{}, fmt.Errorf("check project opt-in: %w", err)
-	}
-	if !input.JobExists {
-		return QueueRunResult{}, ErrJobNotFound
-	}
-	if !input.JobEnabled {
-		return QueueRunResult{}, ErrJobDisabled
-	}
-	if input.JobShared {
-		var digest string
-		if err := tx.QueryRow(`SELECT digest FROM approvals WHERE project_id=? AND job=?`, input.ProjectID, input.Job).Scan(&digest); errors.Is(err, sql.ErrNoRows) || (err == nil && digest != input.Digest) {
-			return QueueRunResult{}, ErrNeedsApproval
-		} else if err != nil {
-			return QueueRunResult{}, fmt.Errorf("check job approval: %w", err)
+	if !eligibilityChecked {
+		if err := s.checkQueueEligibility(tx, input); err != nil {
+			return QueueRunResult{}, err
 		}
 	}
 
@@ -137,9 +132,16 @@ func (s *Store) QueueRun(input QueueRunInput) (QueueRunResult, error) {
 	if input.IdempotencyKey != "" {
 		key = input.IdempotencyKey
 	}
+	trigger := input.Trigger
+	if trigger == "" {
+		trigger = "queued"
+	}
+	if trigger != "queued" && trigger != "webhook" {
+		return QueueRunResult{}, fmt.Errorf("invalid queued run trigger %q", trigger)
+	}
 	stamp, due := FormatTime(input.Now), FormatTime(input.DueAt)
 	result, err := tx.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, scheduled_at, due_at, created_at, requested_by, idempotency_key, depth)
-VALUES(?, ?, 'queued', 'queued', ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, input.Digest, due, due, stamp, input.RequestedBy, key, input.Depth)
+VALUES(?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, trigger, input.Digest, due, due, stamp, input.RequestedBy, key, input.Depth)
 	if err != nil {
 		return QueueRunResult{}, fmt.Errorf("create queued run: %w", err)
 	}
@@ -147,8 +149,8 @@ VALUES(?, ?, 'queued', 'queued', ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.J
 	if err != nil {
 		return QueueRunResult{}, fmt.Errorf("get queued run ID: %w", err)
 	}
-	if len(input.EventData) > 0 {
-		eventPath, err = s.writeEvent(id, input.EventSource, input.Now, input.EventData)
+	if len(input.EventData) > 0 || input.EventSource == "webhook" {
+		eventPath, err = s.writeEvent(id, input.EventSource, input.Now, input.EventData, input.EventHeaders)
 		if err != nil {
 			return QueueRunResult{}, err
 		}
@@ -169,6 +171,39 @@ VALUES(?, ?, 'queued', 'queued', ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.J
 	}
 	committed = true
 	return QueueRunResult{Run: run, Created: true, Scheduler: status}, nil
+}
+
+func (s *Store) checkQueueEligibility(tx *sql.Tx, input QueueRunInput) error {
+	var enabled bool
+	if err := tx.QueryRow(`SELECT enabled FROM projects WHERE id=?`, input.ProjectID).Scan(&enabled); errors.Is(err, sql.ErrNoRows) || (err == nil && !enabled) {
+		return ErrProjectNotEnabled
+	} else if err != nil {
+		return fmt.Errorf("check project opt-in: %w", err)
+	}
+	if !input.JobExists {
+		return ErrJobNotFound
+	}
+	if !input.JobEnabled {
+		return ErrJobDisabled
+	}
+	if input.Trigger == "webhook" && s.hasPauses {
+		var paused bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pauses WHERE project_id=? AND job=?)`, input.ProjectID, input.Job).Scan(&paused); err != nil {
+			return fmt.Errorf("check job pause: %w", err)
+		}
+		if paused {
+			return ErrJobPaused
+		}
+	}
+	if input.JobShared {
+		var digest string
+		if err := tx.QueryRow(`SELECT digest FROM approvals WHERE project_id=? AND job=?`, input.ProjectID, input.Job).Scan(&digest); errors.Is(err, sql.ErrNoRows) || (err == nil && digest != input.Digest) {
+			return ErrNeedsApproval
+		} else if err != nil {
+			return fmt.Errorf("check job approval: %w", err)
+		}
+	}
+	return nil
 }
 
 func schedulerStatus(tx *sql.Tx, now time.Time) (string, error) {

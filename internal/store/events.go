@@ -11,30 +11,58 @@ import (
 	"time"
 )
 
-const MaxEventBytes = 256 << 10
+const (
+	MaxEventBytes       = 256 << 10
+	MaxWebhookBodyBytes = 1 << 20
+	// Allow sixfold JSON escaping for the body and HTTP headers, plus envelope overhead.
+	maxWebhookEventBytes = 6*(MaxWebhookBodyBytes+(20<<10)) + (1 << 10)
+)
 
 type eventFile struct {
-	SchemaVersion int             `json:"schema_version"`
-	Source        string          `json:"source"`
-	ReceivedAt    string          `json:"received_at"`
-	Data          json.RawMessage `json:"data"`
+	SchemaVersion int                `json:"schema_version"`
+	Source        string             `json:"source"`
+	ReceivedAt    string             `json:"received_at"`
+	Data          json.RawMessage    `json:"data"`
+	Headers       *map[string]string `json:"headers,omitempty"`
 }
 
-func (s *Store) writeEvent(runID int64, source string, receivedAt time.Time, data []byte) (string, error) {
-	if len(data) == 0 {
+func (s *Store) writeEvent(runID int64, source string, receivedAt time.Time, data []byte, headerSets ...map[string]string) (string, error) {
+	if len(data) == 0 && source != "webhook" {
 		return "", nil
 	}
-	if len(data) > MaxEventBytes || !json.Valid(data) {
-		return "", errors.New("event data must be valid JSON of at most 256 KiB")
-	}
+	var headers map[string]string
 	switch source {
-	case "cli", "mcp", "webhook":
+	case "cli", "mcp":
+		if len(data) > MaxEventBytes || !json.Valid(data) {
+			return "", errors.New("event data must be valid JSON of at most 256 KiB")
+		}
+	case "webhook":
+		if len(data) > MaxWebhookBodyBytes {
+			return "", errors.New("webhook body exceeds 1 MiB")
+		}
+		if !json.Valid(data) {
+			var err error
+			data, err = json.Marshal(string(data))
+			if err != nil {
+				return "", fmt.Errorf("encode webhook body: %w", err)
+			}
+		}
+		if len(headerSets) > 0 {
+			headers = safeWebhookHeaders(headerSets[0])
+		}
 	default:
 		return "", fmt.Errorf("invalid event source %q", source)
 	}
-	encoded, err := json.Marshal(eventFile{SchemaVersion: 1, Source: source, ReceivedAt: FormatTime(receivedAt), Data: bytes.TrimSpace(data)})
+	var savedHeaders *map[string]string
+	if headers != nil {
+		savedHeaders = &headers
+	}
+	encoded, err := json.Marshal(eventFile{SchemaVersion: 1, Source: source, ReceivedAt: FormatTime(receivedAt), Data: bytes.TrimSpace(data), Headers: savedHeaders})
 	if err != nil {
 		return "", fmt.Errorf("encode run event: %w", err)
+	}
+	if source == "webhook" && len(encoded) > maxWebhookEventBytes {
+		return "", errors.New("webhook event exceeds serialized size limit")
 	}
 	dir := filepath.Join(s.dir, "events")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -85,6 +113,24 @@ func (s *Store) writeEvent(runID int64, source string, receivedAt time.Time, dat
 		return "", fmt.Errorf("sync event directory: %w", err)
 	}
 	return relative, nil
+}
+
+func safeWebhookHeaders(headers map[string]string) map[string]string {
+	allowed := map[string]bool{
+		"content-type":      true,
+		"user-agent":        true,
+		"x-github-event":    true,
+		"x-github-delivery": true,
+		"x-noon-delivery":   true,
+	}
+	result := make(map[string]string)
+	for key, value := range headers {
+		key = strings.ToLower(key)
+		if allowed[key] {
+			result[key] = value
+		}
+	}
+	return result
 }
 
 func (s *Store) removeEvent(relative string) error {

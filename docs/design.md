@@ -86,7 +86,7 @@ Next: noon enable
 | `noon logs` | Latest run in project | `NAME` or `RUN`; `--follow` |
 | `noon history` | Recent runs | `NAME`; `--limit` |
 | `noon enable`, `disable` | Acts on current project | — |
-| `noon serve` | Foreground scheduler for enabled projects | No arguments; webhook `--listen` is planned |
+| `noon serve` | Foreground scheduler for enabled projects; signed webhooks when explicitly requested | `--listen ADDR` opts in to an HTTP listener; otherwise no listener starts |
 | `noon service` | Service status | `install`, `uninstall` |
 | `noon doctor` | Read-only setup checks; exit 1 on failures, 0 for warnings only | — |
 | `noon init`, `config` | Implemented today | — |
@@ -401,19 +401,25 @@ Decided in decision-4: no plugin system. Commands are the integration boundary.
   CLI data accepts a JSON value, `@FILE`, or stdin `-`, up to 256 KiB; MCP `run_job` accepts an
   optional JSON `data` value with the same limit. A queued run and its event file are committed in
   file-before-database order so dispatch cannot race payload persistence. Event files contain
-  `schema_version`, `source`, `received_at`, and `data`; sources are `cli`, `mcp`, and (for the
-  future webhook adapter) `webhook`. Payloads are files, never interpolated into commands.
+  `schema_version`, `source`, `received_at`, and `data`; sources are `cli`, `mcp`, and `webhook`.
+  Payloads are files, never interpolated into commands.
   `cooldown` is a digested job duration of at least 1s and applies to queued requests after key
   deduplication and requirements checks but before due-run coalescing. Foreground and scheduled
   runs ignore cooldowns. Runs persist the requesting process's `NOON_DEPTH` for foreground and
   queued requests; scheduled runs start at zero. Jobs and hooks receive that stored depth + 1.
   Requests at depth 3 or greater and requests from the same project/job are refused. Nothing
   installs hooks for you.
-- **Webhooks**: `noon serve --listen ADDR` opt-in, loopback by default, per-job `webhook:` opt-in,
-  HMAC signatures, delivery deduplication, body limits. Payloads choose data, never commands.
+- **Webhooks**: `noon serve --listen ADDR` explicitly starts a `net/http` listener; without the
+  flag there is no listener. Jobs opt in with `webhook: {secret_env: NAME}`; the secret value is read
+  from the scheduler environment at startup and a missing or empty value disables that endpoint and
+  records a project config error. `POST /hooks/{project_id}/{job}` requires an HMAC-SHA256 signature
+  in `X-Hub-Signature-256` or `X-Noon-Signature-256`, accepts at most 1 MiB, and uses GitHub or Noon
+  delivery IDs as idempotency keys. Delivery IDs deduplicate only while their runs are retained.
+  Payloads choose data, never commands.
 - **Event files**: one JSON object for every payload with keys `schema_version` (1), `source`
-  (`cli`, `mcp`, or `webhook`), `received_at`, `data`, and, for webhooks only, `headers`. `data` is the
-  JSON payload, or a string when a webhook body is not JSON.
+  (`cli`, `mcp`, or `webhook`), `received_at`, `data`, and, for webhooks only, allowlisted `headers`.
+  `data` is the JSON payload, or a string when a webhook body is not JSON. Signature and authorization
+  headers are never stored.
 - **MCP**: `noon mcp` over stdio with the official Go SDK exposes `status`, `list_jobs`, `run_job`,
   `list_runs`, `get_run`, and `cancel_run`. `run_job` accepts optional JSON `data`. The first four accept an optional absolute `project`
   path; run lookup and cancellation use globally unique run IDs. Agents cannot approve, add, or edit

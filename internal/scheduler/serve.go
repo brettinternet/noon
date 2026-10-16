@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +19,7 @@ import (
 
 	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/httpapi"
 	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/store"
 	"golang.org/x/sys/unix"
@@ -32,6 +36,7 @@ type ServeOptions struct {
 	Ticks           <-chan time.Time
 	KillGrace       time.Duration
 	Logger          io.Writer
+	ListenAddr      string
 	IgnoreSignals   bool
 	OnTick          func()
 }
@@ -52,11 +57,13 @@ type fileStamp struct {
 }
 
 type projectConfig struct {
-	project         store.EnabledProject
-	config          *config.Config
-	configSelection string
-	stamps          []fileStamp
-	checkedAt       time.Time
+	project            store.EnabledProject
+	config             *config.Config
+	webhookSecrets     map[string][]byte
+	webhookConfigError string
+	configSelection    string
+	stamps             []fileStamp
+	checkedAt          time.Time
 }
 
 type runControl struct {
@@ -93,6 +100,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 	if options.Environment == nil {
 		options.Environment = os.Environ()
 	}
+	options.Environment = append([]string(nil), options.Environment...)
 	if !filepath.IsAbs(options.StateDir) {
 		return fmt.Errorf("state directory must be absolute: %q", options.StateDir)
 	}
@@ -154,6 +162,54 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		if err := reloadProject(state, cached, options, start, &logger, true); err != nil {
 			return err
 		}
+	}
+	var webhookHandler *httpapi.Handler
+	var httpServer *http.Server
+	var httpErrors <-chan error
+	var stopHTTP func()
+	if options.ListenAddr != "" {
+		projects, err := webhookProjects(state, initial.Projects, configs, options)
+		if err != nil {
+			return err
+		}
+		webhookHandler = httpapi.NewHandler(projects)
+		listener, err := net.Listen("tcp", options.ListenAddr)
+		if err != nil {
+			return fmt.Errorf("listen for webhooks on %q: %w", options.ListenAddr, err)
+		}
+		address := httpapi.ListenerAddress(listener)
+		httpServer = httpapi.NewServer(webhookHandler)
+		done := make(chan struct{})
+		failures := make(chan error, 1)
+		go func() {
+			if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				failures <- err
+			}
+			close(done)
+		}()
+		httpErrors = failures
+		logger.event("webhook listener listening address=%s", address)
+		if !httpapi.IsLoopbackAddress(address) {
+			logger.event("WARNING: webhook listener uses a non-loopback address; requests still require signatures")
+		}
+		var stopOnce sync.Once
+		stopHTTP = func() {
+			stopOnce.Do(func() {
+				webhookHandler.SetHealthy(false)
+				shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := httpServer.Shutdown(shutdown); err != nil {
+					_ = httpServer.Close()
+				}
+				select {
+				case <-done:
+				case <-shutdown.Done():
+					_ = httpServer.Close()
+					<-done
+				}
+			})
+		}
+		defer stopHTTP()
 	}
 	logger.event("scheduler started state_dir=%q projects=%d", options.StateDir, len(initial.Projects))
 
@@ -218,6 +274,8 @@ func Serve(ctx context.Context, options ServeOptions) error {
 			goto shutdown
 		case <-serveContext.Done():
 			goto shutdown
+		case err := <-httpErrors:
+			return fmt.Errorf("webhook HTTP server: %w", err)
 		case _, ok := <-ticks:
 			if !ok {
 				goto shutdown
@@ -260,6 +318,13 @@ func Serve(ctx context.Context, options ServeOptions) error {
 			if !activeProjects[id] {
 				delete(configs, id)
 			}
+		}
+		if webhookHandler != nil {
+			projects, err := webhookProjects(state, snapshot.Projects, configs, options)
+			if err != nil {
+				return err
+			}
+			webhookHandler.ReplaceProjects(projects)
 		}
 		for id, control := range running {
 			if !activeProjects[control.projectID] {
@@ -337,6 +402,9 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		if err != nil {
 			return err
 		}
+		if webhookHandler != nil {
+			webhookHandler.SetHealthy(true)
+		}
 		if options.OnTick != nil {
 			options.OnTick()
 		}
@@ -344,6 +412,9 @@ func Serve(ctx context.Context, options ServeOptions) error {
 
 shutdown:
 	logger.event("scheduler shutting down")
+	if stopHTTP != nil {
+		stopHTTP()
+	}
 	for _, control := range running {
 		control.stop("interrupted")
 	}
@@ -455,10 +526,97 @@ func reloadProject(state *store.Store, cached *projectConfig, options ServeOptio
 	}
 	cached.config = &loaded
 	cached.configSelection = configSelection(cached.project)
-	if err := state.SetProjectConfigError(cached.project.ID, ""); err != nil {
-		return fmt.Errorf("clear config error for %q: %w", cached.project.Path, err)
+	cached.webhookSecrets, cached.webhookConfigError = webhookSecretSnapshots(loaded, options.Environment)
+	if err := state.SetProjectConfigError(cached.project.ID, cached.webhookConfigError); err != nil {
+		return fmt.Errorf("record config error for %q: %w", cached.project.Path, err)
+	}
+	if cached.webhookConfigError != "" {
+		logger.event("config error project=%q error=%q", cached.project.Path, cached.webhookConfigError)
 	}
 	return nil
+}
+
+func webhookSecretSnapshots(cfg config.Config, environment []string) (map[string][]byte, string) {
+	secrets := map[string][]byte{}
+	names := make([]string, 0, len(cfg.Jobs))
+	for name := range cfg.Jobs {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var missing []string
+	for _, name := range names {
+		webhook := cfg.Jobs[name].Webhook
+		if webhook == nil {
+			continue
+		}
+		value, found := "", false
+		for _, entry := range environment {
+			key, candidate, ok := strings.Cut(entry, "=")
+			if ok && key == webhook.SecretEnv {
+				value, found = candidate, true
+			}
+		}
+		if !found || value == "" {
+			missing = append(missing, fmt.Sprintf("job %q webhook secret environment variable %q is missing or empty", name, webhook.SecretEnv))
+			continue
+		}
+		secrets[name] = []byte(value)
+	}
+	return secrets, strings.Join(missing, "; ")
+}
+
+func webhookProjects(state *store.Store, enabled []store.EnabledProject, configs map[int64]*projectConfig, options ServeOptions) ([]httpapi.WebhookProject, error) {
+	records, err := state.ProjectRecords()
+	if err != nil {
+		return nil, fmt.Errorf("read webhook project records: %w", err)
+	}
+	active := make(map[int64]store.EnabledProject, len(enabled))
+	for _, project := range enabled {
+		active[project.ID] = project
+	}
+	projects := make([]httpapi.WebhookProject, 0, len(records))
+	for _, record := range records {
+		var loaded config.Config
+		var projectState store.EnabledProject
+		var secrets map[string][]byte
+		if record.Enabled {
+			var exists bool
+			projectState, exists = active[record.ID]
+			if !exists {
+				continue
+			}
+			cached := loadedConfig(projectState, configs)
+			if cached == nil {
+				continue
+			}
+			loaded = *cached.config
+			secrets = cached.webhookSecrets
+		} else {
+			project := record.Path
+			input := config.Input{CWD: project, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, Project: &project}
+			if record.ConfigFile.Valid {
+				file := record.ConfigFile.String
+				input.File = &file
+			}
+			loaded, err = config.Load(input)
+			if err != nil {
+				continue
+			}
+			secrets, _ = webhookSecretSnapshots(loaded, options.Environment)
+			projectState = store.EnabledProject{ID: record.ID, Path: record.Path}
+		}
+		// Requests must use the same state store as this scheduler, including overrides.
+		loaded.StateDir = options.StateDir
+		jobs := make(map[string]httpapi.WebhookJob, len(loaded.Jobs))
+		for name, definition := range loaded.Jobs {
+			jobs[name] = httpapi.WebhookJob{
+				Definition: definition, Secret: secrets[name], Paused: projectState.Paused[name],
+				Approved: !definition.Shared || projectState.Approvals[name] == definition.Digest,
+			}
+		}
+		projects = append(projects, httpapi.WebhookProject{ID: record.ID, Config: loaded, Enabled: record.Enabled, Jobs: jobs})
+	}
+	return projects, nil
 }
 
 func configSelection(project store.EnabledProject) string {
