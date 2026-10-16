@@ -1,10 +1,10 @@
 ---
 id: NOON-22
 title: Run lifecycle hooks after jobs finish
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 15:31'
 labels:
   - integration
 dependencies:
@@ -57,15 +57,35 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestHooks|TestJobDigest)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
-- [ ] #2 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "exit 3"\n    on_failure: [sh, -c, "cat > hook.json"]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t; echo "exit=$?"` prints `exit=3`, and `$noon_ac_project/hook.json` contains the run summary JSON, whose `run.status` is `failed`
+- [x] #1 `task cli:test -- -run '^(TestHooks|TestJobDigest)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
+- [x] #2 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "exit 3"\n    on_failure: [sh, -c, "cat > hook.json"]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t; echo "exit=$?"` prints `exit=3`, and `$noon_ac_project/hook.json` contains the run summary JSON, whose `run.status` is `failed`
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Inspect configuration, execution, persistence, and log-follow contracts. 2. Implement validated hooks and durable lifecycle state in the shared execution path. 3. Add focused regression coverage and documentation. 4. Run acceptance commands and task ci, review, commit, merge, and clean up.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: task cli:test -- -run '^(TestHooks|TestJobDigest)$' -count=1 -v -> exit 0; both PASS. Covers success/failure/job timeout, inherited-default disabling, hook timeout/process group, bounded output, log following from a running job, and hook digest changes. AC#2: exact isolated build/run fixture executed via /tmp/noon-22-ac2.sh -> exit=3; jq confirmed hook.json run.status=failed (fixture /var/folders/jp/1mwx72h172955139pth4h8800000gn/T/tmp.KCH21Nsigd). Single independent review found hook log-write errors replacing job exit; corrected and regression tested. Retention now runs after hook completion so cleanup failure cannot prevent execution after the running-hook transition; existing retention-failure regression extended. Direct permission-denied fixture now returns job exit 7 with failed hook/1 JSON. Documented wrappers tested with fake osascript, notify-send, curl: quoted argv and stdin preserved, no external notifications/network. All paths remain within modified-file contract; no tests weakened. Executor timed out after its CI passed; parent resumed and completed focused corrections. No outstanding review findings.
+
+Delivery: implementation commit dd965cf passed task ci (security/vulnerability scans, formatting/vet/staticcheck, all tests, race tests, CLI smoke) and was fast-forward merged into main. Clean session-owned noon-22-hooks worktree and branch removed via Worktrunk; matching Herdr workspace removed. No blockers or remaining item-scoped work. Final backlog-only commit follows; no push requested or performed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented lifecycle hooks with source-aware defaults and approval digests, shared foreground/scheduler execution, durable hook status/recovery, bounded logs and follow, preserved job exit codes, and notification/webhook examples. AC1 and AC2 pass; full CI passes on implementation commit dd965cf. Independent review finding fixed with regressions. Merged locally and cleaned owned worktree.
+<!-- SECTION:FINAL_SUMMARY:END -->
