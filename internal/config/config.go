@@ -37,6 +37,7 @@ type Input struct {
 // Config is a read-only snapshot. Sources are ordered from lowest to highest priority.
 type Config struct {
 	Project      string                  `json:"project"`
+	ConfigFile   *string                 `json:"-"`
 	Timezone     string                  `json:"timezone"`
 	StateDir     string                  `json:"state_dir"`
 	Sources      []string                `json:"sources"`
@@ -47,7 +48,14 @@ type Config struct {
 
 // Load applies defaults, user settings, project settings, and invocation overrides.
 // An explicit File replaces all automatic file loading, not invocation overrides.
-func Load(input Input) (Config, error) {
+func Load(input Input) (Config, error) { return load(input, false) }
+
+// LoadForDisable resolves only the checkout and state location. Project manifests
+// cannot set state_dir, so broken or missing jobs must never prevent revocation.
+// An explicit state-dir also permits recovery from a broken explicit/user file.
+func LoadForDisable(input Input) (Config, error) { return load(input, true) }
+
+func load(input Input, stateOnly bool) (Config, error) {
 	project, err := ProjectDir(input)
 	if err != nil {
 		return Config{}, err
@@ -67,11 +75,18 @@ func Load(input Input) (Config, error) {
 		stateDefault = filepath.Join(stateHome, "noon")
 	}
 	cfg := Config{Project: project, Timezone: "Local", StateDir: stateDefault, Sources: []string{}, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
-	if input.File != nil {
+	if stateOnly && input.StateDir != nil {
+		// The state location is explicit; no configuration file is needed.
+	} else if input.File != nil {
 		if *input.File == "" {
 			return Config{}, errors.New("config path must not be empty")
 		}
-		if err := cfg.applyFile(resolvePath(input.CWD, *input.File), false, "explicit", filepath.Join(input.UserConfigDir, "noon", "config.yaml")); err != nil {
+		file, err := filepath.Abs(resolvePath(input.CWD, *input.File))
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.ConfigFile = &file
+		if err := cfg.applyFile(file, false, "explicit", filepath.Join(input.UserConfigDir, "noon", "config.yaml"), stateOnly); err != nil {
 			return Config{}, err
 		}
 	} else {
@@ -87,7 +102,10 @@ func Load(input Input) (Config, error) {
 			} else if i == len(paths)-1 {
 				kind = "local"
 			}
-			if err := cfg.applyFile(path, true, kind, filepath.Join(input.UserConfigDir, "noon", "config.yaml")); err != nil {
+			if stateOnly && kind != "user" {
+				continue
+			}
+			if err := cfg.applyFile(path, true, kind, filepath.Join(input.UserConfigDir, "noon", "config.yaml"), stateOnly); err != nil {
 				return Config{}, err
 			}
 		}
@@ -154,7 +172,7 @@ func ProjectDir(input Input) (string, error) {
 	}
 }
 
-func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath string) error {
+func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath string, stateOnly bool) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -181,6 +199,13 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 	values, err := parse(data)
 	if err != nil {
 		return fmt.Errorf("config %s: %w", path, err)
+	}
+	if stateOnly {
+		for key := range values {
+			if key != "state_dir" {
+				delete(values, key)
+			}
+		}
 	}
 	if node, ok := values["timezone"]; ok {
 		value := node.Value

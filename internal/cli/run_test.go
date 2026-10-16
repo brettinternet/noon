@@ -171,6 +171,10 @@ agents:
 			t.Fatalf("effective agent missing from list JSON: %+v", job)
 		}
 	}
+	// Approve before checking command-column rendering; pending approval uses more table space.
+	if code, result := invoke(t, "enable", "--json"); code != 0 {
+		t.Fatalf("enable: %+v", result)
+	}
 	var listOut, listErr bytes.Buffer
 	if code := cli.Run(context.Background(), []string{"noon", "list"}, config.BuildOpts{}, &listOut, &listErr); code != 0 || !strings.Contains(listOut.String(), "claude: inline stdin first…") || !strings.Contains(listOut.String(), "codex: prompts/stdin.md") {
 		t.Fatalf("human prompt list: code=%d stdout=%s stderr=%s", code, &listOut, &listErr)

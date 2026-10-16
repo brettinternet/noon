@@ -220,14 +220,14 @@ func TestListJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result) != 3 || len(project) != 2 || project["path"] != canonical || project["timezone"] != "America/Chicago" {
+	if len(result) != 3 || len(project) != 3 || project["enabled"] != false || project["path"] != canonical || project["timezone"] != "America/Chicago" {
 		t.Fatal(result)
 	}
 	jobs := result["jobs"].([]any)
 	if len(jobs) != 4 {
 		t.Fatal(jobs)
 	}
-	wantKeys := strings.Fields("name description schedule next_at run prompt prompt_file cwd env_keys timeout overlap missed enabled last_run source shared overrides digest")
+	wantKeys := strings.Fields("name description schedule next_at run prompt prompt_file cwd env_keys timeout overlap missed enabled last_run source shared overrides digest approval")
 	slices.Sort(wantKeys)
 	for i, name := range []string{"adaily", "bdisabled", "cinterval", "zmanual"} {
 		job := jobs[i].(map[string]any)

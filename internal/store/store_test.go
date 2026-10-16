@@ -71,7 +71,7 @@ func TestStore(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		var journal string
@@ -142,6 +142,10 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
+		approval, err := state.ApprovalForProject("/legacy-project")
+		if err != nil || approval.Enabled || len(approval.Approvals) != 0 {
+			t.Fatalf("legacy approval: %+v %v", approval, err)
+		}
 		legacy, err := state.RunByID(1)
 		if err != nil || legacy.LogOverflow {
 			t.Fatalf("legacy run = %+v err=%v, want false overflow fallback", legacy, err)
@@ -174,8 +178,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 2", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 3", version, err)
 		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.LogOverflow {
@@ -190,7 +194,7 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=3"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=4"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -202,8 +206,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 3 {
-			t.Fatalf("Open error = %v, want StateTooNewError(3)", err)
+		if !errors.As(err, &newer) || newer.Version != 4 {
+			t.Fatalf("Open error = %v, want StateTooNewError(4)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {

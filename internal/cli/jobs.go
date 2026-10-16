@@ -30,6 +30,10 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 	if err != nil {
 		return configError(err)
 	}
+	view, err = app.WithApprovals(view)
+	if err != nil {
+		return stateError(err)
+	}
 	view, err = app.WithLastRuns(view, view.StateDir)
 	if err != nil {
 		return stateError(err)
@@ -41,7 +45,21 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 		fmt.Fprintf(cmd.Writer, "%s · %s · %s\n", filepath.Base(view.Project.Path), view.Project.Path, view.Project.Timezone)
 	}
 	printJobs(cmd.Writer, view.Jobs, now)
-	if dashboard {
+	changed, scheduled := 0, false
+	for _, job := range view.Jobs {
+		if job.Approval == "needs_approval" {
+			changed++
+		}
+		if job.Schedule != nil {
+			scheduled = true
+		}
+	}
+	switch {
+	case view.Project.Enabled && changed > 0:
+		fmt.Fprintf(cmd.Writer, "%d shared jobs changed since you enabled this project. Next: noon enable\n", changed)
+	case !view.Project.Enabled && scheduled:
+		fmt.Fprintln(cmd.Writer, "Not enabled for background runs. Next: noon enable")
+	case dashboard:
 		fmt.Fprintln(cmd.Writer, "Next: noon run (list runnable jobs)")
 	}
 	return nil
@@ -60,7 +78,9 @@ func printJobs(out io.Writer, jobs []app.Job, now time.Time) {
 		if job.Schedule != nil {
 			scheduled = *job.Schedule
 		}
-		if !job.Enabled {
+		if job.Approval == "needs_approval" {
+			next = "needs approval"
+		} else if !job.Enabled {
 			next = "disabled"
 		} else if job.NextAt != nil {
 			until := job.NextAt.Sub(now)

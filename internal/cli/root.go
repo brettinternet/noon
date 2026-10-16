@@ -44,6 +44,8 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "logs", Usage: "Read the latest run log, a job's latest log, or a run ID", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "follow", Usage: "Follow a running run until it finishes"},
 			}, Action: runLogs},
+			{Name: "enable", Usage: "Enable this checkout and approve current shared job definitions; starts no scheduler", Action: enableProject},
+			{Name: "disable", Usage: "Disable this checkout and revoke approvals; keep history", Action: disableProject},
 			{Name: "status", Usage: "Show project jobs and next scheduled times without running them", Action: status},
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
 			{Name: "init", Usage: "Create noon.yaml without overwriting existing files", Flags: []urfave.Flag{

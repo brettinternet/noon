@@ -40,12 +40,20 @@ CREATE UNIQUE INDEX runs_one_running ON runs(project_id, job) WHERE status = 'ru
 CREATE INDEX runs_by_job ON runs(project_id, job, id DESC);
 `, `
 ALTER TABLE runs ADD COLUMN log_overflow INTEGER NOT NULL DEFAULT 0;
+`, `
+ALTER TABLE projects ADD COLUMN enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE projects ADD COLUMN enabled_at TEXT;
+ALTER TABLE projects ADD COLUMN config_file TEXT;
+CREATE TABLE approvals (
+  project_id INTEGER NOT NULL REFERENCES projects(id), job TEXT NOT NULL,
+  digest TEXT NOT NULL, approved_at TEXT NOT NULL, PRIMARY KEY(project_id, job));
 `}
 
 type Store struct {
 	dir            string
 	db             *sql.DB
 	hasLogOverflow bool
+	hasApprovals   bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -195,6 +203,7 @@ func open(dir string, create bool) (*Store, error) {
 	}
 	if !create {
 		state.hasLogOverflow = version >= 2
+		state.hasApprovals = version >= 3
 		return state, nil
 	}
 	for {
@@ -229,6 +238,7 @@ func open(dir string, create bool) (*Store, error) {
 		}
 	}
 	state.hasLogOverflow = true
+	state.hasApprovals = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}

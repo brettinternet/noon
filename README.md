@@ -9,7 +9,7 @@ Python, Node, cloud service, or agent provider.
 **Status: foreground execution.** Working today: project discovery, layered settings,
 non-destructive initialization, strict job validation, job listing with next-run
 previews, foreground command and agent-prompt execution, durable per-user run records and bounded logs,
-human/JSON output, read-only run history and log inspection, and development tooling.
+human/JSON output, explicit project opt-in and shared-job approvals, read-only run history and log inspection, and development tooling.
 Scheduling, cron import, hooks, MCP, service installation, and TUI are designed but
 **not implemented**. There is no background daemon yet.
 
@@ -76,6 +76,19 @@ the process group (TERM, then KILL after 10s); a second signal kills it immediat
 do not create the state directory.
 
 Existing local users: stop all old/new processes and back up your data; move `~/.local/state/bump` to `~/.local/state/noon` and `~/.config/bump` to `~/.config/noon` only if the destinations do not exist, then rename `bump.db` to `noon.db` inside the moved state directory, along with any `bump.db-wal`/`bump.db-shm` sidecars to `noon.db-wal`/`noon.db-shm`; never overwrite existing destinations, and keep the `logs/` tree intact.
+
+## Safety
+
+`noon enable` opts in this canonical checkout and approves its current shared job
+ definitions. It starts nothing: background scheduling is not implemented yet.
+`noon disable` revokes opt-in and approvals while keeping run history.
+Changed shared definitions show `needs approval`; rerun `noon enable` after review.
+Foreground `noon run NAME` needs no approval.
+
+Digests cover job definitions, not the contents of referenced scripts or prompt
+files. Only enable repositories you would run by hand. Keep `.noon.yaml` ignored
+in Git: local jobs and whole-job local overrides bypass approval. Approval is not
+a sandbox and cannot protect against an agent or user with local shell access.
 
 ## Direction
 

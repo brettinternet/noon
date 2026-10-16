@@ -178,10 +178,10 @@ or checks whether commands or working directories exist. Intervals preview
 `now + interval` until a future scheduler persists their phase. Manual and disabled
 jobs have no next time. `noon config check` reports the validated job count.
 
-`noon list --json` returns `schema_version: 1`, `project` (`path`, `timezone`),
+`noon list --json` returns `schema_version: 1`, `project` (`path`, `timezone`, `enabled`),
 and `jobs`. Each job contains `name`, `description`, `schedule`, `next_at`,
 `run`, `prompt`, `prompt_file`, the effective `agent` for prompt jobs, `cwd`, `env_keys`, `timeout`, `overlap`, `missed`, `enabled`,
-`source`, `shared`, `overrides`, and `digest`.
+`source`, `shared`, `overrides`, `digest`, and `approval` (`not_required`, `approved`, or `needs_approval`).
 Absent schedules and next times are null; times are RFC 3339 with the project
 timezone offset. Environment keys are sorted; environment values are never
 printed, including by config inspection. Avoid putting secrets in commands or descriptions.
@@ -191,6 +191,19 @@ set execution fields only, normalized schedules and durations, and omitted unset
 fields. Prompt text, prompt-file path, and the effective agent name participate; agent profile
 commands are user-owned and excluded. Description, enabled, source paths, and YAML formatting do
 not affect the digest. Digests cover definitions, **not the contents of referenced scripts or prompt files**.
-Unattended execution and approval are not yet implemented; eventually shared jobs
-will require approval of their current digest. Explicit foreground runs need no approval. Trust only repositories whose contents
-you would run by hand.
+`noon enable` validates first, records this canonical checkout and its configuration
+selection (automatic files or the absolute explicit `--config` path), and approves
+all current shared job digests. Repeating it preserves unchanged approval timestamps.
+`noon disable` clears opt-in and approvals, keeping history. It does not read project
+manifests or validate jobs, so invalid job edits cannot prevent revocation. It resolves
+state from user config or an explicit config file; if that file is unreadable or invalid
+YAML, pass `--state-dir` to select the existing store directly. Neither starts a scheduler;
+unattended execution is not implemented yet.
+
+Local jobs and whole-job local overrides need no approval. An enabled-only local
+toggle retains the shared digest and approval requirement. Changing a shared action,
+schedule, or environment requires re-approval; editing only its description does not.
+List and status read approval state without creating or migrating a database, and
+show `Next: noon enable` when an enabled project has changed shared jobs or a
+non-enabled project has scheduled jobs. Explicit foreground runs need no approval.
+Trust only repositories whose contents you would run by hand; approval is not a sandbox.
