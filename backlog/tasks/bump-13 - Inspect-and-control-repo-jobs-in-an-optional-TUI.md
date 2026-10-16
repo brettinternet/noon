@@ -1,51 +1,69 @@
 ---
 id: BUMP-13
-title: Inspect and control repo jobs in an optional TUI
+title: Inspect and control jobs in a terminal UI
 status: To Do
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 00:19'
+updated_date: '2026-10-16 01:41'
 labels:
-  - bootstrap-roadmap
+  - tui
 dependencies:
-  - BUMP-5
-  - BUMP-9
+  - BUMP-21
+references:
+  - 'https://github.com/charmbracelet/bubbletea'
 documentation:
   - docs/design.md
+  - docs/development.md
 modified_files:
   - internal/tui/**
   - internal/app/**
   - internal/cli/**
-  - docs/tui.md
   - go.mod
   - go.sum
-  - Taskfile.dist.yaml
-  - .taskfiles/**
-  - scripts/**
-  - integration/**
+  - README.md
 priority: low
 type: feature
-ordinal: 13000
+ordinal: 2100
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: an explicit bump tui provides terminal-native visibility without changing the safe default CLI or duplicating scheduler behavior.
-Scope: job/next-run overview, run history, bounded live logs, clear offline state, explicit run/pause/cancel actions, attach-session handoff, resize/keyboard accessibility, confirmation for destructive actions. Reuse application operations; choose a maintained Go TUI library during implementation. Non-TTY invocation fails with a CLI alternative rather than hanging.
-Non-goals: web UI, auto-TUI on bare bump, scheduler embedded in the view, terminal emulator, a separate persistence model.
-Modified-file contract: changes are limited to the --modified-file paths plus this task's provider-owned status/evidence. Expand scope only with justification in task notes.
-Reference: docs/design.md and docs/development.md. Acceptance tests/targets below are deliverables, not currently implemented checks; matching named tests must actually execute, not pass with 'no tests to run'.
+Outcome: `bump tui` gives a live, keyboard-driven view of the current project's jobs and runs, built only on the app operations the CLI and MCP already use.
+
+Read first: docs/design.md#experience and #architecture. Use `charm.land/bubbletea/v2` (confirm the current module path and release in its README before adding it) and lipgloss only if layout needs it.
+
+Scope:
+- Views:
+  - Jobs: JOB, SCHEDULE, NEXT, LAST, and state; refreshed every second from the store; header shows scheduler state.
+  - Runs: history of the selected job.
+  - Log: tail of the selected run, following while it runs, with the 1 MiB follow behavior from the history task.
+- Keys: `j`/`k` or arrows move; `enter` opens runs; `l` opens the log; `r` queues the selected job now (same rules and errors as `bump run --detach`); `c` cancels the selected run after a `y`/`n` confirmation; `p` toggles pause; `esc` goes back; `q` quits; `?` shows help.
+- Errors and notices (needs approval, not enabled, scheduler offline) render in a status line with the CLI command that fixes them. The TUI never adds, edits, enables, or approves jobs.
+- When stdin or stdout is not a terminal: usage error `bump tui needs a terminal; use bump status`, exit 2. `--json` is a usage error.
+- The terminal is restored on exit, panic, and SIGTERM.
+
+Non-goals: a web UI, editing config, multiple projects in one view, mouse support, themes, embedding the scheduler.
+
+Tests:
+- internal/tui `TestTUIModel`: drive the model's Update with key messages against a temp project and real store. `r` creates a queued run, `p` pauses and unpauses, `c` then `n` cancels nothing while `c` then `y` cancels, and View contains job names and the needs-approval notice. Selection and rendering never write to the store.
+- internal/cli `TestTUINonInteractive`: `bump tui` with non-terminal stdio exits 2 without hanging.
+
+Modified-file contract: the modified_files list plus this task's Backlog record. Justify any other path in Implementation Notes before changing it.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 task cli:test -- -run '^TestTUITransitions' -count=1 -v exits 0 with state transitions proving no mutation on selection/render, explicit action dispatch, cancellation confirmation, and offline/error display.
-- [ ] #2 task integration:tui exits 0 in a real PTY: open/resize/navigate/exit, capture bounded logs, and verify terminal restoration. Add the target without requiring a running production scheduler.
-- [ ] #3 task cli:test -- -run '^TestTUINonInteractive' -count=1 -v exits 0: redirected input never hangs, and bare bump remains a noninteractive summary.
+- [ ] #1 `task cli:test -- -run '^(TestTUIModel|TestTUINonInteractive)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
+- [ ] #2 `task cli:build && bin/bump tui < /dev/null; echo "exit=$?"` prints the terminal-required error immediately and `exit=2`
+- [ ] #3 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/bump` exits 0
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Relevant focused checks and task ci pass; record command output and platform limitations before Done.
+- [ ] #1 task ci passes on the final commit
+- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [ ] #4 No test was deleted, skipped, or weakened
+- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->

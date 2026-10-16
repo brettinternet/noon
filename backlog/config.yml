@@ -1,7 +1,8 @@
 project_name: "bump"
 default_status: "To Do"
 statuses: ["To Do", "In Progress", "Done"]
-labels: []
+labels: ["config", "schedule", "runner", "store", "scheduler", "cli", "integration", "mcp", "http", "ops", "tui", "security"]
+definition_of_done: ["task ci passes on the final commit", "Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result", "The diff stays within the modified-file contract, or Implementation Notes justify each deviation", "No test was deleted, skipped, or weakened", "README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled"]
 date_format: yyyy-mm-dd
 max_column_width: 20
 default_editor: "vi"

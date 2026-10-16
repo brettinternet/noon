@@ -1,48 +1,98 @@
 ---
 id: BUMP-3
-title: Persist run history and enforce project ownership
+title: Record runs in the per-user state store
 status: To Do
 assignee: []
 created_date: '2026-10-16 00:18'
+updated_date: '2026-10-16 02:03'
 labels:
-  - bootstrap-roadmap
+  - store
+  - runner
 dependencies:
   - BUMP-2
+references:
+  - 'https://github.com/brettinternet/hum/tree/main/internal/process'
+  - 'https://pkg.go.dev/modernc.org/sqlite'
 documentation:
   - docs/design.md
+  - docs/development.md
+  - >-
+    backlog/decisions/decision-3 -
+    Runtime-state-lives-per-user-in-SQLite-not-in-the-repository.md
 modified_files:
   - internal/store/**
   - internal/runner/**
-  - internal/cli/**
   - internal/config/**
-  - integration/**
-  - docs/design.md
-  - docs/development.md
+  - internal/app/**
+  - internal/cli/**
+  - docs/configuration.md
+  - docs/docker.md
+  - README.md
+  - scripts/smoke.sh
+  - .gitignore
   - go.mod
   - go.sum
 priority: high
 type: feature
-ordinal: 3000
+ordinal: 600
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: jobs leave durable, bounded evidence and concurrent Bump owners cannot corrupt the same project/state.
-Scope: embedded SQLite run/event store and migrations, project identity, owner lock, per-run log files/retention, read-only offline history/logs, interrupted-run recovery, atomic run creation and transitions. Evaluate a Go SQLite driver against static Linux/macOS/container builds. Persist enough identity to avoid unsafe PID-reuse cancellation; interrupted side effects are never automatically retried.
-Non-goals: distributed locks, cloud storage, exactly-once external effects, recurring schedules, schema-general ORM.
-Modified-file contract: changes are limited to the --modified-file paths plus this task's provider-owned status/evidence. Expand scope only with justification in task notes.
-Reference: docs/design.md and docs/development.md. Acceptance tests/targets below are deliverables, not currently implemented checks; matching named tests must actually execute, not pass with 'no tests to run'.
+Outcome: every foreground run leaves a durable, bounded record and log in a per-user SQLite store. The same job cannot run twice at once, a crashed run is recorded honestly and never re-run, and no state lives in the repository.
+
+Read first: docs/design.md#state and #execution, decision-3. Reference implementation to adapt (do not import): github.com/brettinternet/hum `internal/process/identity_darwin.go` and `identity_linux.go` (process start identity), `group_*.go` (group liveness).
+
+Scope:
+- State directory: `$XDG_STATE_HOME/bump` (must be absolute when set), else `~/.local/state/bump`. `BUMP_STATE_DIR`/`--state-dir` are now relative to the invocation directory. `state_dir` is allowed only in user config or an explicit `--config` file; in a project file it is an error naming the user config path. Update `bump config`, `bump init`, docs/configuration.md, docs/docker.md, README, smoke, and .gitignore so nothing mentions `PROJECT/.bump`.
+- New internal/store on `modernc.org/sqlite`: directories 0700, files 0600, WAL, `busy_timeout=5000`, `foreign_keys=ON`. `Open` creates state; an open-existing call returns a sentinel when no database exists, so read-only commands can report "no runs yet" without creating anything.
+- Migrations: an append-only slice of SQL strings applied in one transaction and tracked by `PRAGMA user_version`. A database newer than the binary fails with code `state_too_new`, an upgrade hint, and no modification. Never edit a merged migration.
+- Migration 1:
+```sql
+CREATE TABLE projects (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
+CREATE TABLE runs (
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  job TEXT NOT NULL, status TEXT NOT NULL, trigger TEXT NOT NULL, digest TEXT NOT NULL,
+  scheduled_at TEXT, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT,
+  exit_code INTEGER, signal TEXT, error TEXT, requested_by TEXT,
+  owner_pid INTEGER, owner_start TEXT, pgid INTEGER, leader_start TEXT,
+  log_path TEXT, log_bytes INTEGER NOT NULL DEFAULT 0, log_truncated INTEGER NOT NULL DEFAULT 0);
+CREATE UNIQUE INDEX runs_one_running ON runs(project_id, job) WHERE status = 'running';
+CREATE INDEX runs_by_job ON runs(project_id, job, id DESC);
+```
+- Times are UTC text `2006-01-02T15:04:05.000Z`.
+- `bump run` opens the store (failing before the job starts if it cannot), registers the project by canonical path, recovers stale runs, inserts a `running` row, streams output to the terminal and the log, and records the outcome. Insert collisions on `runs_one_running` become `already_running` errors naming the run ID and its start time.
+- Recovery, run by every writer before starting work: a `running` row whose owner (PID plus start identity) is gone becomes `interrupted` and is never re-run. Its process group is terminated (TERM, grace, KILL) only when the recorded PGID's leader start identity still matches. A live process with a mismatched identity is never signalled.
+- Logs: `logs/PROJECT_ID/RUN_ID.log`, stdout and stderr in arrival order. Write the first 1 MiB live. Keep later output in an in-memory ring of the last 1 MiB, appended at the end after `\n[bump: N bytes omitted]\n`.
+- Environment adds `BUMP_RUN_ID` and `BUMP_LAST_SUCCESS_AT` (RFC 3339 UTC start of the job's last succeeded run; unset when none).
+- Retention, applied by the store whenever it records a terminal status (every status except `queued` and `running`): keep the newest 50 terminal runs per project and job, and log files for the newest 10 of those. Never delete a `queued` or `running` row or its files, however many newer records exist. Deleting a log clears `log_path`.
+
+Non-goals: history or logs commands (next task), approvals, scheduler tables, queued runs, `--follow`, remote or shared state, an ORM.
+
+Tests:
+- internal/store `TestStore`: migrate from empty and reopen; a newer `user_version` refused with the file unchanged; one running run per job; retention at 50 runs and 10 logs; a `running` row and its log survive more than 50 newer terminal rows of the same job; 3 MiB of output stored as the first 1 MiB, the marker, and the last 1 MiB.
+- internal/store `TestRecovery`: a row whose owner PID is dead becomes `interrupted` and is not re-run; a live `sleep` recorded with a wrong start identity is left running.
+- internal/cli `TestRunRecordsHistory`: two runs create two records with exit codes and logs under `BUMP_STATE_DIR`; a concurrent second run of the same job exits 1 with `already_running`; the project directory gains no files.
+
+Modified-file contract: the modified_files list plus this task's Backlog record. Justify any other path in Implementation Notes before changing it.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 task cli:test -- -run '^TestRunStore' -count=1 -v exits 0 with committed transitions surviving reopen, failed transactions not partially applied, log bounds enforced, and migration failure preserving the original database.
-- [ ] #2 task cli:test -- -run '^TestProjectOwnership' -count=1 -v exits 0: a second owner and a different project sharing state are refused; a crashed owner is recoverable without killing unrelated processes.
-- [ ] #3 task cli:test -- -run '^TestHistoryRecovery' -count=1 -v exits 0 with interrupted runs reported honestly and no automatic re-execution.
+- [ ] #1 `task cli:test -- -run '^(TestStore|TestRecovery)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
+- [ ] #2 `task cli:test -- -run '^TestRunRecordsHistory$' -count=1 -v` exits 0 with sequential runs recorded, a concurrent same-job run refused as `already_running`, and no new files in the project
+- [ ] #3 `task cli:build && bump_ac_home=$(mktemp -d) && env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump --json config` exits 0 and reports `state_dir` as `$bump_ac_home/.local/state/bump`, and that directory does not exist afterwards
+- [ ] #4 `task cli:build && bump_ac_home=$(mktemp -d) && bump_ac_project=$(mktemp -d) && printf 'state_dir: /tmp/x\n' > "$bump_ac_project/bump.yaml" && env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump -C "$bump_ac_project" config check; echo "exit=$?"` names the user config as the allowed location and prints `exit=1`
+- [ ] #5 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/bump` exits 0
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Relevant focused checks and task ci pass; record command output and platform limitations before Done.
+- [ ] #1 task ci passes on the final commit
+- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [ ] #4 No test was deleted, skipped, or weakened
+- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->

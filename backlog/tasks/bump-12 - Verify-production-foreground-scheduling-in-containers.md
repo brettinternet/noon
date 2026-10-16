@@ -1,47 +1,72 @@
 ---
 id: BUMP-12
-title: Verify production foreground scheduling in containers
+title: Run the scheduler in production containers
 status: To Do
 assignee: []
 created_date: '2026-10-16 00:18'
+updated_date: '2026-10-16 02:03'
 labels:
-  - bootstrap-roadmap
+  - ops
 dependencies:
-  - BUMP-4
+  - BUMP-5
+  - BUMP-17
 documentation:
   - docs/design.md
+  - docs/development.md
+  - docs/docker.md
+  - >-
+    backlog/decisions/decision-1 -
+    One-per-user-foreground-scheduler-supervised-by-the-OS-or-container.md
 modified_files:
   - Dockerfile
   - .dockerignore
+  - examples/compose.yaml
   - Taskfile.dist.yaml
   - .github/workflows/ci.yaml
   - scripts/**
-  - integration/**
   - docs/docker.md
-  - examples/docker/**
+  - README.md
 priority: medium
 type: feature
-ordinal: 12000
+ordinal: 1800
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: the same scheduler runs safely as a non-root foreground container process and survives container replacement with persistent state.
-Scope: production entrypoint/child reaping, SIGTERM behavior, bind-mounted read-only repo plus separate writable state, UID ownership, offline execution, restart recovery, bounded logs, sample Compose service, and opt-in agent-image extension guidance. Pin reviewed base images and test supported architectures. No Docker socket or credential mounts by default.
-Non-goals: Kubernetes/operator, remote fleet management, sandbox-security claims, bundling all agent CLIs, launching containers from every job.
-Modified-file contract: changes are limited to the --modified-file paths plus this task's provider-owned status/evidence. Expand scope only with justification in task notes.
-Reference: docs/design.md and docs/development.md. Acceptance tests/targets below are deliverables, not currently implemented checks; matching named tests must actually execute, not pass with 'no tests to run'.
+Outcome: the image runs `bump serve` as a well-behaved production container: correct signals, reaped children, state persisted on a volume, a read-only repository mount, and a documented Compose setup.
+
+Read first: docs/design.md#docker and #scheduler-lifetime, decision-1, docs/docker.md, Dockerfile, and the `docker:*` targets in Taskfile.dist.yaml.
+
+Scope:
+- Dockerfile: keep the non-root UID 10001, `BUMP_STATE_DIR=/state`, `ENTRYPOINT ["bump"]`, and the static build. Keep the default `CMD` empty, so a bare `docker run` shows the dashboard and starts nothing. Keep `/state` owned by UID 10001 in the image, so a new named volume inherits writable ownership. Pin the base images by digest.
+- examples/compose.yaml: one service with `image: ${BUMP_IMAGE:-bump:dev}` (no image is published yet; a comment points to `task docker:build`), `init: true`, `read_only: true`, `tmpfs: [/tmp]`, the project directory (`.`) bind-mounted read-only at `/workspace`, a named volume at `/state`, `working_dir: /workspace`, and `entrypoint: ["/bin/sh", "-c", "bump enable && exec bump serve"]`. It must override the entrypoint: a `command:` would be appended to `ENTRYPOINT ["bump"]` and run `bump sh -c ...`. Comments explain that `bump enable` trusts the deployed config at each start.
+- Add `task docker:integration` and run it in Linux CI after `docker:smoke`. Use a disposable project fixture and named resources with a unique prefix, removed at the end. Scenarios after the first may use `docker run` with equivalent options. It must:
+  - start the scheduler from examples/compose.yaml itself (`docker compose --project-directory FIXTURE -f examples/compose.yaml -p PREFIX up -d` with `BUMP_IMAGE=bump:dev`) and confirm `bump serve` is running in the container;
+  - in the served project, queue a job with `docker exec ... bump run NAME --detach`, and observe `succeeded` in `bump history --json`;
+  - run with `--network none`, and have a schedule in a non-UTC timezone report the expected next time;
+  - check that a job leaving a background grandchild produces no zombie (`ps` shows no `Z` state);
+  - `docker stop` while a job is running: the container exits within 15s, and after restarting it, history shows the run `interrupted`, never `succeeded`;
+  - recreate the container on the same volume and confirm history persists.
+- docs/docker.md: production Compose usage, volume ownership for UID 10001, extending the image with job tools (a `FROM` example adding git), keeping agent credentials and the Docker socket out by default, and the approval semantics of `bump enable` in containers.
+
+Non-goals: Kubernetes, multi-arch publishing changes, bundling agent CLIs, launching a container per job, health-check endpoints (the webhook task adds `/healthz`).
+
+Modified-file contract: the modified_files list plus this task's Backlog record. Justify any other path in Implementation Notes before changing it.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 task docker:integration exits 0 with a real non-root container: scheduled fixture command runs against read-only repo, state persists across recreation, SIGTERM terminates owned children, and interrupted runs are not falsely successful. Add the target and run it in Linux CI.
-- [ ] #2 task docker:offline exits 0 with --network none and embedded timezone data for a non-UTC schedule; no host credentials or Docker socket are mounted. Add the target.
-- [ ] #3 task docker:smoke continues to exit 0 for inspection with a read-only root filesystem.
+- [ ] #1 `task docker:smoke` exits 0
+- [ ] #2 `task docker:integration` exits 0 on a Linux Docker host, exercising every bullet under the target's scope, and leaves no container, volume, or image with the fixture prefix behind (`docker ps -a --filter name=PREFIX -q` and `docker volume ls --filter name=PREFIX -q` print nothing)
+- [ ] #3 `.github/workflows/ci.yaml` runs `task docker:integration` on Linux after `task docker:smoke`
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Relevant focused checks and task ci pass; record command output and platform limitations before Done.
+- [ ] #1 task ci passes on the final commit
+- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [ ] #4 No test was deleted, skipped, or weakened
+- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
