@@ -231,7 +231,8 @@ func TestDoctor(t *testing.T) {
 			if healthy {
 				command = "/bin/sh"
 			}
-			cfg := diagnosticConfig(t, root, "timezone: UTC\njobs:\n  t:\n    schedule: every 1h\n    run: ["+command+"]\n")
+			// A disabled job cannot run, so its missing command must not fail doctor.
+			cfg := diagnosticConfig(t, root, "timezone: UTC\njobs:\n  t:\n    schedule: every 1h\n    run: ["+command+"]\n  off:\n    enabled: false\n    run: [definitely-not-a-command-xyz]\n")
 			if healthy {
 				state := diagnosticState(t, cfg, true)
 				if err := state.Close(); err != nil {

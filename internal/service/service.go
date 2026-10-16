@@ -441,7 +441,7 @@ func Inspect(ctx context.Context, config Config, runner Runner) (Status, error) 
 	}
 	status := Status{Installed: installed, UnitPath: unit.Path}
 	if installed {
-		status.Drift = !bytes.Equal(contents, unit.Contents)
+		status.Drift = !bytes.Contains(contents, identity(unit))
 	}
 	if unit.Platform == Systemd {
 		if _, err := runner.Run(ctx, "systemctl", "--user", "show-environment"); err != nil {
@@ -468,6 +468,18 @@ func Inspect(ctx context.Context, config Config, runner Runner) (Status, error) 
 		}
 	}
 	return status, nil
+}
+
+// identity returns the rendered fragment naming the executable and state
+// directory. Drift ignores captured PATH, which varies between shells.
+func identity(unit Unit) []byte {
+	start, end := []byte("\nExecStart="), []byte("\n")
+	if unit.Platform == Launchd {
+		start, end = []byte("<key>ProgramArguments</key>"), []byte("</array>")
+	}
+	i := bytes.Index(unit.Contents, start)
+	j := bytes.Index(unit.Contents[i+len(start):], end)
+	return unit.Contents[i : i+len(start)+j+len(end)]
 }
 
 func readUnit(path string) (bool, []byte, error) {
