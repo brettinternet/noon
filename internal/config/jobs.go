@@ -164,7 +164,7 @@ func (cfg *Config) applyJobs(file, kind string, node *yaml.Node) error {
 			cfg.Jobs[name] = previous
 			continue
 		}
-		job, err := parseJob(file, path, name, jobs[name], fields, cfg.OnSuccess, cfg.OnFailure)
+		job, err := parseJob(file, path, name, jobs[name], fields, cfg.OnSuccess, cfg.OnFailure, kind == "explicit")
 		if err != nil {
 			return err
 		}
@@ -290,7 +290,10 @@ func agentNames(profiles map[string]AgentProfile) []string {
 	return names
 }
 
-func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node, defaultSuccess, defaultFailure any) (Job, error) {
+// Inherited hook defaults join the digest only when they come from the same
+// approval-gated explicit file; user-config defaults are the user's own and
+// must not revoke shared-job approvals when they change.
+func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node, defaultSuccess, defaultFailure any, digestDefaults bool) (Job, error) {
 	job := Job{Name: name, CWD: ".", Env: map[string]string{}, Timeout: "1h", Overlap: "skip", Missed: "run_once", Enabled: true, Source: file, OnSuccess: defaultSuccess, OnFailure: defaultFailure}
 	execution := make(map[string]any)
 	job.execution = execution
@@ -462,10 +465,10 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 	if actions != 1 {
 		return Job{}, jobError(file, node, path, "exactly one of run, prompt, or prompt_file is required")
 	}
-	if hasCommand(job.OnSuccess) {
+	if hasCommand(job.OnSuccess) && (digestDefaults || fields["on_success"] != nil) {
 		execution["on_success"] = job.OnSuccess
 	}
-	if hasCommand(job.OnFailure) {
+	if hasCommand(job.OnFailure) && (digestDefaults || fields["on_failure"] != nil) {
 		execution["on_failure"] = job.OnFailure
 	}
 	if job.Agent != "" && job.Prompt == nil && job.PromptFile == nil {

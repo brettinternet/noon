@@ -240,24 +240,35 @@ func TestJobDigest(t *testing.T) {
 	if load(strings.Replace(webhookBase, "SECRET_ONE", "SECRET_TWO", 1), "{}") == webhookDigest {
 		t.Fatal("changing a webhook secret environment name did not change the shared job digest")
 	}
-	t.Run("inherited hook defaults participate in shared digest", func(t *testing.T) {
+	// A user's own hook default must not revoke every shared-job approval when it
+	// changes; a default from an approval-gated explicit file must.
+	t.Run("inherited hook defaults digest only from explicit files", func(t *testing.T) {
 		root := canonical(t, t.TempDir())
 		user := filepath.Join(root, "user")
 		userConfig := filepath.Join(user, "noon", "config.yaml")
-		put(t, userConfig, "on_success: [notify-one]\n")
 		put(t, filepath.Join(root, "noon.yaml"), "jobs: {tests: {run: hi}}")
-		load := func() string {
+		load := func(input config.Input) string {
 			t.Helper()
-			cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: user})
+			cfg, err := config.Load(input)
 			if err != nil {
 				t.Fatal(err)
 			}
 			return cfg.Jobs["tests"].Digest
 		}
-		first := load()
-		put(t, userConfig, "on_success: [notify-two]\n")
-		if load() == first {
-			t.Fatal("changing an inherited hook default did not change the shared job digest")
+		userInput := config.Input{CWD: root, UserConfigDir: user}
+		put(t, userConfig, "{}\n")
+		without := load(userInput)
+		put(t, userConfig, "on_success: [notify-one]\n")
+		if load(userInput) != without {
+			t.Fatal("a user hook default changed the shared job digest")
+		}
+		explicit := filepath.Join(root, "deploy.yaml")
+		explicitInput := config.Input{CWD: root, UserConfigDir: user, File: &explicit}
+		put(t, explicit, "on_success: [notify-one]\njobs: {tests: {run: hi}}\n")
+		first := load(explicitInput)
+		put(t, explicit, "on_success: [notify-two]\njobs: {tests: {run: hi}}\n")
+		if load(explicitInput) == first {
+			t.Fatal("changing an explicit-file hook default did not change its shared job digest")
 		}
 	})
 	t.Run("prompt definition and agent name", func(t *testing.T) {

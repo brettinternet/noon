@@ -138,8 +138,9 @@ See [the complete example](../examples/jobs.yaml).
 
 Foreground and scheduled runs honor `cwd`, `env`, `timeout`, `enabled`, `on_success`, and
 `on_failure`. `noon serve` executes schedules with the configured `overlap` and `missed` policies.
-Hook commands are included in shared-job digests. See [Lifecycle hooks](hooks.md) for execution,
-output, timeout, and security details.
+Hook commands set on a shared job, or inherited from an explicit `--config` file, are included in
+its digest; user-config defaults are not, so changing them never revokes approvals. See
+[Lifecycle hooks](hooks.md) for execution, output, timeout, and security details.
 Unknown fields, aliases, nulls, duplicate keys, and wrong types are errors with file, line, and YAML path.
 
 ### Agent prompts

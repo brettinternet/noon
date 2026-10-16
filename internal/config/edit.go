@@ -186,7 +186,7 @@ func JobNames(src []byte) ([]string, error) {
 }
 
 // JobFromSource validates one raw definition, even when another file shadows it.
-func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any) (Job, error) {
+func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool) (Job, error) {
 	root, err := documentRoot(src)
 	if err != nil {
 		return Job{}, err
@@ -204,7 +204,7 @@ func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defa
 		if err != nil {
 			return Job{}, err
 		}
-		parsed, err := parseJob("<edited>", "jobs."+name, name, node, fields, defaultSuccess, defaultFailure)
+		parsed, err := parseJob("<edited>", "jobs."+name, name, node, fields, defaultSuccess, defaultFailure, digestDefaults)
 		if err != nil {
 			return Job{}, err
 		}
@@ -238,7 +238,7 @@ func DigestJobDefinition(job Job, agents map[string]AgentProfile, defaultAgent s
 	if err != nil {
 		return "", err
 	}
-	parsed, err := parseJob("<requested>", "jobs."+job.Name, job.Name, root, mapping, nil, nil)
+	parsed, err := parseJob("<requested>", "jobs."+job.Name, job.Name, root, mapping, nil, nil, false)
 	if err != nil {
 		return "", err
 	}

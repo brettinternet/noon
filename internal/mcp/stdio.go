@@ -124,6 +124,11 @@ func readRequests(input io.Reader, writer *io.PipeWriter, pending *responseTrack
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 64*1024), protocol.DefaultMaxLineLength)
 	for scanner.Scan() {
+		// The SDK's own decoder skips inter-message whitespace; match it so a
+		// blank keepalive line does not end the session.
+		if len(bytes.TrimSpace(scanner.Bytes())) == 0 {
+			continue
+		}
 		line := append([]byte(nil), scanner.Bytes()...)
 		ids, err := requestIDs(line)
 		if err != nil {

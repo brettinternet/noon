@@ -185,11 +185,11 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return usageError(err.Error(), "")
 	}
-	rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, nil, nil)
+	rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, nil, nil, false)
 	if err != nil || rawAddedJob.Digest != requestedDigest {
 		return editVerificationError("added job digest differs from the requested definition")
 	}
-	addedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure)
+	addedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil)
 	if err != nil {
 		return editVerificationError("added job could not inherit configured hook defaults")
 	}

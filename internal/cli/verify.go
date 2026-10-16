@@ -25,11 +25,11 @@ func verifyRawJobsUnchanged(before, after []byte, names []string, editedName str
 		if name == editedName {
 			continue
 		}
-		oldJob, err := config.JobFromSource(before, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure)
+		oldJob, err := config.JobFromSource(before, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil)
 		if err != nil {
 			return err
 		}
-		newJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure)
+		newJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil)
 		if err != nil {
 			return err
 		}

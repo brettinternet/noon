@@ -336,11 +336,11 @@ func TestAddJobs(t *testing.T) {
 					}
 					return
 				}
-				before, err := config.JobFromSource(original, "tests", nil, "", nil, nil)
+				before, err := config.JobFromSource(original, "tests", nil, "", nil, nil, false)
 				if err != nil {
 					t.Fatal(err)
 				}
-				after, err := config.JobFromSource(got, "tests", nil, "", nil, nil)
+				after, err := config.JobFromSource(got, "tests", nil, "", nil, nil, false)
 				if err != nil || before.Digest != after.Digest {
 					t.Fatalf("hidden raw action changed: before=%+v after=%+v err=%v", before, after, err)
 				}

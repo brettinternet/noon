@@ -403,6 +403,7 @@ func TestServeStdioCanonicalIDsAndEOFDrain(t *testing.T) {
 	lines := []string{
 		`{"jsonrpc":"2.0","id":"\u0061","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"stdio-test","version":"1"}}}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		"", // blank lines are inter-message whitespace, not protocol errors
 		marshalProtocolLine(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": map[string]any{}}),
 	}
 	output, elapsed, err := serveStdio(t, server, strings.Join(lines, "\n")+"\n", 2*time.Second)

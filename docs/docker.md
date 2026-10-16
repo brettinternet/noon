@@ -77,9 +77,14 @@ need, returning to the non-root user afterward:
 ```dockerfile
 FROM noon:dev
 USER root
-RUN apk add --no-cache git
+RUN apk add --no-cache git \
+    && git config --system --add safe.directory /workspace
 USER noon
 ```
+
+The bind-mounted checkout is owned by a host user, not UID 10001, so Git refuses
+to operate in it unless `/workspace` is listed as a safe directory. The home
+directory is read-only at runtime; set this in the image.
 
 Build this as your own image and set `NOON_IMAGE` accordingly. Keep agent
 credentials and the Docker socket out by default; bind only the inputs a job

@@ -118,6 +118,7 @@ jobs:
 ```
 
 The examples pass environment values as argv or send JSON on stdin; none interpolates run output
-into a shell command string. A shared job's hook commands participate in its approval digest.
+into a shell command string. A shared job's own hook commands, and defaults from an explicit
+`--config` file, participate in its approval digest; user-config defaults do not.
 Hooks are commands, not a sandbox: they run with the same local permissions and inherited
 secrets as Noon.
