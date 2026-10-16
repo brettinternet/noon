@@ -19,11 +19,11 @@ func mcpCommand(version string) func(context.Context, *urfave.Command) error {
 			return usageError("mcp does not support --json", "MCP protocol messages use stdout")
 		}
 		if isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd()) {
-			fmt.Fprintln(cmd.Writer, "Run Noon as an MCP server over stdio:")
+			fmt.Fprintln(cmd.Writer, "noon mcp is a stdio MCP server. Start it from an MCP client:")
 			fmt.Fprintln(cmd.Writer, "  claude mcp add noon -- noon mcp")
 			fmt.Fprintln(cmd.Writer, "  codex mcp add noon -- noon mcp")
 			fmt.Fprintln(cmd.Writer, "")
-			fmt.Fprintln(cmd.Writer, "Generic MCP client config:")
+			fmt.Fprintln(cmd.Writer, "Other clients:")
 			fmt.Fprintln(cmd.Writer, `{"mcpServers":{"noon":{"command":"noon","args":["mcp"]}}}`)
 			return nil
 		}
