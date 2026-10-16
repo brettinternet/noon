@@ -1,10 +1,10 @@
 ---
 id: BUMP-17
 title: Inspect run history and logs
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 04:14'
+updated_date: '2026-10-16 04:20'
 labels:
   - store
   - cli
@@ -56,11 +56,11 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -75,4 +75,12 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 Implementation complete within allowed paths; executor reports focused tests and task ci passing. AC#1: task cli:test -- -run '^(TestHistoryAndLogs|TestLogsFollow)$' -count=1 -v -> exit 0, both tests PASS (executor). AC#2: task cli:build && bump_ac_state=$(mktemp -d) && BUMP_STATE_DIR="$bump_ac_state/state" bin/bump --config examples/jobs.yaml history; echo "exit=$?"; test ! -e "$bump_ac_state/state" && echo clean -> exact command executed via /tmp/bump-17-acceptance.sh after inline-shell parser rejected dynamic syntax; No runs yet., exit=0, clean. Independent review pending; next: resolve concrete findings, commit, final CI, merge and cleanup.
 
 Single independent review found three concrete defects: OpenExisting migrated v1 inspection state, fast overflow could print terminal tail before the deferral notice, and follow swallowed unavailable logs. Parent confirmed paths; executor is correcting all three with regression checks. No additional general review planned.
+
+All three review findings corrected with regressions: read-only v1 queries without migration, bounded live output with notice-before-tail ordering, terminal missing-log errors. Focused acceptance tests and task ci passed after corrections. AC#2 exact script rerun passed (No runs yet., exit=0, clean). Final implementation commit 006dc26 passed task check:staged and task ci; merged locally as a956bd3, preserving concurrent backlog changes. Diff stays in contract; tests were strengthened, not weakened. README/help match implemented behavior. Owned worktree/branch bump-17-history removed through Worktrunk; matching Herdr workspace wBV removed. No blocker or remaining step.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented history, logs/follow, nullable run JSON, LAST summaries and follow hints. Acceptance commands and CI pass; independent review findings fixed with regressions. Committed 006dc26, merged a956bd3, owned worktree cleaned; nothing pushed.
+<!-- SECTION:FINAL_SUMMARY:END -->
