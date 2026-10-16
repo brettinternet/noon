@@ -4,9 +4,10 @@ title: Parse schedules and compute next occurrences
 status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 02:40'
+updated_date: '2026-10-16 14:18'
 labels:
   - schedule
+  - reviewed
 dependencies: []
 documentation:
   - docs/design.md
@@ -89,6 +90,8 @@ Fuzzing found that the suggested 8-year Next search bound violates the required 
 AC#1: task cli:test -- -run '^(TestScheduleParse|TestScheduleNext)$' -count=1 -v -> exit 0, both named tests PASS, including Denver spring/fall, Lord Howe spring/fall, Santiago midnight gap and repeated-hour suppression. AC#2: mise exec go -- go test ./internal/schedule -run '^$' -fuzz '^FuzzScheduleParse$' -fuzztime 30s -> exit 0, 26,331,707 executions after fixing the discovered search-bound regression. AC#3: rg -n 'time\.Now\(' internal/schedule -> no output (exit 1, expected no matches). Full task ci passed before commit: security, formatting, vet, Staticcheck, unit tests, race, smoke. LSP diagnostics clean. Diff confined to internal/schedule/** and docs/design.md plus this task record; no existing tests removed or weakened. CLI remains unchanged and design explicitly distinguishes the implemented library from future CLI scheduling. Independent scoped review pending; final-commit CI and delivery remain.
 
 Delivery: dd260cd feat(schedule): parse schedules and compute occurrences fast-forward merged into main. task ci passed on this final implementation commit. The single independent reviewer found no validated defects (static review; execution was performed by the parent). Worktrunk removed the verified session-owned feat/noon-15-schedules worktree and branch; its Herdr workspace wBK was removed. All acceptance and delivery requirements satisfied; no blocker or resumable implementation work remains.
+
+Review (post-merge): parser and Next follow the contract and decision-5. Probed cron edge cases (impossible dates, step 0, dow 7, names), calendar and interval forms, leap day, the 400-year search bound, and Denver fall-back folds; no defects found. Notes: compact second-based intervals like `every 120s` are accepted and normalize to `every 2m`; `mon, wed at 9am` (space after the comma) is rejected; a sub-hourly cron skips the whole repeated fall-back hour, which matches the settled first-occurrence rule. ACs 1-2 rerun and pass (fuzz 10s).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

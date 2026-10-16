@@ -4,10 +4,11 @@ title: 'Define, validate, and list jobs'
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 02:52'
+updated_date: '2026-10-16 14:18'
 labels:
   - config
   - cli
+  - reviewed
 dependencies:
   - NOON-14
   - NOON-15
@@ -107,6 +108,8 @@ Delivery: implementation commit 6e72f6142591bab43b31dd02a02867b178535513 (feat: 
 Review: one independent reviewer pass completed (run 15412bcc-45e0-4a14-a35f-6011b23f0be3). Confirmed malformed-env YAML decoder leakage and terminal-control injection in unknown-field paths; both fixed with CLI regressions, direct human/JSON/byte-capture probes, focused tests, clean LSP diagnostics, and full task ci. No unresolved findings. No tests deleted, skipped, or weakened: the obsolete jobs:{} rejection was replaced by malformed jobs:[] and valid-empty coverage.
 Cleanup: verified session creation receipt and clean merged checkout, checked exact Herdr workspace wBN had only its idle zsh, then Worktrunk removed .worktrees/feat-noon-1 and branch feat/noon-1. Confirmed workspace wBN disappeared and only main remains. No retained checkout/workspace.
 No blocker or remaining implementation step. Final backlog metadata commit and Worklease release complete delivery bookkeeping; no push authorized or performed.
+
+Review (post-merge): strict parsing, merge/toggle provenance, env redaction, control-character escaping, and list/JSON output match the contract. Low-severity findings, not fixed because changing them would change the digests of existing approvals: (1) an explicit timeout normalizes to Go's form (`timeout: 1h` shows as `1h0m0s`), while an unset timeout shows the default `1h`, so the JSON `timeout` format is inconsistent; (2) `cwd: ./` and `cwd: .` produce different digests because the raw cwd is hashed, not the cleaned path; (3) `env: {}` and an omitted env produce different digests. ACs 1-2 rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
