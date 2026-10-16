@@ -1,10 +1,10 @@
 ---
 id: NOON-31
 title: Give lifecycle hooks the job's previous status
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 22:07'
-updated_date: '2026-10-16 22:21'
+updated_date: '2026-10-16 22:42'
 labels:
   - hooks
   - store
@@ -62,22 +62,36 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestHooks|TestStore)$' -count=1 -v` exits 0 and prints PASS for both tests, covering the env/JSON agreement, cleared inherited values, identity/status filtering, missing history, and queue-order inversion above.
-- [ ] #2 From the repository root, `(set -eu; task cli:build; noon_ac_home=$(mktemp -d); noon_ac_project=$(mktemp -d); printf 'jobs:\n  flip:\n    run: "test -e ok"\n    on_success: [sh, -c, "echo ${NOON_PREVIOUS_STATUS:-none} $NOON_STATUS >> hooks.txt"]\n    on_failure: [sh, -c, "echo ${NOON_PREVIOUS_STATUS:-none} $NOON_STATUS >> hooks.txt"]\n' > "$noon_ac_project/noon.yaml"; for noon_ac_attempt in 1 2; do noon_ac_code=0; env -i PATH="$PATH" HOME="$noon_ac_home" NOON_PREVIOUS_STATUS=leaked bin/noon -C "$noon_ac_project" run flip >/dev/null 2>&1 || noon_ac_code=$?; test "$noon_ac_code" -eq 1; done; touch "$noon_ac_project/ok"; env -i PATH="$PATH" HOME="$noon_ac_home" NOON_PREVIOUS_STATUS=leaked bin/noon -C "$noon_ac_project" run flip >/dev/null 2>&1; test "$(cat "$noon_ac_project/hooks.txt")" = "$(printf 'none failed\nfailed failed\nfailed succeeded')")` exits 0: foreground results are failure/failure/success, and hook output is exactly none failed, failed failed, failed succeeded. Setup errors or unexpected exits fail the command.
-- [ ] #3 `rg -n 'NOON_PREVIOUS_STATUS|previous_status' docs/hooks.md docs/design.md` shows the env and top-level JSON fields, unset/null and snapshot-order semantics. Both notification wrappers group failed/timed_out into one outage and explain first-success silence, recovery, retention, and lack of notification retries.
+- [x] #1 `task cli:test -- -run '^(TestHooks|TestStore)$' -count=1 -v` exits 0 and prints PASS for both tests, covering the env/JSON agreement, cleared inherited values, identity/status filtering, missing history, and queue-order inversion above.
+- [x] #2 From the repository root, `(set -eu; task cli:build; noon_ac_home=$(mktemp -d); noon_ac_project=$(mktemp -d); printf 'jobs:\n  flip:\n    run: "test -e ok"\n    on_success: [sh, -c, "echo ${NOON_PREVIOUS_STATUS:-none} $NOON_STATUS >> hooks.txt"]\n    on_failure: [sh, -c, "echo ${NOON_PREVIOUS_STATUS:-none} $NOON_STATUS >> hooks.txt"]\n' > "$noon_ac_project/noon.yaml"; for noon_ac_attempt in 1 2; do noon_ac_code=0; env -i PATH="$PATH" HOME="$noon_ac_home" NOON_PREVIOUS_STATUS=leaked bin/noon -C "$noon_ac_project" run flip >/dev/null 2>&1 || noon_ac_code=$?; test "$noon_ac_code" -eq 1; done; touch "$noon_ac_project/ok"; env -i PATH="$PATH" HOME="$noon_ac_home" NOON_PREVIOUS_STATUS=leaked bin/noon -C "$noon_ac_project" run flip >/dev/null 2>&1; test "$(cat "$noon_ac_project/hooks.txt")" = "$(printf 'none failed\nfailed failed\nfailed succeeded')")` exits 0: foreground results are failure/failure/success, and hook output is exactly none failed, failed failed, failed succeeded. Setup errors or unexpected exits fail the command.
+- [x] #3 `rg -n 'NOON_PREVIOUS_STATUS|previous_status' docs/hooks.md docs/design.md` shows the env and top-level JSON fields, unset/null and snapshot-order semantics. Both notification wrappers group failed/timed_out into one outage and explain first-success silence, recovery, retention, and lack of notification retries.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add a retained-result lookup and capture hook-only previous status before terminal completion. 2. Extend critical store and hook regressions and document notification policy. 3. Run acceptance commands and CI, commit, merge into main, finalize task, and remove the owned worktree.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Design refinement: QueueRun allocates IDs before dispatch, so lower-ID history can miss the actual prior execution. FinishRun releases the same-job running slot before hook execution, so take one pre-transition snapshot. setHookEnvironment already unsets absent metadata; align with that rather than promise an exported empty string. Keep raw status in core, but group failed/timed_out in the first-failure/recovery wrappers. No implementation or passing acceptance is claimed.
+
+AC#1: task cli:test -- -run '^(TestHooks|TestStore)$' -count=1 -v -> exit 0, both PASS. Covers env/null agreement, inherited clearing, rejection of job-configured reserved metadata, unchanged nested JSON shape, identity/status filtering, missing/pruned history, completion ordering and timestamp ties including higher IDs before a delayed queued ID. AC#2: exact command executed as sh /tmp/noon-31-ac2.sh from implementation root -> exit 0; failure/failure/success and none failed / failed failed / failed succeeded verified. AC#3: rg -n 'NOON_PREVIOUS_STATUS|previous_status' docs/hooks.md docs/design.md -> exit 0; contracts documented. Both extracted desktop wrappers passed 8 first-failure/recovery scenarios with fake osascript/notify-send via bun /tmp/noon-31-wrappers.js; no network/notifications. Full task ci passed before and after implementation commit 2d3d376 (security, vulnerabilities, formatting/vet/staticcheck, tests, race, smoke); LSP clean. One independent reviewer pass: no validated findings; capture-before-FinishRun and error completion semantics reviewed. Six implementation paths match contract, no tests weakened. Existing configuration rejects all NOON_ env keys, so job-configured leak coverage asserts rejection rather than relaxing that safety rule. Delivery: 2d3d376 fast-forward merged into main; session-owned worktree/branch removed via Worktrunk. No blockers or further item-scoped steps; no push requested.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hooks now receive one pre-completion previous-result snapshot as NOON_PREVIOUS_STATUS and top-level previous_status, with cleared unset/null history and preserved shared run JSON. Added ordering/isolation regressions and first-failure/recovery wrappers. All acceptance checks, full CI on 2d3d376, and independent review pass; merged locally and cleaned owned worktree.
+<!-- SECTION:FINAL_SUMMARY:END -->
