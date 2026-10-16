@@ -1,10 +1,10 @@
 ---
 id: NOON-11
 title: Install the scheduler as a per-user service
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 05:48'
 labels:
   - ops
 dependencies:
@@ -58,15 +58,35 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestServiceUnits|TestServiceCommands)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests without invoking a real service manager
-- [ ] #2 `task cli:build && bin/noon service install --print; echo "exit=$?"` prints a unit for the current OS, `exit=0`, and creates no file under `~/Library/LaunchAgents` or `~/.config/systemd/user`
+- [x] #1 `task cli:test -- -run '^(TestServiceUnits|TestServiceCommands)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests without invoking a real service manager
+- [x] #2 `task cli:build && bin/noon service install --print; echo "exit=$?"` prints a unit for the current OS, `exit=0`, and creates no file under `~/Library/LaunchAgents` or `~/.config/systemd/user`
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Inspect scheduler/configuration and CLI patterns; implement pure unit rendering and explicit service lifecycle operations. 2. Wire service commands and offline hints, add critical fake-manager regression tests and service documentation. 3. Run acceptance commands and task ci, perform one independent review, commit implementation, merge main, finalize backlog evidence, and remove owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Claimed under Worklease loop 53909a3c-e1ac-40d5-a491-b52b62d6687d, claim 2b5be51223ad3348b9c8b4f5c449625f. Implementation worktree /Users/brett/dev/me/bump/.worktrees/noon-11-service, branch noon-11-service; creation receipt .git/worktrees/noon-11-service/agent-creation.json. Modified-file contract expansion: docs/design.md scheduler-lifetime paragraph must change planned service installation to implemented behavior to satisfy DoD #5; no architectural change. Executor b635e0d1-f931-488c-b81e-cb609572cf59 owns worktree edits while parent manages provider state. Existing offline-enable assertion will be updated to the required noon service install hint, retaining its behavioral coverage.
+
+AC#1: task cli:test -- -run '^(TestServiceUnits|TestServiceCommands)$' -count=1 -v -> exit 0, both named tests printed PASS; launchd plist passed plutil -lint. Tests use fake launchctl/systemctl/loginctl only. AC#2: task cli:build && bin/noon service install --print; echo "exit=$?" -> macOS plist and exit=0. Before/after recursive listings of ~/Library/LaunchAgents and ~/.config/systemd/user were identical; neither Noon unit exists on host. Full task ci passed on implementation commit 4d00f1e1785666cf7a02d59950ee890f47c9fcc9 (security, formatting/vet/Staticcheck, tests, race, build/smoke). LSP diagnostics clean. Independent single reviewer pass found failed-update retry masking, systemd dollar expansion, and fake systemctl --user dispatch; all fixed with regression coverage and focused checks rerun. Linux TestServiceCommands also passed in network-disabled golang:1.27.2 Docker using a cross-compiled linux/arm64 test binary, including failed-update rollback/retry and unavailable-manager errors. No real manager was invoked. No existing tests deleted/skipped/weakened; offline guidance assertion updated for required behavior. Source/docs stayed within the contract plus previously justified docs/design.md. No new dependencies. Manual owner-only host verification: noon service install; noon service; on macOS launchctl print gui/$(id -u)/io.github.brettinternet.noon; on Linux systemctl --user status noon.service and journalctl --user -u noon.service; noon service uninstall. These commands intentionally were not run against a real manager. Delivery: implementation 4d00f1e fast-forward merged into main. Verified receipt-owned worktree and branch noon-11-service removed via Worktrunk; Herdr workspace wC8 was an idle zsh and its disappearance was verified. No retained checkout/workspace. Remaining blockers: none; no next resumable step.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented per-user launchd/systemd scheduler service install, preview, status/drift/heartbeat, and uninstall with safe environment capture, stable executable paths, idempotency, failure retry, offline guidance, and operator docs. Acceptance checks and full CI pass; macOS and Linux fake-manager lifecycle tests pass. Merged 4d00f1e into main and cleaned up owned worktree/branch/workspace; no real service installed.
+<!-- SECTION:FINAL_SUMMARY:END -->
