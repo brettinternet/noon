@@ -1,10 +1,10 @@
 ---
 id: BUMP-17
 title: Inspect run history and logs
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 04:14'
 labels:
   - store
   - cli
@@ -50,8 +50,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestHistoryAndLogs|TestLogsFollow)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
-- [ ] #2 `task cli:build && bump_ac_state=$(mktemp -d) && BUMP_STATE_DIR="$bump_ac_state/state" bin/bump --config examples/jobs.yaml history; echo "exit=$?"; test ! -e "$bump_ac_state/state" && echo clean` prints a no-runs message, `exit=0`, and `clean`
+- [x] #1 `task cli:test -- -run '^(TestHistoryAndLogs|TestLogsFollow)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
+- [x] #2 `task cli:build && bump_ac_state=$(mktemp -d) && BUMP_STATE_DIR="$bump_ac_state/state" bin/bump --config examples/jobs.yaml history; echo "exit=$?"; test ! -e "$bump_ac_state/state" && echo clean` prints a no-runs message, `exit=0`, and `clean`
 <!-- AC:END -->
 
 ## Definition of Done
@@ -62,3 +62,17 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Inspect existing store, app, CLI, and design contracts. 2. Implement read-only history/log inspection and last-run rendering. 3. Add critical history/follow regressions and run acceptance commands plus CI. 4. Review, commit, merge locally, finalize task evidence, and remove the owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implementation complete within allowed paths; executor reports focused tests and task ci passing. AC#1: task cli:test -- -run '^(TestHistoryAndLogs|TestLogsFollow)$' -count=1 -v -> exit 0, both tests PASS (executor). AC#2: task cli:build && bump_ac_state=$(mktemp -d) && BUMP_STATE_DIR="$bump_ac_state/state" bin/bump --config examples/jobs.yaml history; echo "exit=$?"; test ! -e "$bump_ac_state/state" && echo clean -> exact command executed via /tmp/bump-17-acceptance.sh after inline-shell parser rejected dynamic syntax; No runs yet., exit=0, clean. Independent review pending; next: resolve concrete findings, commit, final CI, merge and cleanup.
+
+Single independent review found three concrete defects: OpenExisting migrated v1 inspection state, fast overflow could print terminal tail before the deferral notice, and follow swallowed unavailable logs. Parent confirmed paths; executor is correcting all three with regression checks. No additional general review planned.
+<!-- SECTION:NOTES:END -->
