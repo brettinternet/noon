@@ -29,7 +29,7 @@ func StateDirectory(input Input) (string, error) {
 	if input.UserConfigDir != "" {
 		userFile := filepath.Join(input.UserConfigDir, "noon", "config.yaml")
 		cfg := Config{StateDir: stateDir}
-		if err := cfg.applyFile(userFile, true, "user", userFile, true); err != nil {
+		if err := cfg.applyFile(userFile, true, "user", userFile, true, nil); err != nil {
 			return "", err
 		}
 		stateDir = cfg.StateDir

@@ -1,9 +1,9 @@
 # Configuration
 
 This documents implemented settings, command jobs, and agent-prompt jobs. Jobs can be
-validated, listed, and executed with `noon run NAME`. Foreground run history and bounded logs
-are stored in the per-user state directory. Hooks, cron import, and the scheduler are not
-implemented; see [design](design.md) for their proposed format.
+validated, listed, added, removed, paused, resumed, and executed with `noon run NAME`. Foreground
+run history and bounded logs are stored in the per-user state directory. Hooks and cron import
+are not implemented; see [design](design.md) for their proposed format.
 
 ## Sources
 
@@ -28,7 +28,7 @@ selection: use `--project` to change the project.
 Missing automatic files are fine. Unreadable files, dangling symlinks, unknown
 keys, duplicate keys, null values, aliases/merge keys, unsupported versions,
 multiple documents, and files larger than 1 MiB fail with the source filename.
-A file may be an empty mapping (`{}`), but not an empty document.
+A zero-byte project file is an empty configuration and can be populated with `noon add`; a whitespace-only empty YAML document is invalid. An explicit empty mapping (`{}`) is valid.
 
 ## Project selection
 
@@ -171,6 +171,17 @@ merge. The exception is `jobs: {tests: {enabled: false}}`, which toggles an
 existing shared job. An enabled-only entry without a shared job is an error.
 A toggle retains shared execution provenance; a complete local replacement does
 not. Both record the local source path and `overrides: true`.
+
+`noon add NAME [SCHEDULE] ACTION` creates a job in `.noon.yaml` by default; `--shared` targets
+`noon.yaml`. Actions are `-- ARGV...`, `--sh STRING`, `--prompt TEXT`, and `--prompt-file PATH`.
+`--agent`, `--description`, `--timeout`, `--in`, and `--at` configure the job or queue its first
+run. Existing YAML is edited by splicing lines rather than re-encoding, and unsupported `jobs`
+shapes must be edited by hand. `noon remove NAME` (alias `rm`) removes the definition while keeping
+history; a version declaration added to an initially empty file remains after the last job is removed.
+If the name exists in both files, select `--shared` or `--local`. Bare remove lists
+candidates. `noon pause NAME` and `noon resume NAME` control background dispatch; bare forms list
+candidates, and both human and JSON job listings show paused state. Manual `noon run` continues to
+work, and resuming resets schedule state so there is no catch-up.
 
 `noon list` (alias `ls`) shows sorted jobs, normalized schedules, next-run previews
 in the project timezone, and commands. No jobs means a copy-paste example.

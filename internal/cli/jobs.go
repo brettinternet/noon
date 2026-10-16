@@ -96,7 +96,7 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 
 func printJobs(out io.Writer, jobs []app.Job, now time.Time) {
 	if len(jobs) == 0 {
-		fmt.Fprintln(out, "No jobs. Add this to noon.yaml:\njobs:\n  tests:\n    schedule: weekdays at 9am\n    run: task test")
+		fmt.Fprintln(out, "No jobs. Add one with: noon add tests \"weekdays at 9am\" -- task test")
 		return
 	}
 	rows := [][5]string{{"JOB", "SCHEDULE", "NEXT", "LAST", "COMMAND"}}
@@ -107,7 +107,9 @@ func printJobs(out io.Writer, jobs []app.Job, now time.Time) {
 		if job.Schedule != nil {
 			scheduled = *job.Schedule
 		}
-		if job.Approval == "needs_approval" {
+		if job.Paused {
+			next = "paused"
+		} else if job.Approval == "needs_approval" {
 			next = "needs approval"
 		} else if !job.Enabled {
 			next = "disabled"

@@ -13,6 +13,7 @@ type EnabledProject struct {
 	Path       string
 	ConfigFile sql.NullString
 	Approvals  map[string]string
+	Paused     map[string]bool
 }
 
 type PersistedJobState struct {
@@ -88,7 +89,7 @@ func (s *Store) ReadSchedulerSnapshot() (SchedulerSnapshot, error) {
 		return SchedulerSnapshot{}, err
 	}
 	defer tx.Rollback()
-	return schedulerSnapshot(tx)
+	return schedulerSnapshot(tx, s.hasPauses)
 }
 
 // SchedulerInfo returns the last scheduler heartbeat, or no record for old state
@@ -190,7 +191,7 @@ func (s *Store) ScheduleTick(now time.Time, pid int, identity string,
 	if n, _ := result.RowsAffected(); n != 1 {
 		return nil, errors.New("scheduler ownership was lost")
 	}
-	snapshot, err := schedulerSnapshot(tx)
+	snapshot, err := schedulerSnapshot(tx, s.hasPauses)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +232,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, run.T
 			return nil, fmt.Errorf("create scheduled run: %w", err)
 		}
 	}
-	snapshot, err = schedulerSnapshot(tx)
+	snapshot, err = schedulerSnapshot(tx, s.hasPauses)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +291,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, run.T
 	return started, nil
 }
 
-func schedulerSnapshot(tx *sql.Tx) (SchedulerSnapshot, error) {
+func schedulerSnapshot(tx *sql.Tx, hasPauses bool) (SchedulerSnapshot, error) {
 	var snapshot SchedulerSnapshot
 	projects, err := tx.Query(`SELECT p.id, p.path, p.config_file, a.job, a.digest FROM projects p LEFT JOIN approvals a ON a.project_id=p.id WHERE p.enabled=1 ORDER BY p.id, a.job`)
 	if err != nil {
@@ -317,6 +318,29 @@ func schedulerSnapshot(tx *sql.Tx) (SchedulerSnapshot, error) {
 	}
 	if err := errors.Join(projects.Err(), projects.Close()); err != nil {
 		return snapshot, err
+	}
+	if hasPauses {
+		pauses, err := tx.Query(`SELECT project_id, job FROM pauses`)
+		if err != nil {
+			return snapshot, err
+		}
+		for pauses.Next() {
+			var id int64
+			var name string
+			if err := pauses.Scan(&id, &name); err != nil {
+				_ = pauses.Close()
+				return snapshot, err
+			}
+			if index, ok := projectIndex[id]; ok {
+				if snapshot.Projects[index].Paused == nil {
+					snapshot.Projects[index].Paused = map[string]bool{}
+				}
+				snapshot.Projects[index].Paused[name] = true
+			}
+		}
+		if err := errors.Join(pauses.Err(), pauses.Close()); err != nil {
+			return snapshot, err
+		}
 	}
 	states, err := tx.Query(`SELECT project_id, job, schedule_key, next_at FROM job_state`)
 	if err != nil {

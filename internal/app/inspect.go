@@ -32,6 +32,7 @@ type Job struct {
 	Overlap     string     `json:"overlap"`
 	Missed      string     `json:"missed"`
 	Enabled     bool       `json:"enabled"`
+	Paused      bool       `json:"paused"`
 	LastRun     *Run       `json:"last_run"`
 	Source      string     `json:"source"`
 	Shared      bool       `json:"shared"`

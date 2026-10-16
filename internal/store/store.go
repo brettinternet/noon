@@ -61,6 +61,10 @@ ALTER TABLE projects ADD COLUMN config_error TEXT;
 ALTER TABLE runs ADD COLUMN idempotency_key TEXT;
 ALTER TABLE runs ADD COLUMN cancel_requested_at TEXT;
 CREATE UNIQUE INDEX runs_key ON runs(project_id, job, idempotency_key) WHERE idempotency_key IS NOT NULL;
+`, `
+CREATE TABLE pauses (
+  project_id INTEGER NOT NULL REFERENCES projects(id), job TEXT NOT NULL,
+  paused_at TEXT NOT NULL, PRIMARY KEY(project_id, job));
 `}
 
 type Store struct {
@@ -70,6 +74,7 @@ type Store struct {
 	hasApprovals   bool
 	hasScheduler   bool
 	hasQueue       bool
+	hasPauses      bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -246,6 +251,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasApprovals = version >= 3
 		state.hasScheduler = version >= 4
 		state.hasQueue = version >= 5
+		state.hasPauses = version >= 6
 		return state, nil
 	}
 	for {
@@ -283,6 +289,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasApprovals = true
 	state.hasScheduler = true
 	state.hasQueue = true
+	state.hasPauses = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}

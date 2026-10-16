@@ -133,7 +133,7 @@ func TestStore(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 6 {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		for _, statement := range []string{
@@ -253,8 +253,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 5", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 6 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 6", version, err)
 		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.LogOverflow {
@@ -269,7 +269,7 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=6"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=7"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -281,8 +281,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 6 {
-			t.Fatalf("Open error = %v, want StateTooNewError(6)", err)
+		if !errors.As(err, &newer) || newer.Version != 7 {
+			t.Fatalf("Open error = %v, want StateTooNewError(7)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {

@@ -119,6 +119,84 @@ func (s *Store) EnableProject(path string, configFile *string, digests map[strin
 	return tx.Commit()
 }
 
+// EnableAddedJob enables scheduling while approving only the newly written job.
+func (s *Store) EnableAddedJob(path string, configFile *string, name, digest string, shared bool, now time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stamp := FormatTime(now)
+	_, err = tx.Exec(`INSERT INTO projects(path,created_at,enabled,enabled_at,config_file) VALUES(?,?,1,?,?) ON CONFLICT(path) DO UPDATE SET enabled=1, enabled_at=CASE WHEN projects.enabled=0 THEN excluded.enabled_at ELSE projects.enabled_at END, config_file=excluded.config_file`, path, stamp, stamp, configFile)
+	if err != nil {
+		return err
+	}
+	var id int64
+	if err = tx.QueryRow(`SELECT id FROM projects WHERE path=?`, path).Scan(&id); err != nil {
+		return err
+	}
+	if shared {
+		if _, err = tx.Exec(`INSERT INTO approvals(project_id,job,digest,approved_at) VALUES(?,?,?,?) ON CONFLICT(project_id,job) DO UPDATE SET digest=excluded.digest,approved_at=excluded.approved_at WHERE approvals.digest<>excluded.digest`, id, name, digest, stamp); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(`DELETE FROM job_state WHERE project_id=? AND job=?`, id, name); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// SetPaused changes background eligibility and resets schedule state on resume.
+func (s *Store) SetPaused(project, job string, paused bool, now time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id int64
+	if err := tx.QueryRow(`SELECT id FROM projects WHERE path=?`, project).Scan(&id); err != nil {
+		return err
+	}
+	if paused {
+		_, err = tx.Exec(`INSERT INTO pauses(project_id,job,paused_at) VALUES(?,?,?) ON CONFLICT(project_id,job) DO NOTHING`, id, job, FormatTime(now))
+	} else {
+		_, err = tx.Exec(`DELETE FROM pauses WHERE project_id=? AND job=?`, id, job)
+		if err == nil {
+			_, err = tx.Exec(`DELETE FROM job_state WHERE project_id=? AND job=?`, id, job)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if paused {
+		_, err = tx.Exec(`UPDATE runs SET status='cancelled',finished_at=?,error='job paused' WHERE project_id=? AND job=? AND status='queued'`, FormatTime(now), id, job)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) PausedJobs(project string) (map[string]bool, error) {
+	result := map[string]bool{}
+	if !s.hasPauses {
+		return result, nil
+	}
+	rows, err := s.db.Query(`SELECT pauses.job FROM pauses JOIN projects ON projects.id=pauses.project_id WHERE projects.path=?`, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		result[name] = true
+	}
+	return result, rows.Err()
+}
+
 // DisableProject revokes opt-in and approvals without deleting run history.
 func (s *Store) DisableProject(path string, now time.Time) error {
 	tx, err := s.db.Begin()

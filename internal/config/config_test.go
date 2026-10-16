@@ -166,7 +166,7 @@ func TestLoadExplicitFileReplacesDiscovery(t *testing.T) {
 func TestLoadRejectsAmbiguousOrInvalidYAML(t *testing.T) {
 	t.Parallel()
 	for _, data := range []string{
-		"", "null", "[]", "timezone: UTC\ntimezone: Local\n", "timezone: null\n",
+		"null", "[]", "timezone: UTC\ntimezone: Local\n", "timezone: null\n",
 		"timezone: 42\n", "timezone: ''\n", "timezone: Invalid/Zone\n",
 		"timezone: &zone UTC\nstate_dir: *zone\n", "timezon: UTC\n", "jobs: []\n",
 		"version: 2\n", "version: '1'\n", "state_dir: ''\n", "{}\n---\n{}\n",
@@ -180,6 +180,14 @@ func TestLoadRejectsAmbiguousOrInvalidYAML(t *testing.T) {
 				t.Fatalf("wanted source-specific error; got %v", err)
 			}
 		})
+	}
+}
+
+func TestLoadAcceptsEmptyFileForJobEditing(t *testing.T) {
+	root := t.TempDir()
+	put(t, filepath.Join(root, ".noon.yaml"), "")
+	if _, err := config.Load(config.Input{CWD: root}); err != nil {
+		t.Fatalf("zero-byte config rejected: %v", err)
 	}
 }
 

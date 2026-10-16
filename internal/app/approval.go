@@ -64,9 +64,14 @@ func WithApprovals(view Inspection) (Inspection, error) {
 	if err != nil {
 		return Inspection{}, err
 	}
+	paused, err := state.PausedJobs(view.Project.Path)
+	if err != nil {
+		return Inspection{}, err
+	}
 	view.Project.Enabled = approval.Enabled
 	for i := range view.Jobs {
 		job := &view.Jobs[i]
+		job.Paused = paused[job.Name]
 		if job.Shared && approval.Enabled && approval.Approvals[job.Name] == job.Digest {
 			job.Approval = "approved"
 		}

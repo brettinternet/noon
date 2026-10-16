@@ -7,10 +7,10 @@ and containers when needed. CLI now; optional TUI later. No required web UI,
 Python, Node, cloud service, or agent provider.
 
 **Status: foreground scheduling with explicit OS supervision.** Working today: project discovery,
-layered settings, non-destructive initialization, strict job validation, schedule parsing and
-previews, foreground command and agent-prompt execution, durable per-user run records and bounded
+layered settings, non-destructive initialization, strict job validation, byte-preserving job add/remove,
+schedule parsing and previews, foreground command and agent-prompt execution, durable per-user run records and bounded
 logs, queued one-shot runs with idempotency and cancellation, explicit project opt-in and shared-job
-approvals, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
+approvals, pausing and resuming background jobs, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
 systemd service, read-only run history and log inspection, and development tooling. Cron import,
 hooks, MCP, and TUI are designed but **not implemented**. Noon never backgrounds itself; keep
 `noon serve` in the foreground or use the explicit service installer or an OS/container supervisor.
@@ -25,6 +25,10 @@ task cli:build
 bin/noon                 # useful repo summary; starts nothing
 bin/noon init            # create noon.yaml; preserve it if it exists
 bin/noon list            # validated jobs and next-run previews; executes nothing
+bin/noon add tests "every day at 2am" -- go test ./... # add a private scheduled job
+bin/noon remove tests    # remove its definition; keep history
+bin/noon pause tests     # stop background dispatch
+bin/noon resume tests    # resume from now, without catch-up
 bin/noon enable          # explicitly approve this checkout for scheduled runs
 bin/noon serve           # foreground scheduler; stop with Ctrl-C or SIGTERM
 bin/noon service install # explicitly install the per-user launchd/systemd service
@@ -121,7 +125,7 @@ a sandbox and cannot protect against an agent or user with local shell access.
 
 Implemented foundations and planned extensions ([design](docs/design.md), [decisions](backlog/decisions)):
 
-- Command and agent-prompt jobs, schedule parsing, foreground `noon run NAME`, queued one-shot
+- Command and agent-prompt jobs, schedule parsing, `noon add`/`remove`, pause/resume, foreground `noon run NAME`, queued one-shot
   requests and cancellation, and durable scheduling through `noon serve` already work.
 - One per-user `noon serve` runs every enabled repo's schedules. `noon service install` keeps
   it alive across reboots on macOS and Linux. Docker runs the same foreground process. Noon never

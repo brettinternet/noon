@@ -115,3 +115,50 @@ func TestEnableScheduleStateResets(t *testing.T) {
 		t.Fatal("re-enabling a disabled project retained schedule state")
 	}
 }
+
+// Adding a shared job preserves existing approvals and clears only its stale
+// schedule watermark in the same transaction.
+func TestEnableAddedJobIsSelectiveAndResetsState(t *testing.T) {
+	state, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	project := t.TempDir()
+	now := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+	if err := state.EnableProject(project, nil, map[string]string{"existing": "approved"}, now); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	if err := state.db.QueryRow(`SELECT id FROM projects WHERE path=?`, project).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"existing", "added", "local"} {
+		if _, err := state.db.Exec(`INSERT INTO job_state(project_id,job,schedule_key,next_at) VALUES(?,?,?,?)`, id, name, "every 1h|UTC", FormatTime(now.Add(time.Hour))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := state.EnableAddedJob(project, nil, "added", "new-digest", true, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.EnableAddedJob(project, nil, "local", "local-digest", false, now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	approval, err := state.ApprovalForProject(project)
+	if err != nil || !approval.Enabled || approval.Approvals["existing"] != "approved" || approval.Approvals["added"] != "new-digest" || approval.Approvals["local"] != "" {
+		t.Fatalf("selective approval: %+v %v", approval, err)
+	}
+	var existing, added, local int
+	if err := state.db.QueryRow(`SELECT count(*) FROM job_state WHERE project_id=? AND job='existing'`, id).Scan(&existing); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.db.QueryRow(`SELECT count(*) FROM job_state WHERE project_id=? AND job='added'`, id).Scan(&added); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.db.QueryRow(`SELECT count(*) FROM job_state WHERE project_id=? AND job='local'`, id).Scan(&local); err != nil {
+		t.Fatal(err)
+	}
+	if existing != 1 || added != 0 || local != 0 {
+		t.Fatalf("job state rows existing=%d added=%d local=%d", existing, added, local)
+	}
+}

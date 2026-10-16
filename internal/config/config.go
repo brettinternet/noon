@@ -49,14 +49,29 @@ type Config struct {
 
 // Load applies defaults, user settings, project settings, and invocation overrides.
 // An explicit File replaces all automatic file loading, not invocation overrides.
-func Load(input Input) (Config, error) { return load(input, false) }
+func Load(input Input) (Config, error) { return load(input, false, nil) }
+
+// LoadWithFileOverride loads every normal layer while substituting in-memory bytes
+// for one selected source. It never writes the candidate file.
+func LoadWithFileOverride(input Input, path string, data []byte) (Config, error) {
+	absolute, err := filepath.Abs(resolvePath(input.CWD, path))
+	if err != nil {
+		return Config{}, err
+	}
+	return load(input, false, &fileOverride{path: filepath.Clean(absolute), data: data})
+}
 
 // LoadForDisable resolves only the checkout and state location. Project manifests
 // cannot set state_dir, so broken or missing jobs must never prevent revocation.
 // An explicit state-dir also permits recovery from a broken explicit/user file.
-func LoadForDisable(input Input) (Config, error) { return load(input, true) }
+func LoadForDisable(input Input) (Config, error) { return load(input, true, nil) }
 
-func load(input Input, stateOnly bool) (Config, error) {
+type fileOverride struct {
+	path string
+	data []byte
+}
+
+func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 	project, err := ProjectDir(input)
 	if err != nil {
 		return Config{}, err
@@ -87,7 +102,7 @@ func load(input Input, stateOnly bool) (Config, error) {
 			return Config{}, err
 		}
 		cfg.ConfigFile = &file
-		if err := cfg.applyFile(file, false, "explicit", filepath.Join(input.UserConfigDir, "noon", "config.yaml"), stateOnly); err != nil {
+		if err := cfg.applyFile(file, false, "explicit", filepath.Join(input.UserConfigDir, "noon", "config.yaml"), stateOnly, override); err != nil {
 			return Config{}, err
 		}
 	} else {
@@ -106,7 +121,7 @@ func load(input Input, stateOnly bool) (Config, error) {
 			if stateOnly && kind != "user" {
 				continue
 			}
-			if err := cfg.applyFile(path, true, kind, filepath.Join(input.UserConfigDir, "noon", "config.yaml"), stateOnly); err != nil {
+			if err := cfg.applyFile(path, true, kind, filepath.Join(input.UserConfigDir, "noon", "config.yaml"), stateOnly, override); err != nil {
 				return Config{}, err
 			}
 		}
@@ -173,26 +188,31 @@ func ProjectDir(input Input) (string, error) {
 	}
 }
 
-func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath string, stateOnly bool) error {
+func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath string, stateOnly bool, override *fileOverride) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
 	}
-	file, err := os.Open(path)
-	if optional && errors.Is(err, os.ErrNotExist) {
-		// A dangling symlink is a broken config, not an absent optional file.
-		if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
-			return nil
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("config %s: %w", path, err)
-	}
-	defer file.Close()
 	const maxSize = 1024 * 1024
-	data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
-	if err != nil {
-		return fmt.Errorf("config %s: %w", path, err)
+	var data []byte
+	if override != nil && filepath.Clean(path) == override.path {
+		data = override.data
+	} else {
+		file, err := os.Open(path)
+		if optional && errors.Is(err, os.ErrNotExist) {
+			// A dangling symlink is a broken config, not an absent optional file.
+			if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+				return nil
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("config %s: %w", path, err)
+		}
+		defer file.Close()
+		data, err = io.ReadAll(io.LimitReader(file, maxSize+1))
+		if err != nil {
+			return fmt.Errorf("config %s: %w", path, err)
+		}
 	}
 	if len(data) > maxSize {
 		return fmt.Errorf("config %s: exceeds 1 MiB", path)
@@ -290,6 +310,9 @@ func safeYAMLLine(err error) int {
 // parse accepts only the implemented settings and job schema. Unknown fields,
 // aliases, duplicate keys, nulls, and trailing documents cannot silently hide errors.
 func parse(data []byte) (map[string]*yaml.Node, error) {
+	if len(data) == 0 {
+		return map[string]*yaml.Node{}, nil
+	}
 	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
 	var doc yaml.Node
 	if err := decoder.Decode(&doc); err != nil {

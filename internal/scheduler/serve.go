@@ -519,7 +519,7 @@ func makeJobInputs(snapshot store.SchedulerSnapshot, configs map[int64]*projectC
 			return nil, fmt.Errorf("load timezone %q for %q: %w", cached.config.Timezone, project.Path, err)
 		}
 		for name, job := range cached.config.Jobs {
-			active := job.Enabled && (!job.Shared || project.Approvals[name] == job.Digest)
+			active := job.Enabled && !project.Paused[name] && (!job.Shared || project.Approvals[name] == job.Digest)
 			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap})
 		}
 	}
