@@ -4,7 +4,7 @@ title: Accept signed webhooks
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 17:28'
+updated_date: '2026-10-16 17:30'
 labels:
   - http
   - security
@@ -96,6 +96,8 @@ AC#1: task cli:test -- -run '^(TestWebhooks|TestServeListen)$' -count=1 -v -> ex
 AC#2: task race -> exit 0 across all packages after review fixes.
 Review: one independent security/integrity pass found wrong state-directory selection and insufficient serialized-header allowance. Fixed both; regressions exercise distinct default/selected stores and a signed 1 MiB non-JSON body plus a 6000-byte escaping User-Agent. Extended focused command including TestWebhookSecretSnapshotAndDiagnostics -> exit 0. No tests deleted, skipped or weakened.
 Delivery: implementation 8384d3f; task check:staged and task ci passed on that commit. Merged locally as b3e4e97, preserving concurrent backlog planning commit 9554517. No push. Owned worktree/branch noon-8-webhooks removed with Worktrunk; matching Herdr workspace wD1 verified absent. No remaining item-scoped blocker or next implementation step.
+
+Post-merge validation: task ci passed on cc833e3. The first run hit EOF in the existing TestServeQueued/running_cancellation_kills_the_process_group; task cli:test -- -run ^TestServeQueued$ -count=5 passed, then full task ci passed without code/test changes. Final metadata commit records this evidence only.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
