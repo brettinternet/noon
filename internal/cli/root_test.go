@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/brettinternet/bump/internal/cli"
@@ -101,19 +102,55 @@ func TestFlagsOverrideEnvironmentAndFiles(t *testing.T) {
 
 func TestJSONFailuresAreSingleObjects(t *testing.T) {
 	sandbox(t)
-	for _, args := range [][]string{
-		{"--json", "--bogus"}, {"--bogus", "--json"}, {"config", "--bogus", "--json"},
-		{"--json=1", "--config", "missing.yaml", "config", "check"},
-		{"--json=TRUE", "--config", "missing.yaml", "config", "check"},
-		{"-json", "--config", "missing.yaml", "config", "check"},
-		{"--bogus", "--json=t"},
-		{"--json", "config", "unknown"}, {"--json", "--timezone", "Invalid/Zone"},
-		{"--json", "--config", "missing.yaml", "config", "check"},
-		{"--json", "--timezone=", "config"}, {"--json", "init", "unexpected"},
+	for _, tc := range []struct {
+		args []string
+		exit int
+		kind string
+	}{
+		{[]string{"--json", "--bogus"}, 2, "usage"},
+		{[]string{"--bogus", "--json"}, 2, "usage"},
+		{[]string{"config", "--bogus", "--json"}, 2, "usage"},
+		{[]string{"--json=1", "--config", "missing.yaml", "config", "check"}, 1, "config"},
+		{[]string{"--json=TRUE", "--config", "missing.yaml", "config", "check"}, 1, "config"},
+		{[]string{"-json", "--config", "missing.yaml", "config", "check"}, 1, "config"},
+		{[]string{"--bogus", "--json=t"}, 2, "usage"},
+		{[]string{"--json", "config", "unknown"}, 2, "usage"},
+		{[]string{"--json", "unknown"}, 2, "usage"},
+		{[]string{"--json", "--timezone", "Invalid/Zone"}, 1, "config"},
+		{[]string{"--json", "--config", "missing.yaml", "config", "check"}, 1, "config"},
+		{[]string{"--json", "--timezone=", "config"}, 2, "usage"},
+		{[]string{"--json", "init", "unexpected"}, 2, "usage"},
+		{[]string{"--json", "init", "--timezone", "UTC"}, 2, "usage"},
+		{[]string{"--json", "--project", "missing-directory", "init"}, 1, "config"},
 	} {
-		code, result := invoke(t, args...)
-		if code == 0 || result["error"] == nil {
-			t.Fatalf("args %v: %d %+v", args, code, result)
+		code, result := invoke(t, tc.args...)
+		failure, ok := result["error"].(map[string]any)
+		if !ok || code != tc.exit || failure["code"] != tc.kind || failure["message"] == "" || failure["message"] == nil || result["schema_version"] != float64(1) {
+			t.Fatalf("args %v: %d %+v", tc.args, code, result)
+		}
+		if hint, exists := failure["hint"]; exists && hint == "" {
+			t.Fatalf("empty hint was not omitted: %+v", failure)
+		}
+	}
+	for _, key := range []string{"BUMP_PROJECT", "BUMP_CONFIG", "BUMP_TIMEZONE", "BUMP_STATE_DIR"} {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv(key, "")
+			code, result := invoke(t, "--json", "config")
+			failure, ok := result["error"].(map[string]any)
+			if !ok || code != 2 || failure["code"] != "usage" || failure["message"] == "" || failure["message"] == nil {
+				t.Fatalf("empty environment value: %d %+v", code, result)
+			}
+		})
+	}
+}
+
+func TestValueFlagsAreNotMistakenForJSON(t *testing.T) {
+	sandbox(t)
+	for _, flag := range []string{"--timezone", "--project", "-C", "--config", "--state-dir"} {
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"bump", flag, "--json", "unexpected"}, config.BuildOpts{}, &out, &stderr)
+		if code != 2 || out.Len() != 0 || !strings.HasPrefix(stderr.String(), "bump: ") || !strings.Contains(stderr.String(), "\nHint: ") {
+			t.Fatalf("%s value misread: exit=%d stdout=%s stderr=%s", flag, code, &out, &stderr)
 		}
 	}
 }

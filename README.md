@@ -44,6 +44,10 @@ bin/bump --config ./custom.yaml config check
 `--config` replaces automatic config files. No config is required for inspection.
 No-argument commands do something useful without prompting or executing work.
 Invalid commands and configuration fail instead of pretending to succeed.
+Errors with `--json` produce one stdout object:
+`{"schema_version":1,"error":{"code":"…","message":"…","hint":"…"}}` (`hint` is omitted
+when empty). Human errors go to stderr. Exit codes are 0 for success, 2 for usage
+errors, and 1 for other failures.
 
 ## Direction
 

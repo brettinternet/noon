@@ -46,7 +46,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		},
 	}
 	_ = root.Walk(func(cmd *urfave.Command) error {
-		cmd.OnUsageError = func(_ context.Context, _ *urfave.Command, err error, _ bool) error { return err }
+		cmd.OnUsageError = func(_ context.Context, _ *urfave.Command, err error, _ bool) error {
+			return usageError(err.Error(), "Run bump --help")
+		}
 		return nil
 	})
 	return root
@@ -57,10 +59,20 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut io.Writer) int {
 	root := NewRootCommand(build, out, errOut)
 	if err := root.Run(ctx, args); err != nil {
-		if jsonRequested(args) {
-			_ = json.NewEncoder(out).Encode(map[string]any{"schema_version": 1, "error": err.Error()})
+		var failure *Error
+		if !errors.As(err, &failure) {
+			failure = &Error{Code: "error", Message: err.Error()}
+		}
+		if jsonRequested(root, args) {
+			_ = json.NewEncoder(out).Encode(map[string]any{"schema_version": 1, "error": failure})
 		} else {
-			fmt.Fprintf(errOut, "bump: %v\n", err)
+			fmt.Fprintf(errOut, "bump: %s\n", failure.Message)
+			if failure.Hint != "" {
+				fmt.Fprintf(errOut, "Hint: %s\n", failure.Hint)
+			}
+		}
+		if failure.Usage {
+			return 2
 		}
 		return 1
 	}
@@ -69,7 +81,18 @@ func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut
 
 // Inspect only output mode on errors, including failures before flag parsing
 // reaches --json. Do not mistake a string flag's value for an output flag.
-func jsonRequested(args []string) bool {
+func jsonRequested(root *urfave.Command, args []string) bool {
+	valueFlags := make(map[string]bool)
+	_ = root.Walk(func(cmd *urfave.Command) error {
+		for _, flag := range cmd.Flags {
+			if _, boolean := flag.(*urfave.BoolFlag); !boolean {
+				for _, name := range flag.Names() {
+					valueFlags[name] = true
+				}
+			}
+		}
+		return nil
+	})
 	requested := false
 	for i := 1; i < len(args); i++ {
 		arg := args[i]
@@ -80,12 +103,12 @@ func jsonRequested(args []string) bool {
 			continue
 		}
 		name, value, hasValue := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-"), "=")
-		switch name {
-		case "project", "C", "config", "timezone", "state-dir":
+		switch {
+		case valueFlags[name]:
 			if !hasValue {
 				i++
 			}
-		case "json":
+		case name == "json":
 			if !hasValue {
 				requested = true
 			} else {
@@ -97,6 +120,11 @@ func jsonRequested(args []string) bool {
 }
 
 func input(cmd *urfave.Command) (config.Input, error) {
+	for _, name := range []string{"project", "config", "timezone", "state-dir"} {
+		if value := setting(cmd, name); value != nil && strings.TrimSpace(*value) == "" {
+			return config.Input{}, usageError(fmt.Sprintf("--%s or its environment variable must not be empty", name), "")
+		}
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return config.Input{}, err
@@ -133,12 +161,13 @@ func load(cmd *urfave.Command) (config.Config, error) {
 	if err != nil {
 		return config.Config{}, err
 	}
-	return config.Load(values)
+	cfg, err := config.Load(values)
+	return cfg, configError(err)
 }
 
 func noArgs(cmd *urfave.Command) error {
 	if cmd.Args().Len() != 0 {
-		return fmt.Errorf("unexpected argument %q; run bump --help", cmd.Args().First())
+		return usageError(fmt.Sprintf("unexpected argument %q", cmd.Args().First()), "Run bump --help")
 	}
 	return nil
 }
@@ -195,7 +224,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	}
 	for _, name := range []string{"config", "timezone", "state-dir"} {
 		if cmd.IsSet(name) {
-			return fmt.Errorf("init does not use --%s or its environment variable; edit the generated file instead", name)
+			return usageError(fmt.Sprintf("init does not use --%s or its environment variable", name), "Edit the generated file instead")
 		}
 	}
 	values, err := input(cmd)
@@ -204,7 +233,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	}
 	project, err := config.ProjectDir(values)
 	if err != nil {
-		return err
+		return configError(err)
 	}
 	name := "bump.yaml"
 	mode := os.FileMode(0o644)

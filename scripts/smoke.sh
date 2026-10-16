@@ -25,6 +25,15 @@ bump --json config check
 if bump --json --config missing.yaml config check > failure.json; then
   printf '%s\n' 'missing explicit config incorrectly succeeded' >&2
   exit 1
+else
+  test "$?" -eq 1
 fi
-grep -q '"error":' failure.json
+grep -q '"error":{"code":"config","message":"' failure.json
+if bump --json --bogus > usage.json; then
+  printf '%s\n' 'unknown flag incorrectly succeeded' >&2
+  exit 1
+else
+  test "$?" -eq 2
+fi
+grep -q '"error":{"code":"usage","message":"' usage.json
 bump --help > help.txt
