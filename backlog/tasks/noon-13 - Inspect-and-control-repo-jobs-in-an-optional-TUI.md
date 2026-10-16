@@ -4,7 +4,7 @@ title: Inspect and control jobs in a terminal UI
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 20:14'
+updated_date: '2026-10-16 20:25'
 labels:
   - tui
 dependencies:
@@ -90,10 +90,14 @@ AC#1: task cli:test -- -run '^(TestTUIModel|TestTUINonInteractive)$' -count=1 -v
 Independent general review completed: two concrete P2 defects found in TUI log cursor replacement (g/G can skip or duplicate output) and follow-cap notice detection (unfinished line at persisted 1 MiB cap). Bounded fixes and regression checks are in progress; no second general review planned. Integration remains pending.
 
 Delivered implementation commit 9bed9dedb24f7deac35aaa95e2818f6502a14249, fast-forward merged into main. task ci passed on that final implementation commit (security, vet/staticcheck, full and race suites, build, smoke). All three exact acceptance commands were rerun after corrections and passed with the previously recorded results. Independent review found cursor replacement and unfinished-line follow-cap notice defects; both fixed and covered by real-store regressions. No tests deleted, skipped, or weakened. Documentation and help describe implemented behavior. Owned worktree and branch noon-13-tui removed through Worktrunk; matching Herdr workspace wDG verified absent. No retained checkout or workspace, no remaining blocker, no next resumable implementation step. No push performed.
+
+Final main verification at completion-record commit 363345c failed twice in unchanged TestServeStdioConcurrentCancellationAndEOFDrain: cancelled get_run returned success when cancel_run made its run terminal before the wait loop. User explicitly approved expanding scope to a narrow GetRun cancellation fix in a fresh owned worktree, existing regression checks, full CI, commit, merge, cleanup. Prior implementation commit passed CI; final-main DoD verification reopened.
+
+Approved cancellation correction delivered as e2aa083: GetRun checks context cancellation on entry and before returning a successful snapshot, including terminal-transition paths. Existing TestServeStdioConcurrentCancellationAndEOFDrain passed 100 runs without changes; task ci passed in the correction checkout and again on main after merge. No test weakened. Correction checkout/branch noon-13-cancellation and Herdr workspace wDJ removed and verified absent; original noon-13-tui/wDG also gone. All item requirements satisfied; no remaining blocker or resumable work. Concurrent unrelated documentation commit 1f7341a preserved.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented noon tui: live job/run views, bounded searchable sectional logs, and explicit queue/pause/confirmed cancel controls over shared app operations. Verified acceptance commands, task ci on implementation commit, independent review corrections, and PTY restoration on quit/SIGTERM. Merged locally as 9bed9de and cleaned owned worktree/workspace.
+Completed noon tui with live jobs/runs, bounded log search/follow/sections, and safe controls. Review defects fixed; user-approved shared log cancellation race fixed in e2aa083. All acceptance checks and full CI passed; cancellation regression passed 100 runs. Implementation 9bed9de and correction merged locally; both owned worktrees and workspaces cleaned. No push.
 <!-- SECTION:FINAL_SUMMARY:END -->
