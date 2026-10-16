@@ -1,9 +1,10 @@
 ---
 id: BUMP-16
 title: Run agent prompt jobs through agent profiles
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
+updated_date: '2026-10-16 03:18'
 labels:
   - config
   - runner
@@ -57,16 +58,40 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^TestPromptJobs$' -count=1 -v` exits 0 and prints `--- PASS: TestPromptJobs`, covering every case listed under Tests without invoking a real agent CLI
-- [ ] #2 `task cli:test -- -run '^TestLoadJobs$' -count=1 -v` exits 0 including the new prompt and agent validation cases
-- [ ] #3 `task cli:build && bin/bump --config examples/jobs.yaml --json list` exits 0 and the example prompt job reports `"agent":"claude"`
+- [x] #1 `task cli:test -- -run '^TestPromptJobs$' -count=1 -v` exits 0 and prints `--- PASS: TestPromptJobs`, covering every case listed under Tests without invoking a real agent CLI
+- [x] #2 `task cli:test -- -run '^TestLoadJobs$' -count=1 -v` exits 0 including the new prompt and agent validation cases
+- [x] #3 `task cli:build && bin/bump --config examples/jobs.yaml --json list` exits 0 and the example prompt job reports `"agent":"claude"`
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Extend existing config/job validation with user-owned agent profiles and prompt actions. 2. Connect byte-exact prompt delivery to foreground execution and expose effective agents in list/config output. 3. Add critical fake-agent regression coverage and update examples/docs using locally verified CLI flags. 4. Run all acceptance commands and task ci, perform one focused independent review, commit, merge to main, and remove the owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Modified-file contract expansion: docs/design.md is permitted solely to align its agent-prompts and execution status/contracts with implemented BUMP-16 behavior, as explicitly required by DoD #5. No unrelated design changes.
+
+AC#1: task cli:test -- -run '^TestPromptJobs$' -count=1 -v -> exit 0; PASS including exact inline/file stdin/argument delivery, literal $HOME/newlines, profile override/default, missing/oversized/FIFO preflight with no child start. Fake agents only.
+AC#2: task cli:test -- -run '^TestLoadJobs$' -count=1 -v -> exit 0; PASS including action conflicts, agent-on-run, unknown agents, profile source restrictions and 64 KiB limit.
+AC#3: task cli:build && bin/bump --config examples/jobs.yaml --json list -> exit 0; review example reports agent=claude. CLI execution used env -i with isolated temporary HOME per development instructions.
+Review: one independent reviewer pass found canonical digest mismatch and FIFO preflight hang. Fixed both; TestJobDigest now checks independently computed canonical SHA-256 and default/explicit equivalence; TestPromptJobs FIFO case passes immediately with exit 125 and no child start. No tests deleted, skipped, or weakened. All affected LSP diagnostics clean.
+Delivery: c50603f (feat: run agent prompt jobs through profiles) fast-forward merged to main. task check:staged and task ci passed on that final implementation commit (security, vet, staticcheck, full tests, race, build, smoke). Docs/examples updated; Claude/Codex flags verified with local --help. Owned worktree and branch removed via Worktrunk; matching Herdr workspace wBR removed. No retained worktree, blocker, or remaining item step; no push performed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented foreground prompt jobs with user-owned agent profiles, exact stdin/argument delivery, safe preflight, canonical digests, list/config output and documentation. All acceptance checks and task ci passed; independent review defects fixed. Committed c50603f, merged to main, and cleaned up owned worktree.
+<!-- SECTION:FINAL_SUMMARY:END -->
