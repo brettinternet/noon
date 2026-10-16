@@ -161,4 +161,18 @@ func TestEnableAddedJobIsSelectiveAndResetsState(t *testing.T) {
 	if existing != 1 || added != 0 || local != 0 {
 		t.Fatalf("job state rows existing=%d added=%d local=%d", existing, added, local)
 	}
+
+	// Re-enabling a disabled project through add resets every watermark.
+	if err := state.DisableProject(project, now.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.EnableAddedJob(project, nil, "another", "another-digest", false, now.Add(4*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.db.QueryRow(`SELECT count(*) FROM job_state WHERE project_id=?`, id).Scan(&existing); err != nil {
+		t.Fatal(err)
+	}
+	if existing != 0 {
+		t.Fatalf("re-enable kept %d stale job state rows", existing)
+	}
 }

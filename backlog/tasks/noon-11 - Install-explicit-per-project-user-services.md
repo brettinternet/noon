@@ -4,9 +4,10 @@ title: Install the scheduler as a per-user service
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 05:48'
+updated_date: '2026-10-16 14:37'
 labels:
   - ops
+  - reviewed
 dependencies:
   - NOON-4
 documentation:
@@ -83,6 +84,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 Claimed under Worklease loop 53909a3c-e1ac-40d5-a491-b52b62d6687d, claim 2b5be51223ad3348b9c8b4f5c449625f. Implementation worktree /Users/brett/dev/me/bump/.worktrees/noon-11-service, branch noon-11-service; creation receipt .git/worktrees/noon-11-service/agent-creation.json. Modified-file contract expansion: docs/design.md scheduler-lifetime paragraph must change planned service installation to implemented behavior to satisfy DoD #5; no architectural change. Executor b635e0d1-f931-488c-b81e-cb609572cf59 owns worktree edits while parent manages provider state. Existing offline-enable assertion will be updated to the required noon service install hint, retaining its behavioral coverage.
 
 AC#1: task cli:test -- -run '^(TestServiceUnits|TestServiceCommands)$' -count=1 -v -> exit 0, both named tests printed PASS; launchd plist passed plutil -lint. Tests use fake launchctl/systemctl/loginctl only. AC#2: task cli:build && bin/noon service install --print; echo "exit=$?" -> macOS plist and exit=0. Before/after recursive listings of ~/Library/LaunchAgents and ~/.config/systemd/user were identical; neither Noon unit exists on host. Full task ci passed on implementation commit 4d00f1e1785666cf7a02d59950ee890f47c9fcc9 (security, formatting/vet/Staticcheck, tests, race, build/smoke). LSP diagnostics clean. Independent single reviewer pass found failed-update retry masking, systemd dollar expansion, and fake systemctl --user dispatch; all fixed with regression coverage and focused checks rerun. Linux TestServiceCommands also passed in network-disabled golang:1.27.2 Docker using a cross-compiled linux/arm64 test binary, including failed-update rollback/retry and unavailable-manager errors. No real manager was invoked. No existing tests deleted/skipped/weakened; offline guidance assertion updated for required behavior. Source/docs stayed within the contract plus previously justified docs/design.md. No new dependencies. Manual owner-only host verification: noon service install; noon service; on macOS launchctl print gui/$(id -u)/io.github.brettinternet.noon; on Linux systemctl --user status noon.service and journalctl --user -u noon.service; noon service uninstall. These commands intentionally were not run against a real manager. Delivery: implementation 4d00f1e fast-forward merged into main. Verified receipt-owned worktree and branch noon-11-service removed via Worktrunk; Herdr workspace wC8 was an idle zsh and its disappearance was verified. No retained checkout/workspace. Remaining blockers: none; no next resumable step.
+
+Review (post-merge): unit rendering (plist escaping, systemd quoting with $$ and %%), executable resolution without symlink resolution, absolute --state-dir, captured env (PATH, XDG_CONFIG_HOME only), 0700 state dir, idempotent install with rollback, uninstall, and offline hints match the contract. Fixed in bffdf41: drift compared the whole unit, including captured PATH, so noon service from any shell with a different PATH (e.g. mise-activated project dirs) warned falsely; drift now compares only the rendered ExecStart/ProgramArguments fragment naming executable and state dir, as specified (regression in TestServiceCommands, fails before the fix). Low, not fixed: a failed launchd bootstrap after bootout restores the old plist but leaves it unloaded until the next install; launchd bootout is asynchronous so an immediate re-bootstrap can transiently fail (retry succeeds); systemd restart of a changed unit does not re-enable a manually disabled unit; NOON_PROJECT/CONFIG/TIMEZONE exported globally make noon service a usage error. task ci passes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

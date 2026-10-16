@@ -4,11 +4,12 @@ title: Adopt noon as the product name
 status: Done
 assignee: []
 created_date: '2026-10-16 04:16'
-updated_date: '2026-10-16 04:30'
+updated_date: '2026-10-16 14:37'
 labels:
   - config
   - cli
   - ops
+  - reviewed
 dependencies:
   - NOON-17
 documentation:
@@ -131,6 +132,8 @@ Validation: task ci passed (security, vet, Staticcheck, full tests, race, isolat
 Single independent review found one concrete defect: the README directory-only migration left bump.db unread and could collide with existing log IDs. Corrected the same migration line to require stopped processes, backup, absent destinations, database/sidecar renames, and intact logs. sh /tmp/noon-23-migration.sh built the old HEAD binary, recorded run 1, migrated its real state, then verified noon history and logs preserve run 1 and a new run succeeds as ID 2. Exit 0. No runtime behavior changed; no second general review needed.
 
 Implementation committed directly on main as 22da456 (approved primary-checkout exception); task check:staged and task ci passed on that commit. Review correction verified with old-state migration fixture. All six acceptance criteria and five DoD requirements satisfied. No blocker or remaining implementation step. No worktree/branch created, so no merge or checkout cleanup was needed; stale binary trashed, authorized Colima VM stopped. Completion-record commit follows; nothing pushed.
+
+Review (post-merge): reran AC1, AC5 config, and AC6 scans. Module, binary/help, NOON_* flag and job variables, reserved NOON_ prefix, XDG paths, noon.db, Dockerfile, .gitignore /.noon.yaml, and backlog prefix are renamed with no fallback to old names. The only AC6 scan hit is the checkout path /Users/brett/dev/me/bump in NOON-11 notes, added after this task and covered by the non-goal of renaming the local checkout directory. No defects found; no changes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

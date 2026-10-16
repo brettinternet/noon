@@ -4,10 +4,11 @@ title: Serve schedules for enabled projects
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 05:24'
+updated_date: '2026-10-16 14:33'
 labels:
   - scheduler
   - store
+  - reviewed
 dependencies:
   - NOON-18
   - NOON-19
@@ -107,6 +108,8 @@ AC#3: task race -> exit 0 across all packages; rerun in task ci after final fixe
 Delivery: implementation commit 3229c4c4d691dc19d63e4b3e092ec3ab36d00c69 fast-forward merged locally into main. task ci passed on that commit in main (security, vet, Staticcheck, unit/integration, race, build, smoke). task check:staged passed before commit; no push requested or performed.
 One independent risk-focused review completed PASS after concrete fixes: nullable never-started history, scheduler-only terminal retention, config-selection authorization race, persisted NEXT timezone, and absent/restored explicit-config project reload. Added targeted regressions; no test deleted, skipped, or weakened. A test marker read race found by full CI was corrected to await complete output, then TestServe passed 20 repetitions and full CI. LSP diagnostics clean on changed core files. CLI rejects explicit --json=false as well as other forbidden flags/env. Documentation updated to distinguish implemented scheduling from future services/integrations.
 Cleanup: verified session creation receipt, clean owned worktree and idle Herdr shell; Worktrunk removed feat/noon-4-serve worktree and branch. Herdr workspace wC7 disappeared; only primary checkout remains. Executor timeout did not lose changes; parent finished directly. No remaining blocker or resumable implementation step.
+
+Review (post-merge): serve loop, ownership lock, heartbeat, validate-first reload, activation resets, and shutdown match the contract. Fixed in f7d106c: (1) an enabled project with no valid config snapshot (invalid at scheduler start, or after a selection change to a broken file) produced no JobInputs, so Dispatch cancelled all its queued runs, including future --at one-shots, and Due dropped its catch-up watermarks; the planners now skip such projects until a valid load (regression: TestServeQueued "config invalid at startup keeps queued runs and watermarks", fails before the fix). (2) scheduler.lock owner line was written with a literal backslash-n. Low, not fixed: after a selection change to an invalid file, reload is forced every tick, so the config error is re-recorded and logged every second until fixed. AC1-AC3 and task ci rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

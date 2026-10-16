@@ -4,9 +4,10 @@ title: Adopt one CLI error and exit-code contract
 status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 02:30'
+updated_date: '2026-10-16 14:18'
 labels:
   - cli
+  - reviewed
 dependencies: []
 documentation:
   - docs/design.md
@@ -77,6 +78,8 @@ AC#4: task smoke -> exit 0, config and usage error objects and exit codes verifi
 Pre-commit task ci passed (vet, Staticcheck, tests, race, secrets, vulnerabilities, smoke). LSP root.go clean. One scoped diff review found no concrete defects. All changes within contract; no tests removed, skipped, or weakened. README documents implemented behavior; existing design Experience contract remains consistent.
 
 Delivered commit 78faa977455da3ea336dda545be3b37df5c3cc23, fast-forward merged into main. task ci passed on that final implementation commit. Worktrunk removed the verified session-owned worktree and branch; its Herdr workspace was removed. No blockers or remaining implementation steps; no push requested.
+
+Review (post-merge): implementation matches the contract. Probed usage/config/JSON paths against the built binary: unknown flags, extra args, bad/empty flag values, and value flags whose value is --json all behave as specified. Low-severity gap: `noon help bogus` is urfave's own exit error, rendered as code `error` with exit 1 instead of `usage`/2. ACs 1-2 rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

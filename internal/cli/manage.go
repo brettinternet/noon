@@ -207,7 +207,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		}
 	}
 	if queued {
-		if _, err := app.QueueRun(updated, name, "", queueDue, now, time.Now, false, ""); err != nil {
+		if _, err := app.QueueRun(updated, name, "", queueDue, now, time.Now, false, "cli"); err != nil {
 			return queueError(err)
 		}
 	}
@@ -456,13 +456,18 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 		return usageError("expected one job name", "")
 	}
 	if _, ok := cfg.Jobs[args[0]]; !ok {
-		return usageError("job not found", "")
+		return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", args[0]), Hint: "Run noon " + cmd.Name + " to list jobs"}
 	}
 	if e = app.SetPaused(cfg.StateDir, cfg.Project, args[0], paused, time.Now()); e != nil {
 		return stateError(e)
 	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"job": args[0], "paused": paused})
+	}
+	if paused {
+		fmt.Fprintf(cmd.Writer, "Paused %s. Background runs stop until noon resume %s.\n", args[0], args[0])
+	} else {
+		fmt.Fprintf(cmd.Writer, "Resumed %s. Its schedule starts from now.\n", args[0])
 	}
 	return nil
 }

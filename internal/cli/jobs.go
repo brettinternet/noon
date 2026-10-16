@@ -172,7 +172,7 @@ func promptDescription(agent string, prompt, promptFile *string) string {
 func cell(text string, width int) string {
 	var b strings.Builder
 	for _, r := range text {
-		if (r >= 32 && r < 127 || r == '…' || r == '✓' || r == '✗' || r == '·') && !unicode.IsControl(r) {
+		if (r >= 32 && r < 127 || r == '…' || r == '—' || r == '✓' || r == '✗' || r == '·') && !unicode.IsControl(r) {
 			b.WriteRune(r)
 		} else {
 			b.WriteString(strconv.QuoteRuneToASCII(r)[1 : len(strconv.QuoteRuneToASCII(r))-1])

@@ -4,10 +4,11 @@ title: Queue detached and one-shot runs and cancel runs
 status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 06:38'
+updated_date: '2026-10-16 14:33'
 labels:
   - scheduler
   - cli
+  - reviewed
 dependencies:
   - NOON-4
 documentation:
@@ -87,6 +88,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 Worklease claim 2987a475d9384f830da4320bd2f97538 held by loop 53909a3c-e1ac-40d5-a491-b52b62d6687d. Implementation worktree .worktrees/noon-5-queue-cancel. docs/design.md is additionally allowed to update stale queued-operation wording to match implemented behavior (DoD 5).
 
 AC#1: task cli:test -- -run '^(TestQueueRuns|TestServeQueued|TestCancelForeground)$' -count=1 -v -> exit 0; all three PASS, rerun on main after integration. AC#2: task race -> exit 0, including corrected cancellation regressions. task ci passed on implementation commit 04a78fa (security, vet, staticcheck, full tests, race, build, smoke); task check:staged and diff checks passed. Independent review found concurrent orphan finalization, lost force-kill signal handling, and unbounded global cancellation recovery; all corrected with regression tests and checks rerun. No tests deleted, skipped or weakened. Modified paths within contract plus previously justified docs/design.md. Commit 04a78fa fast-forward merged into main; owned worktree and branch removed via Worktrunk. No remaining blocker or resumable implementation step.
+
+Review (post-merge): queue transaction order (key, requirements, coalescing, insert) under an immediate lock, --at/--in parsing, output/JSON, cancel of queued/running/foreground runs with owner-liveness recovery, disable cancellation, and dashboard notice match the contract. No defects fixed here. Low, not fixed: (1) noon cancel RUN accepts any run ID in the per-user state, including another project's; (2) queueing a paused job (NOON-20) succeeds and the planner cancels it on the next tick with no warning; (3) app.QueueRun registers a project row before refusing not_enabled. NOON-4 fix (f7d106c) also stops the scheduler from cancelling queued runs of a project whose config is temporarily invalid. AC1-AC2 rerun via task ci and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

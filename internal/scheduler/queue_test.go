@@ -52,6 +52,26 @@ func TestServeQueued(t *testing.T) {
 		}
 	})
 
+	t.Run("config invalid at startup keeps queued runs and watermarks", func(t *testing.T) {
+		fixture := newServeFixture(t, "jobs:\n  tests:\n    schedule: every 1h\n    run: 'true'\n")
+		defer fixture.stop(t)
+		fixture.step(t, serveTestStart)
+		queued := createQueuedRun(t, fixture, "tests", serveTestStart.Add(24*time.Hour), "")
+		fixture.stop(t)
+		fixture.writeConfig(t, "jobs: [broken\n")
+		fixture.start(t)
+		fixture.step(t, serveTestStart.Add(time.Second))
+		if fixture.configError(t) == "" {
+			t.Fatal("invalid config was not recorded")
+		}
+		if run := fixture.runByID(t, queued.ID); run.Status != "queued" {
+			t.Fatalf("future queued run status = %s, want queued", run.Status)
+		}
+		if len(fixture.states(t)) != 1 {
+			t.Fatal("schedule watermark was dropped while config was invalid")
+		}
+	})
+
 	t.Run("cancelled queued run never starts", func(t *testing.T) {
 		marker := filepath.Join(t.TempDir(), "should-not-run")
 		fixture := newServeFixture(t, fmt.Sprintf("jobs:\n  tests:\n    run: 'touch %s'\n", marker))

@@ -134,6 +134,14 @@ func TestServiceCommands(t *testing.T) {
 	if code != 0 || !strings.Contains(out.String(), "Installed:  yes") || !strings.Contains(out.String(), "Scheduler:  running") || !strings.Contains(out.String(), "Heartbeat:") {
 		t.Fatalf("service status: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
 	}
+	// Captured PATH differs between shells; only executable and state directory drift.
+	t.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+filepath.Join(root, "other-bin"))
+	out.Reset()
+	stderr.Reset()
+	code = cli.Run(context.Background(), []string{"noon", "--state-dir", "relative-state", "service"}, config.BuildOpts{Version: "test"}, &out, &stderr)
+	if code != 0 || strings.Contains(out.String(), "Warning") {
+		t.Fatalf("PATH-only change reported drift: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
+	}
 
 	if err := os.WriteFile(unit.Path, bytes.Replace(contents, []byte(stateDir), []byte(filepath.Join(root, "drifted-state")), 1), 0o600); err != nil {
 		t.Fatal(err)
