@@ -1,10 +1,10 @@
 ---
 id: NOON-4
 title: Serve schedules for enabled projects
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 05:24'
 labels:
   - scheduler
   - store
@@ -70,16 +70,47 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^TestServe$' -count=1 -v` exits 0 and prints `--- PASS: TestServe`, with subtests (a) through (h) from the description
-- [ ] #2 `task cli:test -- -run '^TestServeProcess$' -count=1 -v` exits 0 and prints `--- PASS: TestServeProcess`
-- [ ] #3 `task race` exits 0
+- [x] #1 `task cli:test -- -run '^TestServe$' -count=1 -v` exits 0 and prints `--- PASS: TestServe`, with subtests (a) through (h) from the description
+- [x] #2 `task cli:test -- -run '^TestServeProcess$' -count=1 -v` exits 0 and prints `--- PASS: TestServeProcess`
+- [x] #3 `task race` exits 0
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add migration 3, atomic planner persistence, scheduler ownership/heartbeat, and activation watermark resets using existing store and recovery patterns.
+2. Implement the foreground serve loop with validate-first polling reloads, existing Due/Dispatch planners and runner, snapshot execution, and graceful shutdown.
+3. Wire CLI restrictions, scheduler status/next-run inspection, and implemented-behavior documentation.
+4. Add the specified deterministic TestServe scenarios and real-binary TestServeProcess regression; run all acceptance commands and task ci.
+5. Perform one risk-focused review, fix concrete scoped defects, commit, merge into main, finalize this record, and remove the owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Modified-file contract deviation justified: allow narrowly scoped internal/config/state.go, internal/config/config.go, and relevant existing config tests. Serve must resolve per-user state without discovering or validating the launch directory as a project; reuse config-layer loading rather than duplicate it in CLI/scheduler. Validate-first reload diagnostics also require safe numeric source lines while preserving the existing suppression of raw YAML decoder text/secrets. Executor created state.go before reporting this deviation; parent inspected it and records authorization before further config edits. No broader configuration redesign is authorized.
+
+Additional modified-file deviation justified: docs/configuration.md and docs/docker.md currently explicitly deny scheduling execution and must be updated to meet DoD #5 (implemented behavior only); no container feature scope is added. Migration numbering clarification: existing main already has versions 1 (runs), 2 (log overflow), and 3 (approvals). The requested scheduler schema is appended as version 4, preserving the settled append-only migration contract rather than rewriting shipped version 3.
+
+AC#1: task cli:test -- -run '^TestServe$' -count=1 -v -> exit 0, PASS TestServe and all specified subtests (a)-(h), rerun after review fixes.
+AC#2: task cli:test -- -run '^TestServeProcess$' -count=1 -v -> exit 0, PASS TestServeProcess (second owner rejected, SIGTERM exits 0).
+AC#3: task race -> exit 0 across all packages; rerun in task ci after final fixes.
+Delivery: implementation commit 3229c4c4d691dc19d63e4b3e092ec3ab36d00c69 fast-forward merged locally into main. task ci passed on that commit in main (security, vet, Staticcheck, unit/integration, race, build, smoke). task check:staged passed before commit; no push requested or performed.
+One independent risk-focused review completed PASS after concrete fixes: nullable never-started history, scheduler-only terminal retention, config-selection authorization race, persisted NEXT timezone, and absent/restored explicit-config project reload. Added targeted regressions; no test deleted, skipped, or weakened. A test marker read race found by full CI was corrected to await complete output, then TestServe passed 20 repetitions and full CI. LSP diagnostics clean on changed core files. CLI rejects explicit --json=false as well as other forbidden flags/env. Documentation updated to distinguish implemented scheduling from future services/integrations.
+Cleanup: verified session creation receipt, clean owned worktree and idle Herdr shell; Worktrunk removed feat/noon-4-serve worktree and branch. Herdr workspace wC7 disappeared; only primary checkout remains. Executor timeout did not lose changes; parent finished directly. No remaining blocker or resumable implementation step.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented durable foreground scheduling for enabled projects with safe reloads, approval/activation resets, catch-up/queue persistence, graceful shutdown and live inspection. All acceptance checks and full CI pass; reviewed, committed as 3229c4c, merged to main, and owned worktree/workspace removed.
+<!-- SECTION:FINAL_SUMMARY:END -->
