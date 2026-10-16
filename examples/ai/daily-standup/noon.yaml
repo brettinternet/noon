@@ -1,0 +1,14 @@
+# A standup note written before you sit down, from what you actually did.
+version: 1
+
+jobs:
+  standup:
+    description: Summarize my commits and PR activity since the last standup into a dated note.
+    schedule: weekdays at 8:45am
+    run: [./scripts/standup.sh]
+    env:
+      REPOS: /Users/me/src/api /Users/me/src/web /Users/me/src/infra
+      STANDUP_DIR: /Users/me/notes/standup
+      AGENT_CMD: claude -p --permission-prompts none
+    timeout: 10m
+    missed: run_once      # opened the laptop at 9:20? still get today's note

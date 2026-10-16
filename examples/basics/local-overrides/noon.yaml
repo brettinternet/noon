@@ -1,0 +1,16 @@
+# Shared, committed jobs. Everyone who clones the repo sees these.
+version: 1
+
+jobs:
+  test:
+    description: Full test suite each weekday morning.
+    schedule: weekdays at 9am
+    run: [make, test]
+    timeout: 20m
+  lint:
+    description: Lint every two hours on weekdays.
+    schedule: "0 */2 * * 1-5"
+    run: [make, lint]
+  docs:
+    description: Rebuild the docs site preview.
+    run: [make, docs]

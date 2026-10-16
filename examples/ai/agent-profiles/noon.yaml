@@ -1,0 +1,37 @@
+# Scheduled and on-demand agent prompts. Profiles come from user config; see user-config.yaml.
+version: 1
+
+jobs:
+  todo-sweep:
+    description: Weekly read-only review of TODO/FIXME comments, grouped and ranked.
+    schedule: every friday at 3pm
+    prompt_file: prompts/todo-sweep.md
+    agent: claude
+    timeout: 15m
+
+  docs-review:
+    description: Monthly read-only check that docs still match the code.
+    schedule: "0 10 1 * *"
+    prompt_file: prompts/docs-review.md
+    agent: codex
+    timeout: 20m
+
+  release-notes:
+    description: Draft release notes from commits since the latest tag. Manual.
+    prompt: |
+      Draft release notes for the next version of this repository.
+      Run git describe --tags --abbrev=0 to find the latest tag, then git log <tag>..HEAD.
+      Group changes under Features, Fixes, and Internal. Write one line per user-visible change
+      in plain language. Omit merge commits, CI, and formatting-only changes.
+      Print only the Markdown.
+    agent: claude-git
+    timeout: 10m
+
+  doc-comments:
+    description: Add missing doc comments to exported Go identifiers. Edits files; review with git diff.
+    prompt: |
+      Add a doc comment to every exported Go identifier under internal/ that lacks one.
+      Follow Go conventions: start with the identifier name, one or two sentences, describe
+      behavior rather than implementation. Change nothing else. List the files you edited.
+    agent: claude-edit
+    timeout: 30m

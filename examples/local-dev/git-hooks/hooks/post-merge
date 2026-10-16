@@ -1,0 +1,9 @@
+#!/bin/sh
+# After git pull/merge: retest, and reinstall dependencies if a lockfile changed.
+head=$(git rev-parse HEAD)
+noon run test --detach --key "merge-$head" >/dev/null 2>&1 || true
+if ! git diff --quiet ORIG_HEAD HEAD -- bun.lock package.json go.sum 2>/dev/null; then
+  noon run deps --detach --key "deps-$head" \
+    --data "{\"event\":\"post-merge\",\"from\":\"$(git rev-parse ORIG_HEAD)\",\"to\":\"$head\"}" \
+    >/dev/null 2>&1 || true
+fi

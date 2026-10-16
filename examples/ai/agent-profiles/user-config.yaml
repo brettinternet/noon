@@ -1,0 +1,41 @@
+# ~/.config/noon/config.yaml — agent profiles live here because they name binaries
+# and permissions on *this* machine. Project noon.yaml can only refer to them by name.
+default_agent: claude
+
+agents:
+  # Read-only Claude: tools that never ask (Read, Grep, Glob) work; anything that would prompt
+  # is denied automatically. This replaces the built-in "claude" profile with the same command.
+  claude:
+    command: [claude, -p, --permission-prompts, none]
+
+  # Claude that may edit files in the job's cwd. Still never waits for a prompt.
+  claude-edit:
+    command: [claude, -p, --permission-prompts, none, --permission-mode, acceptEdits]
+
+  # Read-only Claude plus a narrow allowlist of shell commands.
+  claude-git:
+    command:
+      - claude
+      - -p
+      - --permission-prompts
+      - none
+      - --allowedTools
+      - Bash(git log:*)
+      - Bash(git describe:*)
+      - Bash(git diff:*)
+
+  # Codex in its read-only and workspace-write sandboxes; "-" reads the prompt from stdin.
+  codex:
+    command: [codex, exec, --sandbox, read-only, -]
+  codex-edit:
+    command: [codex, exec, --sandbox, workspace-write, -]
+
+  # CLIs that take the prompt as an argument: Noon appends it as the final argv entry.
+  gemini:
+    command: [gemini, -p]
+    prompt: argument
+
+  # A local model; no tools, so give it everything it needs in the prompt.
+  ollama:
+    command: [ollama, run, llama3.2]
+    prompt: stdin

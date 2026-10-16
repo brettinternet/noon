@@ -1,0 +1,9 @@
+{
+  "action": "opened",
+  "issue": {
+    "number": 1,
+    "title": "Crash when config file is empty",
+    "body": "Running the tool with an empty config.yaml panics with a nil map error."
+  },
+  "repository": { "full_name": "OWNER/REPO" }
+}

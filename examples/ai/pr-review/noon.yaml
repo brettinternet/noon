@@ -1,0 +1,28 @@
+# GitHub webhooks trigger AI review of pull requests and triage of new issues.
+# The scheduler must have the secrets in its environment and run with --listen.
+version: 1
+
+jobs:
+  pr-review:
+    description: Review a pull request when it is opened, updated, or marked ready.
+    run: [./scripts/pr-review.sh]
+    webhook:
+      secret_env: NOON_GITHUB_WEBHOOK_SECRET
+    env:
+      AGENT_CMD: claude -p --permission-prompts none
+      REVIEW_DIR: .noon-reviews
+      POST_COMMENT: "0"        # "1" posts the review as a PR comment
+    timeout: 20m
+    overlap: queue
+
+  issue-triage:
+    description: Suggest labels and a first response for newly opened issues.
+    run: [./scripts/issue-triage.sh]
+    webhook:
+      secret_env: NOON_GITHUB_WEBHOOK_SECRET
+    env:
+      AGENT_CMD: claude -p --permission-prompts none
+      APPLY_LABELS: "0"        # "1" applies the suggested labels
+    timeout: 10m
+    overlap: queue
+    cooldown: 10s

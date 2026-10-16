@@ -1,0 +1,7 @@
+# ~/.config/noon/config.yaml — notify on every failure in every project.
+# Defaults live in user config so projects cannot add hooks that run for all your jobs,
+# and changing them never invalidates approvals.
+on_failure: [/Users/me/.local/bin/noon-notify]
+
+# Phone push instead (or as well, by writing a wrapper that calls both):
+# on_failure: [/Users/me/.local/bin/noon-ntfy]

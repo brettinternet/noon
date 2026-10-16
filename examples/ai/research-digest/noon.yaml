@@ -1,0 +1,24 @@
+# A morning reading list and release radar, summarized by an agent.
+version: 1
+
+jobs:
+  digest:
+    description: Hacker News front page and new arXiv papers, filtered to my interests.
+    schedule: every day at 7am
+    run: [./scripts/digest.sh]
+    env:
+      DIGEST_DIR: /Users/me/notes/digest
+      INTERESTS: developer tools, Go, local-first software, LLM agents and evaluation, databases
+      ARXIV_QUERY: cat:cs.SE OR cat:cs.AI
+      AGENT_CMD: claude -p --permission-prompts none
+    timeout: 15m
+    missed: run_once
+
+  release-watch:
+    description: Summarize new releases of the tools I depend on since the last check.
+    schedule: weekdays at 9am
+    run: [./scripts/release-watch.sh, watch.txt]
+    env:
+      DIGEST_DIR: /Users/me/notes/digest
+      AGENT_CMD: claude -p --permission-prompts none
+    timeout: 10m

@@ -1,0 +1,26 @@
+# Always-on agent jobs on a home server or VM. Copy next to the repository's noon.yaml.
+services:
+  noon:
+    build: .
+    image: noon-agent:local
+    init: true
+    read_only: true
+    # Agent CLIs keep caches and settings under $HOME; give them throwaway space.
+    tmpfs: [/tmp, /home/noon]
+    working_dir: /workspace
+    environment:
+      XDG_CONFIG_HOME: /config          # user config: agent profiles and hook defaults
+    env_file: .env                      # ANTHROPIC_API_KEY, GH_TOKEN, NTFY_TOPIC; never commit
+    volumes:
+      - .:/workspace:ro                 # the project; jobs cannot modify it
+      - ./config:/config:ro
+      - reports:/reports                # the one writable place jobs may use
+      - state:/state                    # Noon history, logs, approvals
+    # Trusts the deployed noon.yaml at every start. Review changes before restarting.
+    entrypoint: ["/bin/sh", "-c", "noon enable && exec noon serve"]
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+volumes:
+  reports:
+  state:

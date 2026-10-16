@@ -1,0 +1,41 @@
+# Backups for local development databases you would hate to rebuild.
+# Connection settings use libpq variables; keep passwords in ~/.pgpass, not YAML.
+version: 1
+
+jobs:
+  pg-backup:
+    description: Nightly pg_dump of the dev database, keeping the newest 14 dumps.
+    schedule: every day at 3am
+    run: [./scripts/pg-backup.sh]
+    env:
+      PGHOST: localhost
+      PGDATABASE: app_dev
+      BACKUP_DIR: /Users/me/Backups/postgres
+      KEEP: "14"
+    timeout: 30m
+    # Laptop asleep at 3am? Back up once on wake.
+    missed: run_once
+
+  pg-restore-check:
+    description: >
+      Weekly restore drill. Restores the newest dump into a scratch database, runs a sanity
+      query, and drops the scratch database. A backup you never restored is a guess.
+    schedule: every sunday at 11am
+    run: [./scripts/pg-restore-check.sh]
+    env:
+      PGHOST: localhost
+      PGDATABASE: app_dev
+      BACKUP_DIR: /Users/me/Backups/postgres
+      CHECK_SQL: select count(*) from users
+    timeout: 30m
+
+  sqlite-backup:
+    description: Hourly consistent snapshot of a SQLite file while the app keeps running.
+    schedule: hourly
+    run: [./scripts/sqlite-backup.sh]
+    env:
+      SQLITE_DB: data/app.db
+      BACKUP_DIR: /Users/me/Backups/sqlite
+      KEEP: "48"
+    missed: skip
+    timeout: 5m

@@ -1,0 +1,7 @@
+# Mounted as the container user's config (XDG_CONFIG_HOME=/config).
+timezone: America/Chicago
+default_agent: claude
+agents:
+  claude:
+    command: [claude, -p, --permission-prompts, none]
+on_failure: [/workspace/scripts/ntfy.sh]

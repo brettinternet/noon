@@ -1,0 +1,11 @@
+# The job coding agents run to prove their work. The description is what they read.
+version: 1
+
+jobs:
+  verify:
+    description: >
+      Format check, lint, and tests. Run after changing code and before reporting completion.
+      Wait for this run to succeed and inspect failures; never report queued or skipped as passed.
+    run: [make, check]
+    timeout: 15m
+    cooldown: 1m        # several agents stopping at once queue one run, not five

@@ -1,0 +1,22 @@
+# A three-stage nightly pipeline chained with on_success hooks: build -> test -> package.
+# Each hook queues the next stage and hands it the previous run's summary as event data.
+version: 1
+
+jobs:
+  build:
+    description: Nightly build; on success queues test.
+    schedule: weekdays at 11pm
+    run: [make, build]
+    timeout: 20m
+    on_success: noon run test --detach --key "after-build-$NOON_RUN_ID" --data -
+
+  test:
+    description: Full test suite; on success queues package.
+    run: [make, test]
+    timeout: 30m
+    on_success: noon run package --detach --key "after-test-$NOON_RUN_ID" --data -
+
+  package:
+    description: Create a versioned tarball and checksum in dist/.
+    run: [./scripts/package.sh]
+    timeout: 10m

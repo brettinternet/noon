@@ -1,0 +1,39 @@
+# Machine-wide chores. Keep this in a small personal repo (dotfiles, ~/chores) and enable it once.
+version: 1
+
+jobs:
+  repos-fetch:
+    description: Fetch and prune every Git repository under CODE_DIR so branches are fresh each morning.
+    schedule: weekdays at 7:45am
+    run: [./bin/repos-fetch.sh]
+    env:
+      CODE_DIR: /Users/me/src
+    timeout: 20m
+    missed: skip
+
+  gone-branches:
+    description: Report local branches whose upstream was deleted (merged PRs). Deletes nothing.
+    schedule: every friday at 4pm
+    run: [./bin/gone-branches.sh]
+    env:
+      CODE_DIR: /Users/me/src
+    timeout: 5m
+
+  docker-prune:
+    description: Remove stopped containers, dangling images, and build cache older than a week.
+    schedule: every saturday at 10am
+    run: [docker, system, prune, --force, --filter, until=168h]
+    timeout: 30m
+
+  brew-outdated:
+    description: Refresh Homebrew metadata and list outdated formulae. Upgrades nothing.
+    schedule: every monday at 8am
+    run: "brew update --quiet && brew outdated --verbose"
+    timeout: 15m
+
+  disk-space:
+    description: Fail (and notify via on_failure) when the home volume is more than 90% full.
+    schedule: every 2h
+    run: [./bin/disk-space.sh, "90"]
+    missed: skip
+    timeout: 1m

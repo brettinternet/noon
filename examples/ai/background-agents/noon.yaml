@@ -1,0 +1,23 @@
+# Editing agents that work unattended in throwaway Git worktrees and leave a branch to review.
+version: 1
+
+jobs:
+  deps-upgrade:
+    description: Weekly agent pass that upgrades dependencies, fixes fallout, and commits on a branch.
+    schedule: every monday at 6am
+    run: [./scripts/agent-worktree.sh, prompts/deps-upgrade.md, deps-upgrade]
+    env:
+      AGENT_CMD: codex exec --sandbox workspace-write -
+      CHECK_CMD: make check
+    timeout: 1h
+    missed: skip            # a Monday-afternoon catch-up would collide with your own work
+
+  inbox:
+    description: Every 30 minutes on weekdays, hand the oldest task in agent-inbox/ to an agent.
+    schedule: "*/30 8-18 * * 1-5"
+    run: [./scripts/inbox.sh]
+    env:
+      AGENT_CMD: codex exec --sandbox workspace-write -
+      CHECK_CMD: make check
+    timeout: 45m
+    missed: skip

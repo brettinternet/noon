@@ -1,0 +1,12 @@
+# Run a check-in when you cd into the project. Pairs with: noon shell init <shell> --on-enter check-in
+version: 1
+
+jobs:
+  check-in:
+    description: >
+      On project entry: fetch, then fail if the branch is behind its upstream or has a
+      lockfile newer than installed dependencies, so an on_failure hook can tell you.
+    run: [./scripts/check-in.sh]
+    timeout: 2m
+    cooldown: 15m       # hopping between terminals should not refetch every time
+    on_failure: [./scripts/notify.sh]

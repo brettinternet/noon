@@ -1,0 +1,13 @@
+#!/bin/sh
+# Use as both on_success and on_failure: notify on every failure, and on the first success after
+# a failure ("recovered"), but stay quiet while things keep working.
+set -eu
+notify=$(dirname "$0")/noon-notify
+if [ "$NOON_STATUS" != succeeded ]; then
+  exec "$notify"
+fi
+# The current run is already recorded, so the previous finished run is the second entry.
+previous=$(noon history "$NOON_JOB" --status succeeded,failed,timed_out --limit 2 --json | jq -r '.runs[1].status // "none"')
+case $previous in
+  failed|timed_out) NOON_STATUS=recovered exec "$notify" ;;
+esac

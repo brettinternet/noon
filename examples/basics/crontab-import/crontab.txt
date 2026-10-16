@@ -1,0 +1,12 @@
+# Personal crontab exported with: crontab -l > crontab.txt
+MAILTO=""
+PATH=/usr/local/bin:/usr/bin:/bin
+BACKUP_DIR=/Users/me/Backups
+
+# Nightly dotfiles backup
+30 2 * * * /Users/me/bin/backup-dotfiles.sh
+# Refresh Homebrew metadata on weekday mornings
+0 8 * * 1-5 brew update
+# Clear the downloads folder of files older than 30 days, Sunday 10:00
+0 10 * * 0 find /Users/me/Downloads -type f -mtime +30 -print
+@hourly /Users/me/bin/sync-notes.sh

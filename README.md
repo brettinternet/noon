@@ -265,6 +265,7 @@ shutdown, child reaping, offline timezones, and history persistence. See [Docker
 
 ## Documentation
 
+- [Examples](examples/README.md): runnable scenarios for local development, AI workflows, and integrations.
 - [Configuration](docs/configuration.md): implemented sources, paths, precedence.
 - [Lifecycle hooks](docs/hooks.md): command examples, execution and safety contract.
 - [Triggers](docs/triggers.md): Git and agent hook examples with durable JSON event payloads.

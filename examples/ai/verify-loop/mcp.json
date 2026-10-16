@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "noon": { "command": "noon", "args": ["mcp"] }
+  }
+}

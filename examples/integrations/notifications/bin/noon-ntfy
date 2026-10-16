@@ -1,0 +1,12 @@
+#!/bin/sh
+# Push to your phone with ntfy (https://ntfy.sh). Set NTFY_TOPIC in the scheduler's environment
+# (pick an unguessable topic, or self-host and set NTFY_URL). Optional NTFY_TOKEN for auth.
+set -eu
+: "${NTFY_TOPIC:?set NTFY_TOPIC}"
+priority=default tags=white_check_mark
+case $NOON_STATUS in failed|timed_out) priority=high tags=rotating_light ;; esac
+tail -n 20 "${NOON_LOG_FILE:-/dev/null}" 2>/dev/null | curl --fail --silent --show-error \
+  -H "Title: $(basename "$NOON_PROJECT") / $NOON_JOB: $NOON_STATUS" \
+  -H "Priority: $priority" -H "Tags: $tags" \
+  ${NTFY_TOKEN:+-H "Authorization: Bearer $NTFY_TOKEN"} \
+  --data-binary @- "${NTFY_URL:-https://ntfy.sh}/$NTFY_TOPIC" >/dev/null

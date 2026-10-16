@@ -1,0 +1,21 @@
+# The smallest useful Noon project: two manual jobs and one schedule.
+# Try: noon -C examples/basics/hello list
+version: 1
+
+jobs:
+  hello:
+    description: Print a greeting. An argv list runs exactly, with no shell parsing.
+    run: [echo, hello from noon]
+
+  context:
+    description: Show the NOON_* environment every job receives.
+    # A string runs through /bin/sh -c, so pipes and globs work.
+    run: env | grep '^NOON_' | sort
+
+  stretch:
+    description: Hourly stand-up reminder during working hours.
+    schedule: "0 10-16 * * mon-fri"
+    run: [./remind.sh, Stand up and stretch]
+    timeout: 30s
+    # A laptop asleep at 3pm should not fire stale reminders on wake.
+    missed: skip

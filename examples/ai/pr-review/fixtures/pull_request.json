@@ -1,0 +1,10 @@
+{
+  "action": "opened",
+  "number": 1,
+  "pull_request": {
+    "number": 1,
+    "draft": false,
+    "head": { "sha": "0123456789abcdef0123456789abcdef01234567" }
+  },
+  "repository": { "full_name": "cli/cli" }
+}

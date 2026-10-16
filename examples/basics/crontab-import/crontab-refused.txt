@@ -1,0 +1,4 @@
+# Entries Noon refuses rather than silently approximating.
+MAILTO=me@example.com
+@reboot /Users/me/bin/start-tunnel.sh
+0 9 * * * echo "log: $(date +%F)" >> /tmp/cron.log

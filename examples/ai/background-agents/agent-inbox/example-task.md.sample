@@ -1,0 +1,3 @@
+Add a --json flag to the "export" command that prints the same records as a JSON array.
+Follow the existing --json patterns in the codebase, add a test for the new output, and update the
+command's help text. Keep the human output unchanged.

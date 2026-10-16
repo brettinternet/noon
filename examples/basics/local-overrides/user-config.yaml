@@ -1,0 +1,15 @@
+# Per-user settings: ~/.config/noon/config.yaml (or $XDG_CONFIG_HOME/noon/config.yaml).
+# Applies to every project. Jobs are not allowed here.
+
+timezone: America/Denver
+
+# Agent profiles are machine-specific: they name binaries on this machine.
+default_agent: claude
+agents:
+  claude:
+    command: [claude, -p, --permission-prompts, none]
+    prompt: stdin
+
+# Hook defaults for every job in every project. A job can override them,
+# or opt out with on_failure: [].
+on_failure: [/Users/me/.local/bin/noon-notify]

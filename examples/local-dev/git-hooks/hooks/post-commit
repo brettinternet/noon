@@ -1,0 +1,4 @@
+#!/bin/sh
+# Queue tests for this commit. The SHA is an idempotency key, so amending or re-running the
+# hook for the same commit does not queue twice. Never blocks or fails the commit.
+noon run test --detach --key "commit-$(git rev-parse HEAD)" >/dev/null 2>&1 || true

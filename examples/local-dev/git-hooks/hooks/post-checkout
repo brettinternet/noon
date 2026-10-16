@@ -1,0 +1,10 @@
+#!/bin/sh
+# $1 previous HEAD, $2 new HEAD, $3 = 1 for branch checkouts (0 for file checkouts).
+[ "$3" = 1 ] || exit 0
+[ "$1" != "$2" ] || exit 0
+noon run ctags --detach >/dev/null 2>&1 || true
+if ! git diff --quiet "$1" "$2" -- bun.lock package.json go.sum 2>/dev/null; then
+  noon run deps --detach --key "deps-$2" \
+    --data "{\"event\":\"post-checkout\",\"from\":\"$1\",\"to\":\"$2\"}" \
+    >/dev/null 2>&1 || true
+fi

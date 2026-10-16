@@ -1,0 +1,19 @@
+# Jobs triggered by Git hooks. Hooks queue work and return immediately; Noon runs it.
+version: 1
+
+jobs:
+  test:
+    description: Test suite, queued after each commit and merge.
+    run: [make, test]
+    timeout: 15m
+    cooldown: 30s        # rebases fire post-commit per commit; collapse them
+
+  deps:
+    description: Reinstall dependencies when a checkout or merge changed a lockfile.
+    run: [./scripts/deps.sh]
+    timeout: 10m
+
+  ctags:
+    description: Rebuild the tags file for editor navigation after branch switches.
+    run: [ctags, -R, --exclude=node_modules, --exclude=.git, -f, .tags, .]
+    timeout: 2m

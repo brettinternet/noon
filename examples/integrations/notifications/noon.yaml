@@ -1,0 +1,23 @@
+# Per-job hook choices layered over the user-level default.
+version: 1
+
+jobs:
+  backup:
+    description: Nightly backup. Tell me about failures, and when it recovers.
+    schedule: every day at 3am
+    run: [./backup.sh]
+    on_failure: [/Users/me/.local/bin/noon-recovery]
+    on_success: [/Users/me/.local/bin/noon-recovery]
+
+  deploy-preview:
+    description: Build a preview; post the outcome to the team channel either way.
+    run: [make, preview]
+    on_success: [/Users/me/.local/bin/noon-slack]
+    on_failure: [/Users/me/.local/bin/noon-slack]
+
+  flaky-poll:
+    description: Polls an endpoint that is often down; failures are expected, so stay quiet.
+    schedule: every 5m
+    run: [curl, --fail, --silent, https://status.example.com/health]
+    missed: skip
+    on_failure: []          # opt out of the user-level default

@@ -1,0 +1,47 @@
+# Day-to-day automation for a Go module. Drop into the repository root.
+version: 1
+
+jobs:
+  test:
+    description: >
+      Run the Go test suite. Use after changing Go code and before reporting work complete;
+      wait for success and read failures rather than assuming they pass.
+    schedule: weekdays at 9am
+    run: [go, test, ./...]
+    env:
+      GOFLAGS: "-count=1"     # never report a cached pass
+    timeout: 15m
+    cooldown: 2m              # collapse bursts of queued requests from hooks and agents
+
+  race:
+    description: Nightly race-detector run; slow, so it is not part of the daytime loop.
+    schedule: every day at 1am
+    run: [go, test, -race, ./...]
+    env:
+      CGO_ENABLED: "1"
+    timeout: 45m
+
+  vet:
+    description: go vet plus a module tidiness check. Fails when go.mod or go.sum drift.
+    schedule: "0 */3 * * 1-5"
+    run: "go vet ./... && go mod tidy -diff"
+    timeout: 10m
+
+  vulncheck:
+    description: Weekly reachable-vulnerability scan with govulncheck (network).
+    schedule: every monday at 8am
+    run: [go, run, golang.org/x/vuln/cmd/govulncheck@latest, ./...]
+    timeout: 15m
+
+  outdated:
+    description: List direct dependencies with newer versions. Read-only.
+    schedule: every monday at 8:15am
+    run: [go, list, -u, -m, -f, "{{if and .Update (not .Indirect)}}{{.Path}} {{.Version}} -> {{.Update.Version}}{{end}}", all]
+    timeout: 5m
+
+  warm:
+    description: Fill the module and build caches before the workday so the first build is fast.
+    schedule: weekdays at 8:30am
+    run: "go mod download && go build ./... && go test -run '^$' ./..."
+    missed: skip              # pointless after the fact
+    timeout: 20m

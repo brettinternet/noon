@@ -1,0 +1,44 @@
+# A TypeScript web app using Bun: fast checks during the day, heavy suites at night.
+version: 1
+
+jobs:
+  check:
+    description: >
+      Typecheck and unit test. Run after changing TypeScript before reporting completion.
+    run: "bun run typecheck && bun test"
+    timeout: 10m
+    cooldown: 1m
+
+  e2e:
+    description: Nightly Playwright suite against a production build.
+    schedule: every day at 2am
+    run: "bun run build && bunx playwright test --reporter=line"
+    env:
+      CI: "1"                 # Playwright: no interactive report server, retries on
+    timeout: 45m
+
+  outdated:
+    description: Weekly dependency drift report. Read-only.
+    schedule: every monday at 9am
+    run: [bun, outdated]
+    timeout: 5m
+
+  audit:
+    description: Weekly advisory scan of installed packages (network).
+    schedule: every monday at 9:05am
+    run: [bun, audit]
+    timeout: 5m
+
+  bundle-size:
+    description: Build and fail if the client bundle grows past the budget.
+    schedule: weekdays at 6pm
+    run: [./scripts/bundle-budget.sh]
+    env:
+      BUNDLE_DIR: dist/assets
+      BUDGET_KB: "350"
+    timeout: 10m
+
+  seed:
+    description: Reset the local development database with fixture data. Manual only.
+    run: [bun, run, db:seed]
+    timeout: 5m

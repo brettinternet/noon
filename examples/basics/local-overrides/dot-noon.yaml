@@ -1,0 +1,28 @@
+# Copy to .noon.yaml (mode 0600) and keep it out of Git:
+#   cp dot-noon.yaml .noon.yaml && chmod 600 .noon.yaml
+#   echo .noon.yaml >> .gitignore
+# Private, machine-local jobs. They need no approval and are never shared.
+
+# Prompt jobs without an agent use this profile (allowed here, not in noon.yaml).
+default_agent: codex
+
+jobs:
+  # Toggle: disable a shared job on this machine only. Keeps its approval rules.
+  lint:
+    enabled: false
+
+  # Replace: a whole-job override. Fields do not merge, so restate everything.
+  test:
+    description: My laptop runs tests at lunch, with the race detector.
+    schedule: weekdays at 12:30pm
+    run: [make, test-race]
+    timeout: 45m
+    env:
+      CGO_ENABLED: "1"
+
+  # Private: only exists for me.
+  notes-sync:
+    description: Push my scratch notes branch.
+    schedule: every 2h
+    run: [git, -C, ../notes, push, --quiet]
+    missed: skip

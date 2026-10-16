@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "noon run verify --detach --data - >&2 && printf '{}\\n'"
+          }
+        ]
+      }
+    ]
+  }
+}

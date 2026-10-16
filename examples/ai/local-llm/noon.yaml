@@ -1,0 +1,36 @@
+# Private AI chores with a local model through Ollama. Nothing leaves the machine.
+version: 1
+
+jobs:
+  models-pull:
+    description: Keep local models current. Ollama only downloads changed layers.
+    schedule: every sunday at 9am
+    run: [./scripts/models-pull.sh]
+    env:
+      MODELS: llama3.2 qwen2.5-coder:7b nomic-embed-text
+    timeout: 2h
+
+  model-warm:
+    description: Load the model into memory before the workday so the first request is instant.
+    schedule: weekdays at 8:50am
+    run: [curl, --fail, --silent, --show-error, http://localhost:11434/api/generate,
+          --data, '{"model":"llama3.2","keep_alive":"4h"}']
+    missed: skip
+    timeout: 2m
+
+  notes-digest:
+    description: Friday summary of the notes I edited this week, written next to the notes.
+    schedule: every friday at 4:30pm
+    run: [./scripts/notes-digest.sh]
+    env:
+      NOTES_DIR: /Users/me/notes
+      MODEL: llama3.2
+    timeout: 20m
+
+  failures-digest:
+    description: Morning summary of overnight Noon failures in this project, using the local model.
+    schedule: weekdays at 8am
+    run: [./scripts/failures-digest.sh]
+    env:
+      MODEL: llama3.2
+    timeout: 10m

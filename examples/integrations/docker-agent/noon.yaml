@@ -1,0 +1,20 @@
+version: 1
+
+jobs:
+  repo-health:
+    description: Weekly read-only agent review of risky code, stale docs, and missing tests.
+    schedule: every monday at 7am
+    agent: claude          # profile from the mounted config/noon/config.yaml
+    prompt: |
+      Review this repository for the five most important maintenance risks: fragile code paths,
+      missing tests around critical logic, docs that contradict the code, and outdated patterns.
+      Do not modify files. For each risk give file:line, why it matters, and a first step.
+    timeout: 30m
+
+  weekly-changes:
+    description: Summarize the week's commits into /reports for people who did not follow along.
+    schedule: every friday at 5pm
+    run: [./scripts/weekly-changes.sh]
+    env:
+      REPORT_DIR: /reports
+    timeout: 15m

@@ -1,0 +1,65 @@
+# Every schedule form Noon accepts, with the policies that matter for laptops.
+# Try: noon -C examples/basics/schedules list
+version: 1
+# Schedules use this timezone. Local (the default) follows the machine.
+timezone: America/New_York
+
+jobs:
+  # --- Calendar phrases: readable, compile to one cron expression ---
+  morning:
+    schedule: weekdays at 9:30am
+    run: [echo, good morning]
+  lunch:
+    schedule: every day at noon
+    run: [echo, lunch]
+  gym:
+    schedule: mon,wed,fri at 18:00
+    run: [echo, gym]
+  weekly-review:
+    schedule: every friday at 4pm
+    run: [echo, weekly review]
+
+  # --- Five-field cron: full control ---
+  quarter-hour:
+    description: Every 15 minutes during working hours on weekdays.
+    schedule: "*/15 9-17 * * 1-5"
+    run: [echo, tick]
+  month-start:
+    description: First day of each month at 07:00.
+    schedule: "0 7 1 * *"
+    run: [echo, new month]
+
+  # --- Macros ---
+  nightly:
+    schedule: "@daily"          # midnight; bare "daily" works too
+    run: [echo, nightly]
+
+  # --- Intervals: elapsed time, phase kept across restarts, ignore DST ---
+  heartbeat:
+    schedule: every 10m
+    run: [echo, still here]
+  sync:
+    schedule: every 1d12h
+    run: [echo, sync]
+
+  # --- Policies ---
+  report:
+    description: >
+      Long report. A second occurrence while one is running waits instead of being skipped,
+      and a laptop that slept through 6am runs it once on wake.
+    schedule: every day at 6am
+    run: [sh, -c, "sleep 5; echo report done"]
+    overlap: queue       # default skip: record "skipped" and move on
+    missed: run_once     # default; catch up once, never a burst
+    timeout: 2h          # default 1h; "none" disables
+  poll:
+    description: Polling job where stale catch-ups are useless.
+    schedule: every 5m
+    run: [echo, poll]
+    missed: skip         # record "missed" instead of catching up
+    timeout: 1m
+  paused-by-config:
+    description: Kept for later; enabled false means no next run.
+    schedule: every 6h
+    run: [echo, not yet]
+    enabled: false

@@ -1,0 +1,7 @@
+# owner/repo per line; releases since the last successful run are summarized.
+golang/go
+anthropics/claude-code
+openai/codex
+ollama/ollama
+oven-sh/bun
+jdx/mise
