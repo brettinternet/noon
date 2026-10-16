@@ -29,6 +29,7 @@ type Job struct {
 	Overlap     string     `json:"overlap"`
 	Missed      string     `json:"missed"`
 	Enabled     bool       `json:"enabled"`
+	LastRun     *Run       `json:"last_run"`
 	Source      string     `json:"source"`
 	Shared      bool       `json:"shared"`
 	Overrides   bool       `json:"overrides"`
@@ -36,8 +37,9 @@ type Job struct {
 }
 
 type Inspection struct {
-	Project Project `json:"project"`
-	Jobs    []Job   `json:"jobs"`
+	Project  Project `json:"project"`
+	Jobs     []Job   `json:"jobs"`
+	StateDir string  `json:"-"`
 }
 
 // Inspect validates the effective configuration without executing or writing.
@@ -51,7 +53,7 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 	if err != nil {
 		return Inspection{}, err
 	}
-	result := Inspection{Project: Project{Path: cfg.Project, Timezone: cfg.Timezone}, Jobs: []Job{}}
+	result := Inspection{Project: Project{Path: cfg.Project, Timezone: cfg.Timezone}, Jobs: []Job{}, StateDir: cfg.StateDir}
 	names := make([]string, 0, len(cfg.Jobs))
 	for name := range cfg.Jobs {
 		names = append(names, name)

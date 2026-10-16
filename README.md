@@ -9,7 +9,7 @@ Python, Node, cloud service, or agent provider.
 **Status: foreground execution.** Working today: project discovery, layered settings,
 non-destructive initialization, strict job validation, job listing with next-run
 previews, foreground command and agent-prompt execution, durable per-user run records and bounded logs,
-human/JSON output, and development tooling.
+human/JSON output, read-only run history and log inspection, and development tooling.
 Scheduling, cron import, hooks, MCP, service installation, and TUI are designed but
 **not implemented**. There is no background daemon yet.
 
@@ -25,6 +25,10 @@ bin/bump init            # create bump.yaml; preserve it if it exists
 bin/bump list            # validated jobs and next-run previews; executes nothing
 bin/bump run             # list runnable jobs; starts nothing
 bin/bump run tests       # execute this job now, in the foreground
+bin/bump history         # inspect recent runs
+bin/bump logs            # print the latest run log
+bin/bump logs tests      # print this job's latest log
+bin/bump logs 12 --follow # follow a running run
 bin/bump config          # effective settings and source files
 bin/bump config check    # validate without writing anything
 bin/bump --json status
@@ -66,7 +70,10 @@ start failure. Job output streams directly; status lines go to stderr.
 stdout. Each foreground run is recorded in the per-user SQLite database with a bounded log;
 only one run of a given job can be active per project. SIGINT, SIGTERM, or SIGHUP cancels
 the process group (TERM, then KILL after 10s); a second signal kills it immediately.
-Read-only commands do not create the state directory.
+`bump history` shows the newest 20 runs (up to 50); `bump logs` prints stored bytes, and
+`bump logs --follow` waits for a running job. Logs are retained for the newest 10 runs per job.
+`bump list` and bare `bump` show each job's latest run in the LAST column. Read-only commands
+do not create the state directory.
 
 ## Direction
 
@@ -80,8 +87,8 @@ Designed, not built yet ([design](docs/design.md), [decisions](backlog/decisions
 - Nothing from a repository runs unattended until you `bump enable` that
   checkout, and changed shared jobs wait for re-approval.
 - After sleep, a missed job runs once, never in a burst.
-- History/log inspection commands, hooks, Git and agent triggers, webhooks, MCP, and a TUI
-  build on the store. Commands are the integration boundary: no plugin system.
+- Hooks, Git and agent triggers, webhooks, MCP, and a TUI build on the store. Commands are the
+  integration boundary: no plugin system.
 
 ## Docker bootstrap
 

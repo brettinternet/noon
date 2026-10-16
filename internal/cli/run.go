@@ -222,10 +222,11 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		return stateError(err)
 	}
 	if cmd.Bool("json") {
-		if err := emit(cmd, map[string]any{"run": map[string]any{
-			"job": name, "status": status, "exit_code": result.ExitCode, "signal": result.Signal,
-			"started_at": result.StartedAt, "finished_at": result.FinishedAt, "duration_ms": elapsed.Milliseconds(),
-		}}); err != nil {
+		stored, err := state.RunByID(run.ID)
+		if err != nil {
+			return stateError(err)
+		}
+		if err := emit(cmd, map[string]any{"run": app.RunFromStore(stored)}); err != nil {
 			return err
 		}
 	}
@@ -253,7 +254,7 @@ func stateError(err error) error {
 	}
 	var running *store.AlreadyRunningError
 	if errors.As(err, &running) {
-		return &Error{Code: "already_running", Message: fmt.Sprintf("job is already running as run %d, started at %s", running.RunID, running.StartedAt), Hint: "Wait for that run to finish before starting this job again."}
+		return &Error{Code: "already_running", Message: fmt.Sprintf("job is already running as run %d, started at %s", running.RunID, running.StartedAt), Hint: fmt.Sprintf("Follow it: bump logs %d --follow", running.RunID)}
 	}
 	return &Error{Code: "error", Message: err.Error()}
 }

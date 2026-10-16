@@ -71,7 +71,7 @@ func TestStore(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 1 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		var journal string
@@ -107,6 +107,82 @@ func TestStore(t *testing.T) {
 		}
 	})
 
+	t.Run("read-only v1 inspection preserves and reads the legacy schema", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, databaseName)
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(migrations[0]); err != nil {
+			t.Fatal(err)
+		}
+		created := FormatTime(time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC))
+		if _, err := db.Exec(`INSERT INTO projects(path, created_at) VALUES(?, ?)`, "/legacy-project", created); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, created_at, started_at, log_path, log_bytes, log_truncated)
+VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)`, created, created); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec("PRAGMA user_version=1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, "logs", "1"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "logs", "1", "1.log"), []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		state, err := OpenExisting(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacy, err := state.RunByID(1)
+		if err != nil || legacy.LogOverflow {
+			t.Fatalf("legacy run = %+v err=%v, want false overflow fallback", legacy, err)
+		}
+		runs, err := state.RunsForProject("/legacy-project", "", 10)
+		if err != nil || len(runs) != 1 || runs[0].ID != 1 || runs[0].LogOverflow {
+			t.Fatalf("legacy history = %+v err=%v", runs, err)
+		}
+		latest, err := state.LatestRunsForProject("/legacy-project")
+		if err != nil || len(latest) != 1 || latest[0].Job != "legacy" {
+			t.Fatalf("legacy latest runs = %+v err=%v", latest, err)
+		}
+		log, err := state.ReadRunLog(legacy)
+		if err != nil || string(log) != "old" {
+			t.Fatalf("legacy log = %q err=%v", log, err)
+		}
+		if _, err := state.db.Exec(`UPDATE projects SET path=path WHERE id=1`); err == nil {
+			t.Fatal("OpenExisting allowed a database write")
+		}
+		var version int
+		if err := state.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 1 {
+			t.Fatalf("read-only user_version=%d err=%v, want 1", version, err)
+		}
+		if err := state.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		writer, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer writer.Close()
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 2", version, err)
+		}
+		migrated, err := writer.RunByID(1)
+		if err != nil || migrated.LogOverflow {
+			t.Fatalf("migrated legacy run = %+v err=%v", migrated, err)
+		}
+	})
+
 	t.Run("newer database is refused without modifying it", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, databaseName)
@@ -114,7 +190,7 @@ func TestStore(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=2"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=3"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -126,8 +202,8 @@ func TestStore(t *testing.T) {
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 2 {
-			t.Fatalf("Open error = %v, want StateTooNewError(2)", err)
+		if !errors.As(err, &newer) || newer.Version != 3 {
+			t.Fatalf("Open error = %v, want StateTooNewError(3)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {
@@ -321,6 +397,10 @@ func TestStore(t *testing.T) {
 		input := bytes.Join([][]byte{bytes.Repeat([]byte{'A'}, mib), bytes.Repeat([]byte{'B'}, mib), bytes.Repeat([]byte{'C'}, mib)}, nil)
 		if _, err := log.Write(input); err != nil {
 			t.Fatal(err)
+		}
+		active, err := s.RunByID(run.ID)
+		if err != nil || !active.LogOverflow {
+			t.Fatalf("live overflow was not recorded: run=%+v err=%v", active, err)
 		}
 		logBytes, truncated, err := log.Close()
 		if err != nil {

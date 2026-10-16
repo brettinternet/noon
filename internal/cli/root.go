@@ -38,6 +38,12 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		Action: status,
 		Commands: []*urfave.Command{
 			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Action: runJob},
+			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
+				&urfave.IntFlag{Name: "limit", Value: 20, Usage: "Limit history to 1–50 runs"},
+			}, Action: historyRuns},
+			{Name: "logs", Usage: "Read the latest run log, a job's latest log, or a run ID", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
+				&urfave.BoolFlag{Name: "follow", Usage: "Follow a running run until it finishes"},
+			}, Action: runLogs},
 			{Name: "status", Usage: "Show project jobs and next scheduled times without running them", Action: status},
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
 			{Name: "init", Usage: "Create bump.yaml without overwriting existing files", Flags: []urfave.Flag{
