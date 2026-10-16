@@ -1,9 +1,10 @@
 ---
 id: NOON-27
 title: Follow queued and orphaned runs to a clear end
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 17:26'
+updated_date: '2026-10-16 18:52'
 labels:
   - cli
   - mcp
@@ -75,17 +76,44 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestLogsFollow|TestHistoryAndLogs|TestMCP)$' -count=1 -v` exits 0 and prints `--- PASS` for each, covering every case listed under Tests
-- [ ] #2 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "seq 1 2000 | sed s/^/line-/; echo boom; exit 3"\n  ok:\n    run: "echo fine"\n  slow:\n    run: "echo started; sleep 30"\n  hooked:\n    run: "echo job-out; exit 3"\n    on_failure: [sh, -c, "echo hook-out"]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run ok >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" enable >/dev/null && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t --detach >/dev/null && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" logs 3; echo "exit=$?"` prints `noon: run 3 is queued and has not started`, then `Hint: Follow it: noon logs 3 --follow`, then `exit=1`
-- [ ] #3 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "seq 1 2000 | sed s/^/line-/; echo boom; exit 3"\n  ok:\n    run: "echo fine"\n  slow:\n    run: "echo started; sleep 30"\n  hooked:\n    run: "echo job-out; exit 3"\n    on_failure: [sh, -c, "echo hook-out"]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run ok >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" enable >/dev/null && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t --detach >/dev/null; (sleep 1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" cancel 3 >/dev/null) & env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" logs 3 --follow; echo "exit=$?"` prints `noon: run 3 is queued; waiting for it to start`, then within about 2s `noon: run 3 was cancelled and never started, so it has no log`, then `exit=1`
-- [ ] #4 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "seq 1 2000 | sed s/^/line-/; echo boom; exit 3"\n  ok:\n    run: "echo fine"\n  slow:\n    run: "echo started; sleep 30"\n  hooked:\n    run: "echo job-out; exit 3"\n    on_failure: [sh, -c, "echo hook-out"]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run ok >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run slow >/dev/null 2>&1 & noon_ac_pid=$!; sleep 1; kill -9 "$noon_ac_pid"; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" logs 3 --follow; echo "exit=$?"; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" cancel 3` prints `started`, then `noon: run 3's owner process exited without recording a result` with `Hint: Record it: noon cancel 3`, then `exit=1` within about 3s, then `Cancelled run 3.`
+- [x] #1 `task cli:test -- -run '^(TestLogsFollow|TestHistoryAndLogs|TestMCP)$' -count=1 -v` exits 0 and prints `--- PASS` for each, covering every case listed under Tests
+- [x] #2 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "seq 1 2000 | sed s/^/line-/; echo boom; exit 3"\n  ok:\n    run: "echo fine"\n  slow:\n    run: "echo started; sleep 30"\n  hooked:\n    run: "echo job-out; exit 3"\n    on_failure: [sh, -c, "echo hook-out"]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run ok >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" enable >/dev/null && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t --detach >/dev/null && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" logs 3; echo "exit=$?"` prints `noon: run 3 is queued and has not started`, then `Hint: Follow it: noon logs 3 --follow`, then `exit=1`
+- [x] #3 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "seq 1 2000 | sed s/^/line-/; echo boom; exit 3"\n  ok:\n    run: "echo fine"\n  slow:\n    run: "echo started; sleep 30"\n  hooked:\n    run: "echo job-out; exit 3"\n    on_failure: [sh, -c, "echo hook-out"]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run ok >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" enable >/dev/null && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t --detach >/dev/null; (sleep 1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" cancel 3 >/dev/null) & env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" logs 3 --follow; echo "exit=$?"` prints `noon: run 3 is queued; waiting for it to start`, then within about 2s `noon: run 3 was cancelled and never started, so it has no log`, then `exit=1`
+- [x] #4 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: "seq 1 2000 | sed s/^/line-/; echo boom; exit 3"\n  ok:\n    run: "echo fine"\n  slow:\n    run: "echo started; sleep 30"\n  hooked:\n    run: "echo job-out; exit 3"\n    on_failure: [sh, -c, "echo hook-out"]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run t >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run ok >/dev/null 2>&1; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" run slow >/dev/null 2>&1 & noon_ac_pid=$!; sleep 1; kill -9 "$noon_ac_pid"; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" logs 3 --follow; echo "exit=$?"; env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" cancel 3` prints `started`, then `noon: run 3's owner process exited without recording a result` with `Hint: Record it: noon cancel 3`, then `exit=1` within about 3s, then `Cancelled run 3.`
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Inspect follow/get_run and owner identity handling; implement read-only queued waiting and orphan detection with state-specific missing-log errors.
+2. Add critical CLI/MCP regressions and update follow/error documentation.
+3. Run all acceptance commands and task ci, perform one focused review, commit, merge main, and clean up the owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented queued follow, read-only owner checks (including hooks), orphaned detail/error, state-specific missing-log errors, and documentation. Existing MCP pruned and never-started empty-detail successes are preserved, as required by existing tests; it has no unavailable-log error path to reword. No files outside the modified-file contract changed and no tests were removed, skipped, or weakened.
+AC#1: task cli:test -- -run '^(TestLogsFollow|TestHistoryAndLogs|TestMCP)$' -count=1 -v -> exit 0, all three PASS; covers queued cancellation within 2s, scheduler dispatch/output completion, owner death during follow within 3s, orphan error code, read-only state, and MCP run/hook orphan waits within 3s.
+AC#2: exact acceptance command (task cli:build, isolated fixture, enable, run t --detach, logs 3) via bash /tmp/noon-27-ac2.sh -> queued message, Follow it hint, exit=1.
+AC#3: exact acceptance command via bash /tmp/noon-27-ac3.sh -> one waiting notice, never-started cancellation message within about 2s, exit=1.
+AC#4: exact acceptance command via bash /tmp/noon-27-ac4.sh -> started, orphaned owner message and Record it hint, exit=1 within about 3s, Cancelled run 3. Temporary scripts preserve the full acceptance commands literally.
+Validation: task ci passed (tests, race, vet, staticcheck, vulnerabilities/secrets, smoke); LSP diagnostics clean for app history and changed CLI/MCP tests. Single direct risk-focused review found no additional item-scoped defect. Independent reviewer could not launch: requested model absent, available model excluded by configured modelScope; no agent ran. Next: commit implementation, run CI on that commit, merge main, finalize provider and remove owned checkout.
+
+Delivery complete: implementation e797e6f passed task check:staged and task ci on the committed tree, then fast-forward merged to main at e797e6f. Verified creation receipt and Worktrunk listing; removed owned noon-27-follow worktree and branch through Worktrunk. Matching Herdr workspace wDD contained only its idle shell and was removed by the post-remove hook. No retained task checkout, no blocker, no next implementation step. Nothing pushed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Queued follow now waits and streams to completion; cancelled-before-start runs explain why no log exists. Follow and MCP detect orphaned run/hook owners without recovery writes. All four acceptance commands and committed-tree CI pass. Implemented and merged as e797e6f; owned worktree/branch cleaned up.
+<!-- SECTION:FINAL_SUMMARY:END -->
