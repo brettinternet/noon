@@ -26,6 +26,8 @@ task cli:build
 bin/noon                 # project dashboard and next action; starts nothing
 bin/noon doctor          # read-only setup checks; exit 1 if any check fails
 bin/noon tui             # interactive jobs, runs, and log inspection/control
+bin/noon shell init bash # print completion-only setup (also zsh/fish); source manually
+bin/noon shell init bash --on-enter check-in # also queue an approved job on project entry
 bin/noon init            # create noon.yaml; preserve it if it exists
 bin/noon list            # validated jobs and next-run previews; executes nothing
 bin/noon add tests "every day at 2am" -- go test ./... # add a private scheduled job
@@ -266,6 +268,7 @@ shutdown, child reaping, offline timezones, and history persistence. See [Docker
 - [Configuration](docs/configuration.md): implemented sources, paths, precedence.
 - [Lifecycle hooks](docs/hooks.md): command examples, execution and safety contract.
 - [Triggers](docs/triggers.md): Git and agent hook examples with durable JSON event payloads.
+- [Shell setup](docs/shell.md): tested Bash/Zsh/Fish completion and optional project-entry jobs; manual setup/removal, offline queueing, cooldowns, and read-only completion. Queued jobs never modify the parent shell environment.
 - [Webhooks](docs/webhooks.md): signed GitHub webhooks, listener setup, TLS proxying, and Docker publishing.
 - [Service](docs/service.md): install, inspect, logs, upgrades, uninstall, and Linux lingering.
 - [Design](docs/design.md): CLI, scheduler, jobs, events, MCP, security.

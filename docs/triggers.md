@@ -30,6 +30,14 @@ absolute file name in `NOON_EVENT_FILE`. Event files are private and retained wi
 logs per job. MCP clients may pass the same JSON value with the optional `data` argument to
 `run_job`.
 
+## Interactive shell entry
+
+`noon shell init bash|zsh|fish --on-enter JOB` emits completion and directory hooks
+for manual sourcing. It queues only the entered checkout's enabled, approved,
+unpaused job, using its recorded configuration selection. It never starts a
+scheduler or changes the parent shell environment. See [Shell setup](shell.md)
+for setup/removal, canonical-project transitions, event data, and cooldown guidance.
+
 ## Git hooks
 
 Create each hook file yourself; Noon never installs hooks. For a commit trigger, create

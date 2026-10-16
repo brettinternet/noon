@@ -25,6 +25,7 @@ type QueueRunInput struct {
 	DueAt, Now                       time.Time
 	NowFunc                          func() time.Time
 	JobExists, JobEnabled, JobShared bool
+	RequireUnpaused                  bool
 	Coalesce                         bool
 	Cooldown                         time.Duration
 	Depth                            int
@@ -186,7 +187,7 @@ func (s *Store) checkQueueEligibility(tx *sql.Tx, input QueueRunInput) error {
 	if !input.JobEnabled {
 		return ErrJobDisabled
 	}
-	if input.Trigger == "webhook" && s.hasPauses {
+	if (input.Trigger == "webhook" || input.RequireUnpaused) && s.hasPauses {
 		var paused bool
 		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pauses WHERE project_id=? AND job=?)`, input.ProjectID, input.Job).Scan(&paused); err != nil {
 			return fmt.Errorf("check job pause: %w", err)

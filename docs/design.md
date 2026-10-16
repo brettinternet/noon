@@ -444,6 +444,16 @@ See the [agent guide](../docs/agents.md) for implemented CLI/MCP log workflows a
   queued requests; scheduled runs start at zero. Jobs and hooks receive that stored depth + 1.
   Requests at depth 3 or greater and requests from the same project/job are refused. Nothing
   installs hooks for you.
+- **Shell entry and completion (implemented)**: `noon shell init bash|zsh|fish`
+  emits sourceable completion-only setup; `--on-enter JOB` adds per-shell canonical
+  project-entry detection. Initialization does not queue work. Subdirectory and
+  symlink moves within one project do not retrigger; leaving/re-entering does.
+  Entry ignores inherited project/config/timezone selection, uses the checkout's
+  recorded enabled config and the existing queue with an atomic pause check, and
+  stores directory context as data in the CLI event envelope. Bash observes PWD
+  before prompts; Zsh/Fish use directory events. Completion only reads config,
+  never state or execution paths. Nothing edits startup files, enables a project,
+  starts services, or changes the parent shell environment. See [Shell setup](shell.md).
 - **Webhooks**: `noon serve --listen ADDR` explicitly starts a `net/http` listener; without the
   flag there is no listener. Jobs opt in with `webhook: {secret_env: NAME}`; the secret value is read
   from the scheduler environment at startup and a missing or empty value disables that endpoint and
