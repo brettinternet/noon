@@ -68,6 +68,12 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 		fmt.Fprintf(cmd.Writer, "%d shared jobs changed since you enabled this project. Next: noon enable\n", changed)
 	case !view.Project.Enabled && scheduled:
 		fmt.Fprintln(cmd.Writer, "Not enabled for background runs. Next: noon enable")
+	case dashboard && view.Project.Enabled && scheduled && view.Project.Scheduler != "running":
+		hint, err := serviceGuidance(view.StateDir)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.Writer, hint)
 	case dashboard:
 		fmt.Fprintln(cmd.Writer, "Next: noon run (list runnable jobs)")
 	}

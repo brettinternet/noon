@@ -49,8 +49,14 @@ func TestServeCLIRestrictionsAndStatus(t *testing.T) {
 	}
 	var out, stderr bytes.Buffer
 	code := cli.Run(context.Background(), []string{"noon", "enable"}, config.BuildOpts{}, &out, &stderr)
-	if code != 0 || !strings.Contains(out.String(), "Next: noon serve") {
+	if code != 0 || !strings.Contains(out.String(), "Next: noon service install") {
 		t.Fatalf("offline enable guidance: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
+	}
+	out.Reset()
+	stderr.Reset()
+	code = cli.Run(context.Background(), []string{"noon"}, config.BuildOpts{}, &out, &stderr)
+	if code != 0 || !strings.Contains(out.String(), "Next: noon service install") {
+		t.Fatalf("offline dashboard guidance: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
 	}
 	out.Reset()
 	stderr.Reset()

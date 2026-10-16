@@ -27,7 +27,11 @@ func enableProject(_ context.Context, cmd *urfave.Command) error {
 		fmt.Fprintln(cmd.Writer, "Scheduler is running.")
 	} else {
 		fmt.Fprintln(cmd.Writer, "Nothing runs in the background until a scheduler serves this project.")
-		fmt.Fprintln(cmd.Writer, "Next: noon serve")
+		hint, err := serviceGuidance(cfg.StateDir)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.Writer, hint)
 	}
 	return nil
 }

@@ -6,13 +6,14 @@ A Go CLI for recurring commands and agent work, designed for your machine first
 and containers when needed. CLI now; optional TUI later. No required web UI,
 Python, Node, cloud service, or agent provider.
 
-**Status: foreground scheduling.** Working today: project discovery, layered settings,
-non-destructive initialization, strict job validation, schedule parsing and previews,
-foreground command and agent-prompt execution, durable per-user run records and bounded logs,
-explicit project opt-in and shared-job approvals, `noon serve` for durable schedules across
-enabled projects, read-only run history and log inspection, and development tooling. Cron
-import, hooks, MCP, service installation, and TUI are designed but **not implemented**. Noon
-never backgrounds itself; keep `noon serve` in the foreground or under an OS/container supervisor.
+**Status: foreground scheduling with explicit OS supervision.** Working today: project discovery,
+layered settings, non-destructive initialization, strict job validation, schedule parsing and
+previews, foreground command and agent-prompt execution, durable per-user run records and bounded
+logs, explicit project opt-in and shared-job approvals, `noon serve` for enabled schedules,
+`noon service install` for a per-user launchd or systemd service, read-only run history and log
+inspection, and development tooling. Cron import, hooks, MCP, and TUI are designed but **not
+implemented**. Noon never backgrounds itself; keep `noon serve` in the foreground or use the
+explicit service installer or an OS/container supervisor.
 
 ## Try it
 
@@ -26,6 +27,8 @@ bin/noon init            # create noon.yaml; preserve it if it exists
 bin/noon list            # validated jobs and next-run previews; executes nothing
 bin/noon enable          # explicitly approve this checkout for scheduled runs
 bin/noon serve           # foreground scheduler; stop with Ctrl-C or SIGTERM
+bin/noon service install # explicitly install the per-user launchd/systemd service
+bin/noon service         # inspect service and scheduler heartbeat
 bin/noon run             # list runnable jobs; starts nothing
 bin/noon run tests       # execute this job now, in the foreground
 bin/noon history         # inspect recent runs
@@ -62,7 +65,7 @@ bin/noon --config ./custom.yaml config check
 
 `--config` replaces automatic config files. No config is required for inspection.
 No-argument inspection commands do something useful without prompting or executing work;
-`noon serve` explicitly starts the scheduler.
+`noon serve` and `noon service install` explicitly start the scheduler.
 Invalid commands and configuration fail instead of pretending to succeed.
 Errors with `--json` produce one stdout object:
 `{"schema_version":1,"error":{"code":"…","message":"…","hint":"…"}}` (`hint` is omitted
@@ -85,12 +88,17 @@ Existing local users: stop all old/new processes and back up your data; move `~/
 
 ## Safety
 
+`noon service install` explicitly registers the per-user scheduler at login and restarts it after
+failures. Inspect it with `noon service`; remove the unit with `noon service uninstall` while
+keeping state and history. See [Service](docs/service.md) for logs, upgrades, and Linux lingering.
+
 `noon enable` opts in this canonical checkout and approves its current shared job
- definitions. It starts nothing; schedules run only while `noon serve` is running.
+ definitions. It starts nothing; schedules run only while `noon serve` is running, directly or
+ under the explicitly installed per-user service.
 `noon disable` revokes opt-in and approvals while keeping run history.
 Changed shared definitions show `needs approval`; rerun `noon enable` after review. When the
-scheduler is offline, `noon enable` prints `Next: noon serve`. Foreground `noon run NAME` needs no
-approval.
+scheduler is offline, `noon enable` suggests `noon service install` when no service is installed.
+Foreground `noon run NAME` needs no approval.
 
 Digests cover job definitions, not the contents of referenced scripts or prompt
 files. Only enable repositories you would run by hand. Keep `.noon.yaml` ignored
@@ -103,8 +111,8 @@ Implemented foundations and planned extensions ([design](docs/design.md), [decis
 
 - Command and agent-prompt jobs, schedule parsing, foreground `noon run NAME`, and
   durable scheduling through `noon serve` already work.
-- One per-user `noon serve` runs every enabled repo's schedules. `noon service install` to keep
-  it alive across reboots is planned. Docker runs the same foreground process. Noon never
+- One per-user `noon serve` runs every enabled repo's schedules. `noon service install` keeps
+  it alive across reboots on macOS and Linux. Docker runs the same foreground process. Noon never
   backgrounds itself.
 - Nothing from a repository runs unattended until you `noon enable` that
   checkout, and changed shared jobs wait for re-approval.
@@ -125,7 +133,8 @@ scheduler in the foreground. See [Docker](docs/docker.md).
 ## Documentation
 
 - [Configuration](docs/configuration.md): implemented sources, paths, precedence.
-- [Design](docs/design.md): proposed CLI, daemon decision, jobs, events, MCP, security.
+- [Service](docs/service.md): install, inspect, logs, upgrades, uninstall, and Linux lingering.
+- [Design](docs/design.md): CLI, scheduler, jobs, events, MCP, security.
 - [Development](docs/development.md): tooling, tests, commits, contribution workflow.
 - `task backlog`: ready work in the authoritative Backlog.md queue.
 

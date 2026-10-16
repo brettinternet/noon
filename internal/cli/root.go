@@ -22,7 +22,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 	root := &urfave.Command{
 		Name:        "noon",
 		Usage:       "Repo-local scheduling, without a platform",
-		Description: "Validate, list, and run project jobs; serve enabled schedules in the foreground; inspect configuration and initialize a project.",
+		Description: "Validate, list, and run project jobs; serve enabled schedules in the foreground or install a per-user service; inspect configuration and initialize a project.",
 		Version:     fmt.Sprintf("%s (commit %s, built %s)", build.Version, build.Commit, build.BuildTime),
 		Writer:      out, ErrWriter: errOut,
 		EnableShellCompletion: true,
@@ -47,6 +47,12 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "enable", Usage: "Enable this checkout and approve current shared job definitions", Action: enableProject},
 			{Name: "disable", Usage: "Disable this checkout and revoke approvals; keep history", Action: disableProject},
 			{Name: "serve", Usage: "Serve enabled project schedules in the foreground until stopped", Action: serveAction(build.Version)},
+			{Name: "service", Usage: "Inspect or manage the per-user scheduler service", Action: serviceStatus, Commands: []*urfave.Command{
+				{Name: "install", Usage: "Install and start the per-user scheduler service", Flags: []urfave.Flag{
+					&urfave.BoolFlag{Name: "print", Usage: "Print the service unit without installing or starting it"},
+				}, Action: installService},
+				{Name: "uninstall", Usage: "Stop and remove the per-user scheduler service", Action: uninstallService},
+			}},
 			{Name: "status", Usage: "Show project jobs and next scheduled times without running them", Action: status},
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
 			{Name: "init", Usage: "Create noon.yaml without overwriting existing files", Flags: []urfave.Flag{

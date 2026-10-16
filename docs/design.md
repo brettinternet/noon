@@ -276,10 +276,12 @@ project in its state directory. It does **not** self-daemonize, and it is **not*
   files, validates before replacing the current snapshot, and records reload errors on the project.
   Shutdown on SIGINT/SIGTERM stops dispatch, terminates active process groups, and records runs as
   interrupted before releasing the lock.
-- Planned `noon service install` (once per machine) will register a launchd agent or systemd user unit that
-  runs `noon serve`. It records the installer's `PATH` and resolved state directory explicitly,
-  because service managers otherwise run jobs with a minimal `PATH` and a different working
-  directory. Nothing else installs or starts services.
+- Implemented `noon service install` (once per machine) registers a launchd agent or systemd user
+  unit that runs `noon serve`. It records the installer's `PATH`, optional `XDG_CONFIG_HOME`, and
+  resolved absolute state directory explicitly, because service managers otherwise run jobs with a
+  minimal `PATH` and a different working directory. `noon service` inspects the unit, manager state,
+  scheduler heartbeat, and drift; `uninstall` stops and removes only the unit. `install --print` is
+  side-effect-free. Nothing else installs or starts services.
 - Docker runs the same `noon serve` as the container's foreground process.
 - `noon run NAME` executes in the foreground without any scheduler, like `task NAME`.
 - The scheduler loads each enabled project with the configuration selection recorded by
