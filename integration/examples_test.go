@@ -2,14 +2,18 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // Users copy examples verbatim, and strict validation rejects any field or schedule
@@ -194,6 +198,270 @@ jobs:
 	}
 	if output := run("../invalid", false, 2, env); !strings.Contains(output, "valid session_id") {
 		t.Fatalf("unsafe session ID accepted: %s", output)
+	}
+}
+
+// Exercise the shipped consumers: coalescing must not lose failure diagnostics,
+// and hook stdin must survive queueing as the next stage's event data.
+func TestExampleScripts(t *testing.T) {
+	for _, tool := range []string{"jq", "git", "tar", "shasum"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Fatalf("example scripts require %s; run task init: %v", tool, err)
+		}
+	}
+	for _, example := range []string{"ai/failure-triage", "local-dev/pipelines"} {
+		t.Run(filepath.Base(example), func(t *testing.T) {
+			root := t.TempDir()
+			project, home, bin, state := filepath.Join(root, "project"), filepath.Join(root, "home"), filepath.Join(root, "bin"), filepath.Join(root, "state")
+			if err := os.CopyFS(project, os.DirFS(filepath.Join("..", "examples", example))); err != nil {
+				t.Fatal(err)
+			}
+			for _, dir := range []string{home, bin} {
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write := func(path, content string, mode fs.FileMode) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte(content), mode); err != nil {
+					t.Fatal(err)
+				}
+			}
+			read := func(path string) string {
+				t.Helper()
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(data)
+			}
+			if err := os.Symlink(noonBinary, filepath.Join(bin, "noon")); err != nil {
+				t.Fatal(err)
+			}
+			env := append(isolatedEnvironment(home, filepath.Join(root, "config"), filepath.Join(root, "xdg-state"), state),
+				"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			run := func(want int, executable string, args ...string) string {
+				t.Helper()
+				cmd := exec.CommandContext(ctx, executable, args...)
+				cmd.Dir, cmd.Env = project, env
+				output, err := cmd.CombinedOutput()
+				if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != want {
+					t.Fatalf("%s %v: %v, want exit %d\n%s", executable, args, err, want, output)
+				}
+				return string(output)
+			}
+			var manifest map[string]any
+			if err := yaml.Unmarshal([]byte(read(filepath.Join(project, "noon.yaml"))), &manifest); err != nil {
+				t.Fatal(err)
+			}
+			jobs := manifest["jobs"].(map[string]any)
+			for _, value := range jobs {
+				delete(value.(map[string]any), "schedule")
+			}
+			triage := strings.Contains(example, "triage")
+			if triage {
+				// Keep both shipped queue hooks; add chatter to prove logs stay job-only.
+				for _, name := range []string{"test", "e2e"} {
+					job := jobs[name].(map[string]any)
+					job["run"] = []string{"sh", "-c", "echo evidence-" + name + "; exit 1"}
+					hook := job["on_failure"].([]any)
+					words := make([]string, len(hook))
+					for i, word := range hook {
+						words[i] = word.(string)
+					}
+					job["on_failure"] = "echo hook-only-marker; " + strings.Join(words, " ")
+				}
+				jobs["triage"].(map[string]any)["env"].(map[string]any)["AGENT_CMD"] = "fake-agent"
+				write(filepath.Join(bin, "fake-agent"), "#!/bin/sh\ncat | tee -a agent-input\necho called >> agent-calls\n", 0o700)
+				for _, tool := range []string{"osascript", "notify-send"} {
+					write(filepath.Join(bin, tool), "#!/bin/sh\nexit 0\n", 0o700)
+				}
+			} else {
+				// Only build/test work is fake; hooks and packaging remain shipped code.
+				write(filepath.Join(bin, "make"), "#!/bin/sh\ncase $1 in\nbuild) mkdir -p bin; printf 'artifact\\n' > bin/app;;\ntest) test -f bin/app;;\n*) exit 1;;\nesac\n", 0o700)
+				jobs["package"].(map[string]any)["on_success"] = "noon run fourth --detach --json > recursion.json"
+				jobs["fourth"] = map[string]any{"run": []string{"sh", "-c", "exit 99"}}
+			}
+			data, err := yaml.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			write(filepath.Join(project, "noon.yaml"), string(data), 0o600)
+			run(0, "git", "init", "--quiet")
+			run(0, "git", "add", ".")
+			run(0, "git", "-c", "user.name=Example Test", "-c", "user.email=example@example.invalid", "-c", "core.hooksPath="+bin, "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture")
+			run(0, noonBinary, "enable")
+			type scriptRun struct {
+				ID         int64      `json:"id"`
+				Job        string     `json:"job"`
+				Status     string     `json:"status"`
+				Depth      int        `json:"depth"`
+				DueAt      *time.Time `json:"due_at"`
+				StartedAt  *time.Time `json:"started_at"`
+				FinishedAt *time.Time `json:"finished_at"`
+				EventFile  *string    `json:"event_file"`
+				Hook       *struct {
+					Status string `json:"status"`
+				} `json:"hook"`
+			}
+			history := func() []scriptRun {
+				t.Helper()
+				var result struct {
+					Runs []scriptRun `json:"runs"`
+				}
+				if err := json.Unmarshal([]byte(run(0, noonBinary, "history", "--json")), &result); err != nil {
+					t.Fatal(err)
+				}
+				return result.Runs
+			}
+			if triage {
+				run(1, noonBinary, "run", "test")
+				run(1, noonBinary, "run", "e2e")
+			} else {
+				run(0, noonBinary, "run", "build")
+			}
+			initial := history()
+			queued := 0
+			for _, r := range initial {
+				if r.Status == "queued" {
+					queued++
+					if r.DueAt == nil || r.DueAt.After(time.Now()) || (triage && r.Job != "triage") {
+						t.Fatalf("unexpected queued run: %+v", r)
+					}
+				}
+			}
+			if queued != 1 || (triage && len(initial) != 3) {
+				t.Fatalf("offline requests did not coalesce: %+v", initial)
+			}
+			serve := exec.Command(noonBinary, "serve")
+			serve.Dir, serve.Env = project, env
+			var stderr lockedBuffer
+			serve.Stderr = &stderr
+			if err := serve.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				done <- serve.Wait()
+				close(done)
+			}()
+			defer func() {
+				_ = serve.Process.Signal(syscall.SIGTERM)
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Errorf("scheduler shutdown: %v\n%s", err, stderr.String())
+					}
+				case <-time.After(15 * time.Second):
+					_ = serve.Process.Kill()
+					<-done
+					t.Error("scheduler did not stop")
+				}
+			}()
+			waitForScheduler(t, state, done, &stderr)
+			ticker := time.NewTicker(20 * time.Millisecond)
+			defer ticker.Stop()
+			var completed []scriptRun
+			for {
+				completed = history()
+				ready := len(completed) == 3
+				for _, r := range completed {
+					ready = ready && r.FinishedAt != nil && (r.Hook == nil || r.Hook.Status == "ok" || r.Hook.Status == "failed")
+				}
+				if ready {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatalf("pipeline did not finish: %+v\n%s", completed, stderr.String())
+				case <-ticker.C:
+				}
+			}
+			byJob := make(map[string]scriptRun)
+			for _, r := range completed {
+				byJob[r.Job] = r
+			}
+			if triage {
+				if byJob["triage"].Status != "succeeded" {
+					t.Fatalf("triage failed: %+v", completed)
+				}
+				reports := make(map[string]string)
+				for job, other := range map[string]string{"test": "e2e", "e2e": "test"} {
+					r := byJob[job]
+					path := filepath.Join(project, ".noon-triage", fmt.Sprintf("%s-%d.md", job, r.ID))
+					report := read(path)
+					if r.Status != "failed" || !strings.Contains(report, fmt.Sprintf("run %d", r.ID)) || !strings.Contains(report, "evidence-"+job) || strings.Contains(report, "evidence-"+other) || strings.Contains(report, "hook-only-marker") {
+						t.Fatalf("lost or polluted diagnosis: %s", report)
+					}
+					reports[path] = report
+				}
+				calls := read(filepath.Join(project, "agent-calls"))
+				input := read(filepath.Join(project, "agent-input"))
+				if calls != "called\ncalled\n" || !strings.Contains(input, "evidence-test") || !strings.Contains(input, "evidence-e2e") || strings.Contains(input, "hook-only-marker") {
+					t.Fatalf("agent calls=%q input=%s", calls, input)
+				}
+				if output := run(0, noonBinary, "run", "triage"); !strings.Contains(output, "no undiagnosed failures") {
+					t.Fatalf("repeat triage: %s", output)
+				}
+				if read(filepath.Join(project, "agent-calls")) != calls {
+					t.Fatal("repeat triage invoked agent")
+				}
+				for path, report := range reports {
+					if read(path) != report {
+						t.Fatalf("repeat triage changed %s", path)
+					}
+				}
+			} else {
+				var previous scriptRun
+				for depth, job := range []string{"build", "test", "package"} {
+					r := byJob[job]
+					if r.Status != "succeeded" || r.Depth != depth || r.StartedAt == nil || (depth > 0 && (r.ID <= previous.ID || r.StartedAt.Before(*previous.FinishedAt))) {
+						t.Fatalf("invalid pipeline ordering: %+v", completed)
+					}
+					previous = r
+				}
+				pkg := byJob["package"]
+				if pkg.EventFile == nil {
+					t.Fatal("package lost event file")
+				}
+				var event struct {
+					Data struct {
+						Run scriptRun `json:"run"`
+					} `json:"data"`
+				}
+				if err := json.Unmarshal([]byte(read(*pkg.EventFile)), &event); err != nil {
+					t.Fatal(err)
+				}
+				if event.Data.Run.ID != byJob["test"].ID || event.Data.Run.Job != "test" || event.Data.Run.Status != "succeeded" {
+					t.Fatalf("lost test event: %+v", event)
+				}
+				logs := run(0, noonBinary, "logs", fmt.Sprint(pkg.ID), "--section", "job")
+				if !strings.Contains(logs, fmt.Sprintf("after test run %d: succeeded", byJob["test"].ID)) {
+					t.Fatalf("package did not consume event: %s", logs)
+				}
+				archives, err := filepath.Glob(filepath.Join(project, "dist", "*.tar.gz"))
+				if err != nil || len(archives) != 1 {
+					t.Fatalf("archives=%v err=%v", archives, err)
+				}
+				if listing := run(0, "tar", "-tzf", archives[0]); !strings.Contains(listing, "bin/app") {
+					t.Fatalf("archive contents: %s", listing)
+				}
+				run(0, "sh", "-c", "cd dist && shasum -a 256 -c *.sha256")
+				var refusal struct {
+					Error struct {
+						Code string `json:"code"`
+					} `json:"error"`
+				}
+				if err := json.Unmarshal([]byte(read(filepath.Join(project, "recursion.json"))), &refusal); err != nil {
+					t.Fatal(err)
+				}
+				if refusal.Error.Code != "recursion" || pkg.Hook == nil || pkg.Hook.Status != "failed" || len(history()) != 3 {
+					t.Fatalf("fourth stage was not refused: %+v, %+v", refusal, completed)
+				}
+			}
+		})
 	}
 }
 
