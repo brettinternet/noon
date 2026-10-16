@@ -1,10 +1,10 @@
 ---
 id: NOON-8
 title: Accept signed webhooks
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 17:28'
 labels:
   - http
   - security
@@ -64,15 +64,42 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestWebhooks|TestServeListen)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
-- [ ] #2 `task race` exits 0
+- [x] #1 `task cli:test -- -run '^(TestWebhooks|TestServeListen)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
+- [x] #2 `task race` exits 0
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Inspect queue, scheduler, config, and diagnostics contracts; implement signed webhook endpoints using shared queue operations.
+2. Add security regression and real listener integration tests and webhook documentation.
+3. Run acceptance commands and CI, review concrete security/lifecycle risks, commit and merge locally, finalize provider state and clean up owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Modified-file contract expansion (before edits): internal/store/** is required for shared QueueRun to persist trigger=webhook (currently hardcoded queued), serialize allowlisted event headers with the webhook payload limit, and expose persisted project lookup including disabled projects so known inactive endpoints return 409 after restart. Keep changes minimal and preserve CLI/MCP event limits. This supports existing task scope, not a new feature.
+
+Modified-file contract expansion (before edits): docs/design.md must replace stale planned/future webhook claims and align integration details with this implemented contract, as explicitly required by Definition of Done #5. Keep this a focused documentation update.
+
+AC#1: task cli:test -- -run '^(TestWebhooks|TestServeListen)$' -count=1 -v -> exit 0, --- PASS for both. Covers signatures/routing/inactive jobs, event payloads and safe headers, limits, duplicate/cooldown/coalescing, real listener health/shutdown and no default listener.
+AC#2: task race -> exit 0 across all packages after review fixes.
+Review: one independent security/integrity pass found wrong state-directory selection and insufficient serialized-header allowance. Fixed both; regressions exercise distinct default/selected stores and a signed 1 MiB non-JSON body plus a 6000-byte escaping User-Agent. Extended focused command including TestWebhookSecretSnapshotAndDiagnostics -> exit 0. No tests deleted, skipped or weakened.
+Delivery: implementation 8384d3f; task check:staged and task ci passed on that commit. Merged locally as b3e4e97, preserving concurrent backlog planning commit 9554517. No push. Owned worktree/branch noon-8-webhooks removed with Worktrunk; matching Herdr workspace wD1 verified absent. No remaining item-scoped blocker or next implementation step.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented opt-in signed webhook HTTP delivery through shared queue operations, startup-secret diagnostics, safe event files, replay keys, listener health/shutdown, and setup documentation. Focused acceptance, race, full CI and staged checks passed; both independent review findings fixed with regression coverage. Merged locally and cleaned up owned worktree.
+<!-- SECTION:FINAL_SUMMARY:END -->
