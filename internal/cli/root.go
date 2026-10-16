@@ -59,7 +59,8 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				}, Action: installService},
 				{Name: "uninstall", Usage: "Stop and remove the per-user scheduler service", Action: uninstallService},
 			}},
-			{Name: "status", Usage: "Show project jobs and next scheduled times without running them", Action: status},
+			{Name: "status", Usage: "Show the project dashboard without running anything", Action: status},
+			{Name: "doctor", Usage: "Diagnose setup with read-only checks; exit 1 if a check fails", Action: doctor},
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
 			{Name: "add", Usage: "Add a scheduled or manual job", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "sh", Usage: "Run STRING through /bin/sh -c"},

@@ -11,7 +11,7 @@ layered settings, non-destructive initialization, strict job validation, byte-pr
 schedule parsing and previews, foreground command and agent-prompt execution, durable per-user run records and bounded
 logs, queued one-shot runs with idempotency and cancellation, explicit project opt-in and shared-job
 approvals, pausing and resuming background jobs, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
-systemd service, read-only run history and log inspection, and development tooling. Cron import,
+systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics, and development tooling. Cron import,
 hooks, MCP, and TUI are designed but **not implemented**. Noon never backgrounds itself; keep
 `noon serve` in the foreground or use the explicit service installer or an OS/container supervisor.
 
@@ -22,7 +22,8 @@ mise trust
 mise exec -- task init
 task cli:build
 
-bin/noon                 # useful repo summary; starts nothing
+bin/noon                 # project dashboard and next action; starts nothing
+bin/noon doctor          # read-only setup checks; exit 1 if any check fails
 bin/noon init            # create noon.yaml; preserve it if it exists
 bin/noon list            # validated jobs and next-run previews; executes nothing
 bin/noon add tests "every day at 2am" -- go test ./... # add a private scheduled job
@@ -98,7 +99,15 @@ signal kills it immediately.
 `noon history` shows the newest 20 runs (up to 50); `noon logs` prints stored bytes, and
 `noon logs --follow` waits for a running job. Logs are retained for the newest 10 runs per job.
 `noon list` and bare `noon` show each job's latest run in the LAST column. Read-only commands
-do not create the state directory.
+do not create the state directory. Bare `noon` and `noon status` show jobs, scheduler status,
+queued work and up to three prioritized notices, with one suggested next action. Their JSON
+includes `project`, `scheduler`, `service`, `jobs`, `queued`, `notices`, and `next`.
+`noon doctor` checks configuration, state access/schema, opt-in, approvals, heartbeat, service
+installation, job commands/cwd/prompt files, and Git ignoring `.noon.yaml`. It never fixes
+anything or runs jobs. SQLite may create WAL/SHM coordination sidecars for an existing
+database, but doctor never changes application data, migrates, or creates absent state.
+Warnings exit 0; failing checks exit 1. JSON contains `ok` and `checks`
+with `name`, `status` (`ok`, `warn`, `fail`), `message`, and `hint`.
 
 Existing local users: stop all old/new processes and back up your data; move `~/.local/state/bump` to `~/.local/state/noon` and `~/.config/bump` to `~/.config/noon` only if the destinations do not exist, then rename `bump.db` to `noon.db` inside the moved state directory, along with any `bump.db-wal`/`bump.db-shm` sidecars to `noon.db-wal`/`noon.db-shm`; never overwrite existing destinations, and keep the `logs/` tree intact.
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,10 +13,9 @@ import (
 	urfave "github.com/urfave/cli/v3"
 )
 
-func status(_ context.Context, cmd *urfave.Command) error   { return inspectJobs(cmd, true) }
-func listJobs(_ context.Context, cmd *urfave.Command) error { return inspectJobs(cmd, false) }
+func listJobs(_ context.Context, cmd *urfave.Command) error { return inspectJobs(cmd) }
 
-func inspectJobs(cmd *urfave.Command, dashboard bool) error {
+func inspectJobs(cmd *urfave.Command) error {
 	if err := noArgs(cmd); err != nil {
 		return err
 	}
@@ -42,32 +40,14 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 	if err != nil {
 		return stateError(err)
 	}
-	queued, err := app.QueuedRuns(view.StateDir, view.Project.Path)
-	if err != nil {
-		return stateError(err)
-	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "jobs": view.Jobs})
 	}
-	if dashboard {
-		fmt.Fprintf(cmd.Writer, "%s · %s · scheduler %s · %s\n", filepath.Base(view.Project.Path), view.Project.Path, view.Project.Scheduler, view.Project.Timezone)
-	} else {
-		fmt.Fprintf(cmd.Writer, "Scheduler %s\n", view.Project.Scheduler)
-	}
+	fmt.Fprintf(cmd.Writer, "Scheduler %s\n", view.Project.Scheduler)
 	if view.Project.ConfigError != "" {
 		fmt.Fprintf(cmd.Writer, "Config error: %s\n", cell(view.Project.ConfigError, 240))
 	}
 	printJobs(cmd.Writer, view.Jobs, now)
-	if dashboard && len(queued) > 0 {
-		fmt.Fprintf(cmd.Writer, "%d queued: ", len(queued))
-		for i, run := range queued {
-			if i > 0 {
-				fmt.Fprint(cmd.Writer, ", ")
-			}
-			fmt.Fprintf(cmd.Writer, "%s %s", run.Job, queuedRunDue(run.ScheduledAt, now, view.Project.Timezone))
-		}
-		fmt.Fprintln(cmd.Writer)
-	}
 	changed, scheduled := 0, false
 	for _, job := range view.Jobs {
 		if job.Approval == "needs_approval" {
@@ -82,14 +62,6 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 		fmt.Fprintf(cmd.Writer, "%d shared jobs changed since you enabled this project. Next: noon enable\n", changed)
 	case !view.Project.Enabled && scheduled:
 		fmt.Fprintln(cmd.Writer, "Not enabled for background runs. Next: noon enable")
-	case dashboard && view.Project.Enabled && scheduled && view.Project.Scheduler != "running":
-		hint, err := serviceGuidance(view.StateDir)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(cmd.Writer, hint)
-	case dashboard:
-		fmt.Fprintln(cmd.Writer, "Next: noon run (list runnable jobs)")
 	}
 	return nil
 }
@@ -218,9 +190,12 @@ func cell(text string, width int) string {
 			b.WriteString(strconv.QuoteRuneToASCII(r)[1 : len(strconv.QuoteRuneToASCII(r))-1])
 		}
 	}
-	text = b.String()
-	if len(text) > width {
-		return text[:width-3] + "..."
+	runes := []rune(b.String())
+	if len(runes) > width {
+		if width <= 3 {
+			return strings.Repeat(".", max(0, width))
+		}
+		return string(runes[:width-3]) + "..."
 	}
-	return text
+	return string(runes)
 }

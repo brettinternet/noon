@@ -130,6 +130,8 @@ func TestJSONFailuresAreSingleObjects(t *testing.T) {
 		{[]string{"--json", "init", "unexpected"}, 2, "usage"},
 		{[]string{"--json", "init", "--timezone", "UTC"}, 2, "usage"},
 		{[]string{"--json", "--project", "missing-directory", "init"}, 1, "config"},
+		{[]string{"--json", "--project", "missing-directory"}, 1, "config"},
+		{[]string{"--json", "--project", "missing-directory", "status"}, 1, "config"},
 	} {
 		code, result := invoke(t, tc.args...)
 		failure, ok := result["error"].(map[string]any)

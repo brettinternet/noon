@@ -70,7 +70,8 @@ JOB      SCHEDULE            NEXT          LAST
 review   weekdays at 09:00   Fri 09:00     ✓ 2h ago (3m12s)
 tests    every day at 02:00  tomorrow      ✗ exit 1 · 22h ago
 deploy   manual              —             never
-1 shared job changed since you enabled this project. Next: noon enable
+1 shared job needs approval.
+Next: noon enable
 ```
 
 | Command | Bare behavior | With arguments |
@@ -87,11 +88,26 @@ deploy   manual              —             never
 | `noon enable`, `disable` | Acts on current project | — |
 | `noon serve` | Foreground scheduler for enabled projects | No arguments; webhook `--listen` is planned |
 | `noon service` | Service status | `install`, `uninstall` |
-| `noon doctor` | Diagnose setup | — |
+| `noon doctor` | Read-only setup checks; exit 1 on failures, 0 for warnings only | — |
 | `noon init`, `config` | Implemented today | — |
 | `noon import crontab` | Usage and example | `FILE` or `-`; `--write` |
 | `noon mcp` | stdio MCP server | — |
 | `noon tui` | Terminal UI | — |
+
+The dashboard and doctor are implemented. Dashboard JSON contains `schema_version: 1`,
+`project` (`path`, `name`, `timezone`, `enabled`, `config_error`), `scheduler` (`state`, `pid`,
+`heartbeat_at`), `service` (`installed`), list-shaped `jobs`, `queued` runs, `notices`, and `next`.
+Notices prioritize config errors, scheduled projects not enabled, pending approvals, enabled
+projects with an offline scheduler, then queued work. Human output fits 80 columns, shows at
+most three notices, and ends with one `Next:` line. Config errors suggest `noon config check`;
+opt-in/approval suggests `noon enable`; offline scheduling suggests `noon service install` (or
+`noon serve` if installed); otherwise a runnable job or `noon add` is suggested.
+Doctor reports config/timezone, writable state location without creating it, compatible schema,
+opt-in/approvals/heartbeat/service, job executable/cwd/prompt-file checks, and private config
+Git ignore status. JSON contains `ok` and `checks` with `name`, `status`, `message`, and `hint`.
+It never executes jobs, makes repairs, migrates, or creates absent application state. SQLite
+WAL/SHM coordination sidecars for an existing database are permitted; application data remains
+read-only. Warnings alone do not fail the command.
 
 Global flags work before or after subcommands: `-C/--project`, `--config`, `--timezone`,
 `--state-dir`, `--json`. `noon serve` accepts only `--state-dir`; project/config/timezone selection

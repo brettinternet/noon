@@ -67,7 +67,7 @@ func Run(ctx context.Context, spec Spec) (result Result) {
 	if len(spec.Argv) == 0 {
 		return fail(errors.New("empty argv"), 125)
 	}
-	path, err := resolveExecutable(spec.Argv[0], spec.Env, dir)
+	path, err := ResolveExecutable(spec.Argv[0], spec.Env, dir)
 	if err != nil {
 		return fail(err, startCode(err))
 	}
@@ -240,8 +240,8 @@ func startCode(err error) int {
 	}
 }
 
-// Resolve with the job's PATH, never exec.LookPath's inherited environment.
-func resolveExecutable(name string, env []string, dir string) (string, error) {
+// ResolveExecutable uses the job's PATH and cwd, never the caller's working directory.
+func ResolveExecutable(name string, env []string, dir string) (string, error) {
 	check := func(path string) (string, error) {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(dir, path)

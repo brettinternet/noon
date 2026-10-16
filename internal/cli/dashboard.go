@@ -1,0 +1,128 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/brettinternet/noon/internal/app"
+	urfave "github.com/urfave/cli/v3"
+)
+
+func status(_ context.Context, cmd *urfave.Command) error { return dashboardAt(cmd, time.Now()) }
+func dashboardAt(cmd *urfave.Command, now time.Time) error {
+	if err := noArgs(cmd); err != nil {
+		return err
+	}
+	values, err := input(cmd)
+	if err != nil {
+		return err
+	}
+	// An invalid invocation override is still a command error, not a persisted
+	// project diagnostic. Keep the standard CLI error envelope for bad flags.
+	if values.Timezone != nil {
+		if _, err := time.LoadLocation(*values.Timezone); err != nil {
+			return configError(err)
+		}
+	}
+	view, err := app.Dashboard(values, now)
+	if err != nil {
+		var configuration *app.DashboardConfigError
+		if errors.As(err, &configuration) {
+			return configError(err)
+		}
+		return stateError(err)
+	}
+	if cmd.Bool("json") {
+		return emit(cmd, map[string]any{"project": view.Project, "scheduler": view.Scheduler, "service": view.Service, "jobs": view.Jobs, "queued": view.Queued, "notices": view.Notices, "next": view.Next})
+	}
+	printBoundedRows(cmd.Writer, [][]string{{view.Project.Name, view.Project.Path, "scheduler " + view.Scheduler.State, view.Project.Timezone}}, " · ")
+	rows := [][]string{{"JOB", "SCHEDULE", "NEXT", "LAST"}}
+	for _, job := range view.Jobs {
+		schedule, next := "manual", "-"
+		if job.Schedule != nil {
+			schedule = *job.Schedule
+		}
+		switch {
+		case job.Paused:
+			next = "paused"
+		case !job.Enabled:
+			next = "disabled"
+		case job.Approval == "needs_approval":
+			next = "needs approval"
+		case job.Schedule != nil && !view.Project.Enabled:
+			next = "disabled"
+		case job.NextAt != nil:
+			next = job.NextAt.Format("Mon 15:04")
+		}
+		rows = append(rows, []string{job.Name, schedule, next, lastRunCell(job.LastRun, now)})
+	}
+	printBoundedRows(cmd.Writer, rows, "  ")
+	for _, notice := range view.Notices[:min(3, len(view.Notices))] {
+		fmt.Fprintln(cmd.Writer, cell(notice.Message, 80))
+	}
+	fmt.Fprintln(cmd.Writer, "Next: "+view.Next)
+	return nil
+}
+
+// Shrink the widest column until the complete row fits, including separators.
+func printBoundedRows(out io.Writer, rows [][]string, separator string) {
+	widths := make([]int, len(rows[0]))
+	for _, row := range rows {
+		for i, value := range row {
+			widths[i] = max(widths[i], len([]rune(cell(value, 10000))))
+		}
+	}
+	for {
+		total, widest := (len(widths)-1)*len([]rune(separator)), 0
+		for i, width := range widths {
+			total += width
+			if width > widths[widest] {
+				widest = i
+			}
+		}
+		if total <= 80 {
+			break
+		}
+		widths[widest]--
+	}
+	for _, row := range rows {
+		cells := make([]string, len(row))
+		for i, value := range row {
+			cells[i] = fmt.Sprintf("%-*s", widths[i], cell(value, widths[i]))
+		}
+		fmt.Fprintln(out, strings.TrimRight(strings.Join(cells, separator), " "))
+	}
+}
+
+func doctor(ctx context.Context, cmd *urfave.Command) error { return doctorAt(ctx, cmd, time.Now()) }
+func doctorAt(ctx context.Context, cmd *urfave.Command, now time.Time) error {
+	if err := noArgs(cmd); err != nil {
+		return err
+	}
+	values, err := input(cmd)
+	if err != nil {
+		return err
+	}
+	result := app.Doctor(ctx, values, now)
+	if cmd.Bool("json") {
+		if err := emit(cmd, map[string]any{"ok": result.OK, "checks": result.Checks}); err != nil {
+			return err
+		}
+	} else {
+		for _, check := range result.Checks {
+			fmt.Fprintf(cmd.Writer, "%s %s: %s", check.Status, cell(check.Name, 120), cell(check.Message, 240))
+			if check.Hint != "" {
+				fmt.Fprintf(cmd.Writer, " — %s", cell(check.Hint, 240))
+			}
+			fmt.Fprintln(cmd.Writer)
+		}
+	}
+	if !result.OK {
+		return runExit(1)
+	}
+	return nil
+}
