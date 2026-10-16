@@ -4,6 +4,7 @@ title: Publish Noon releases and distribute through Homebrew
 status: To Do
 assignee: []
 created_date: '2026-10-16 22:28'
+updated_date: '2026-10-16 22:51'
 labels: []
 dependencies: []
 priority: medium
@@ -33,6 +34,8 @@ Acceptance commands below include new Task targets to implement, not claims of e
 - [ ] #3 In a disposable Homebrew environment, brew install brettinternet/tap/noon and brew test brettinternet/tap/noon exit 0; noon --version matches the release. Formula URLs and checksums cover macOS/Linux arm64/amd64 using the existing tap platform pattern. Record platform validation evidence and any unavailable runners explicitly.
 - [ ] #4 task release:smoke exits 0 and verifies the native release binary in isolated HOME/config/state directories: installation and no-argument inspection do not install/start a service, execute jobs, or open network listeners. Exercise the same safety contract for the installed Homebrew binary in the disposable environment.
 - [ ] #5 Noon and tap documentation describe installation, upgrade, supported platforms, explicit service setup, and the repeatable release/formula-update procedure without claiming unpublished functionality. task ci and task check:staged exit 0; record corresponding tap checks required by its repository instructions.
+- [ ] #6 Release CI publishes macOS/Linux arm64/x64 archives with unambiguous mise-compatible asset names and archive contents, plus SHA-256 checksums. Publication is gated on successful CI for the exact tagged commit; validation runs do not publish, and reruns never silently replace released assets. task release:check validates the four-platform asset layout locally without credentials or publication.
+- [ ] #7 After an authorized stable release, mise exec github:brettinternet/noon@latest -- noon --version and mise exec github:brettinternet/noon@VERSION -- noon --version succeed with fresh isolated mise cache/data/state directories and no custom asset matching or tool options. CI smoke-checks automatic installation on all four supported OS/architecture combinations and asserts the expected version. Document the plain mise install/use command and record per-platform evidence; do not publish a release without authorization.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -43,3 +46,9 @@ Acceptance commands below include new Task targets to implement, not claims of e
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Release CI requirement: use ../hum/.github/workflows/release.yaml or ../worklease/.github/workflows/release.yml as references, adapting only the relevant release pieces. GitHub Releases must be directly consumable by the mise GitHub backend with automatic platform/architecture asset selection; no custom asset matching, asset_pattern, platform overrides, plugin, or registry entry should be necessary. Preserve the existing Homebrew scope. Reuse existing release:check and release:smoke acceptance targets rather than introducing a parallel packaging path.
+<!-- SECTION:NOTES:END -->
