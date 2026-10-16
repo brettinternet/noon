@@ -1,18 +1,24 @@
 package cli_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/cli"
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/runner"
+	"github.com/brettinternet/noon/internal/scheduler"
 	"github.com/brettinternet/noon/internal/store"
 )
 
@@ -316,8 +322,17 @@ func TestHistoryAndLogs(t *testing.T) {
 			t.Fatalf("logs selected newer queued run instead of latest started: exit=%d result=%+v", code, latestStarted)
 		}
 		code, explicitlyQueued := invoke(t, "logs", "tests", "--status", "queued", "--json")
-		if code != 1 || !strings.Contains(explicitlyQueued["error"].(map[string]any)["message"].(string), fmt.Sprintf("run %d", queuedID)) {
+		if code != 1 || explicitlyQueued["error"].(map[string]any)["code"] != "not_found" || explicitlyQueued["error"].(map[string]any)["message"] != fmt.Sprintf("run %d is queued and has not started", queuedID) || explicitlyQueued["error"].(map[string]any)["hint"] != fmt.Sprintf("Follow it: noon logs %d --follow", queuedID) {
 			t.Fatalf("explicit queued selection did not select the queued run: exit=%d result=%+v", code, explicitlyQueued)
+		}
+		code, cancelled := invoke(t, "cancel", fmt.Sprint(queuedID), "--json")
+		if code != 0 {
+			t.Fatalf("cancel queued: %d %+v", code, cancelled)
+		}
+		code, neverStarted := invoke(t, "logs", fmt.Sprint(queuedID), "--json")
+		failure := neverStarted["error"].(map[string]any)
+		if code != 1 || failure["code"] != "not_found" || failure["message"] != fmt.Sprintf("run %d was cancelled and never started, so it has no log", queuedID) || failure["hint"] != nil {
+			t.Fatalf("never-started log: %d %+v", code, neverStarted)
 		}
 	})
 
@@ -421,6 +436,160 @@ func TestHistoryAndLogs(t *testing.T) {
 }
 
 func TestLogsFollow(t *testing.T) {
+	t.Run("queued transitions", func(t *testing.T) {
+		for _, cancelled := range []bool{true, false} {
+			t.Run(fmt.Sprintf("cancelled=%t", cancelled), func(t *testing.T) {
+				project := sandbox(t)
+				stateDir := filepath.Join(project, "state", "noon")
+				if err := os.WriteFile(filepath.Join(project, "noon.yaml"), []byte("jobs:\n  queued:\n    run: \"printf 'queued-output\\\\n'\"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				for _, args := range [][]string{{"enable"}, {"run", "queued", "--detach"}} {
+					var out, stderr bytes.Buffer
+					if code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr); code != 0 {
+						t.Fatalf("%v: exit=%d %s", args, code, &stderr)
+					}
+				}
+				ctx, stop := context.WithCancel(context.Background())
+				defer stop()
+				notices, writer := io.Pipe()
+				defer notices.Close()
+				var output bytes.Buffer
+				done := make(chan int, 1)
+				go func() {
+					done <- cli.Run(ctx, []string{"noon", "logs", "1", "--follow"}, config.BuildOpts{}, &output, writer)
+					_ = writer.Close()
+				}()
+				reader := bufio.NewReader(notices)
+				line, err := reader.ReadString('\n')
+				if err != nil || line != "noon: run 1 is queued; waiting for it to start\n" {
+					t.Fatalf("queued notice=%q err=%v", line, err)
+				}
+				if cancelled {
+					var out, stderr bytes.Buffer
+					if code := cli.Run(ctx, []string{"noon", "cancel", "1"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+						t.Fatalf("cancel: exit=%d %s", code, &stderr)
+					}
+				} else {
+					schedulerCtx, stopScheduler := context.WithCancel(ctx)
+					ticks := time.NewTicker(10 * time.Millisecond)
+					defer ticks.Stop()
+					schedulerDone := make(chan error, 1)
+					go func() {
+						schedulerDone <- scheduler.Serve(schedulerCtx, scheduler.ServeOptions{
+							StateDir: stateDir, StateDirDefault: stateDir, UserConfigDir: filepath.Join(project, "config"),
+							Version: "test", Environment: os.Environ(), Logger: io.Discard, IgnoreSignals: true, Ticks: ticks.C,
+						})
+					}()
+					defer func() {
+						stopScheduler()
+						if err := <-schedulerDone; err != nil {
+							t.Errorf("scheduler: %v", err)
+						}
+					}()
+				}
+				stderrDone := make(chan string, 1)
+				go func() {
+					data, _ := io.ReadAll(reader)
+					stderrDone <- string(data)
+				}()
+				select {
+				case code := <-done:
+					stderr := <-stderrDone
+					if cancelled {
+						if code != 1 || stderr != "noon: run 1 was cancelled and never started, so it has no log\n" || output.Len() != 0 {
+							t.Fatalf("cancelled follow: exit=%d out=%q err=%q", code, &output, stderr)
+						}
+					} else if code != 0 || output.String() != "queued-output\n" || stderr != "" {
+						t.Fatalf("started follow: exit=%d out=%q err=%q", code, &output, stderr)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("queued follow did not finish within 2s")
+				}
+			})
+		}
+	})
+	t.Run("owner exits during follow", func(t *testing.T) {
+		project := sandbox(t)
+		stateDir := filepath.Join(project, "state", "noon")
+		state, err := store.Open(stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		projectID, err := state.RegisterProject(project, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := exec.Command("sh", "-c", "printf 'before-owner-exit\\n'; exec sleep 30")
+		output, err := owner.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := owner.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = owner.Process.Kill(); _ = owner.Wait() }()
+		identity, err := runner.ProcessStartIdentity(owner.Process.Pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: "orphan", Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: owner.Process.Pid, OwnerStart: identity})
+		if err != nil {
+			t.Fatal(err)
+		}
+		log, err := state.RunLog(projectID, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		line, err := bufio.NewReader(output).ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := log.Write([]byte(line)); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := log.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+			t.Fatal(err)
+		}
+		ctx, stop := context.WithCancel(context.Background())
+		defer stop()
+		followOut, writer := io.Pipe()
+		defer followOut.Close()
+		var stderr bytes.Buffer
+		done := make(chan int, 1)
+		go func() {
+			done <- cli.Run(ctx, []string{"noon", "logs", fmt.Sprint(run.ID), "--follow"}, config.BuildOpts{}, writer, &stderr)
+			_ = writer.Close()
+		}()
+		got, err := bufio.NewReader(followOut).ReadString('\n')
+		if err != nil || got != line {
+			t.Fatalf("live output=%q err=%v", got, err)
+		}
+		if err := owner.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+		_ = owner.Wait()
+		select {
+		case code := <-done:
+			if code != 1 || !strings.Contains(stderr.String(), "owner process exited without recording a result") || !strings.Contains(stderr.String(), fmt.Sprintf("Record it: noon cancel %d", run.ID)) {
+				t.Fatalf("orphan follow: exit=%d stderr=%q", code, &stderr)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("orphan follow did not stop within 3s")
+		}
+		err = app.FollowLog(ctx, stateDir, run.ID, nil, nil, io.Discard, io.Discard)
+		if failure, ok := err.(*app.Error); !ok || failure.Code != "orphaned" {
+			t.Fatalf("orphan error=%v", err)
+		}
+		unchanged, err := state.RunByID(run.ID)
+		if err != nil || unchanged.Status != "running" || unchanged.FinishedAt.Valid {
+			t.Fatalf("follow mutated orphan: %+v err=%v", unchanged, err)
+		}
+	})
 	project := sandbox(t)
 	stateDir := filepath.Join(t.TempDir(), "state")
 	t.Setenv("NOON_STATE_DIR", stateDir)

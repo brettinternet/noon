@@ -200,26 +200,26 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	}
 	if pathOnly {
 		if !run.Log.Available || run.Log.Path == nil {
-			return prunedLogError(run.ID)
+			return app.MissingRunLogError(run)
 		}
 		if _, _, err := app.ReadRunLog(cfg.StateDir, run.ID); err != nil {
-			return logReadError(run.ID, err)
+			return logReadError(run, err)
 		}
 		_, err := fmt.Fprintln(cmd.Writer, *run.Log.Path)
 		return err
 	}
 	if follow {
-		if err := app.FollowLog(ctx, cfg.StateDir, run.ID, query.After, query.Tail, cmd.Writer); err != nil {
-			return logReadError(run.ID, err)
+		if err := app.FollowLog(ctx, cfg.StateDir, run.ID, query.After, query.Tail, cmd.Writer, cmd.ErrWriter); err != nil {
+			return logReadError(run, err)
 		}
 		return nil
 	}
 	run, selection, err := app.ReadRunLogSelection(cfg.StateDir, run.ID, query)
 	if err != nil {
-		return logReadError(run.ID, err)
+		return logReadError(run, err)
 	}
 	if !run.Log.Available {
-		return prunedLogError(run.ID)
+		return app.MissingRunLogError(run)
 	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{
@@ -254,14 +254,12 @@ func noRuns(cmd *urfave.Command, job string, statuses []string) error {
 	return nil
 }
 
-func logReadError(id int64, err error) error {
-	if failure, ok := err.(*app.Error); ok && failure.Usage {
+func logReadError(run app.Run, err error) error {
+	if failure, ok := err.(*app.Error); ok {
 		return failure
 	}
 	if app.IsMissingLog(err) {
-		return prunedLogError(id)
+		return app.MissingRunLogError(run)
 	}
 	return stateError(err)
 }
-
-func prunedLogError(id int64) error { return app.MissingRunLogError(id) }

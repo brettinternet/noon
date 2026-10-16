@@ -43,7 +43,7 @@ type getRunArgs struct {
 	Job         *string  `json:"job,omitempty" jsonschema:"select the newest started matching run by default; provide this or run_id"`
 	Project     *string  `json:"project,omitempty" jsonschema:"absolute project path used with job"`
 	Status      []string `json:"status,omitempty" jsonschema:"when selecting by job, filter by status: queued, running, succeeded, failed, timed_out, cancelled, interrupted, skipped, missed, expired"`
-	WaitSeconds *int     `json:"wait_seconds,omitempty" jsonschema:"wait up to 60 seconds for the run to finish"`
+	WaitSeconds *int     `json:"wait_seconds,omitempty" jsonschema:"wait up to 60 seconds for the run and hook to finish; return early with orphaned true if their owner exited"`
 	LogBytes    *int     `json:"log_bytes,omitempty" jsonschema:"maximum 65536 bytes; defaults to 16384 and keeps whole lines"`
 	After       *int64   `json:"after,omitempty" jsonschema:"start at this byte offset; pass the previous next value to page forward"`
 	Tail        *int     `json:"tail,omitempty" jsonschema:"keep the last 1 to 10000 selected log lines"`

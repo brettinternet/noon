@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/store"
 )
 
@@ -61,6 +63,7 @@ type RunsView struct {
 }
 
 type RunDetail struct {
+	Orphaned      bool   `json:"orphaned"`
 	SchemaVersion int    `json:"schema_version"`
 	Run           Run    `json:"run"`
 	Log           string `json:"log"`
@@ -300,27 +303,35 @@ func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds int, que
 	if err := ValidateLogQuery(query); err != nil {
 		return RunDetail{}, err
 	}
-	run, err := RunByID(stateDir, id)
+	state, err := store.OpenExisting(stateDir)
+	if err != nil {
+		if NoDatabase(err) {
+			return RunDetail{}, RunNotFoundError(id)
+		}
+		return RunDetail{}, StateError(err)
+	}
+	defer state.Close()
+	run, orphaned, err := inspectStoredRun(state, id)
 	if err != nil {
 		if IsMissingRun(err) || NoDatabase(err) {
 			return RunDetail{}, RunNotFoundError(id)
 		}
 		return RunDetail{}, StateError(err)
 	}
-	if waitSeconds > 0 && (run.Status == "queued" || run.Status == "running") {
+	if waitSeconds > 0 && !orphaned && (run.Status == "queued" || activeStoredRun(run)) {
 		timer := time.NewTimer(time.Duration(waitSeconds) * time.Second)
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer timer.Stop()
 		defer ticker.Stop()
 		wait := true
-		for wait && (run.Status == "queued" || run.Status == "running") {
+		for wait && !orphaned && (run.Status == "queued" || activeStoredRun(run)) {
 			select {
 			case <-ctx.Done():
 				return RunDetail{}, ctx.Err()
 			case <-timer.C:
 				wait = false
 			case <-ticker.C:
-				run, err = RunByID(stateDir, id)
+				run, orphaned, err = inspectStoredRun(state, id)
 				if err != nil {
 					if IsMissingRun(err) || NoDatabase(err) {
 						return RunDetail{}, RunNotFoundError(id)
@@ -330,7 +341,7 @@ func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds int, que
 			}
 		}
 	}
-	run, selection, err := ReadRunLogSelection(stateDir, id, query)
+	view, selection, err := ReadRunLogSelection(stateDir, id, query)
 	if err != nil {
 		if IsMissingRun(err) || NoDatabase(err) {
 			return RunDetail{}, RunNotFoundError(id)
@@ -341,21 +352,39 @@ func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds int, que
 		return RunDetail{}, StateError(err)
 	}
 	return RunDetail{
-		SchemaVersion: 1, Run: run, Log: ValidLogText(selection.Bytes), Next: selection.Next,
+		SchemaVersion: 1, Run: view, Orphaned: orphaned, Log: ValidLogText(selection.Bytes), Next: selection.Next,
 		Size: selection.Size, Truncated: selection.Truncated, MatchedLines: selection.MatchedLines,
 	}, nil
 }
 
-// FollowLog streams live file growth and waits for a running run to finish.
-func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tail *int, out io.Writer) error {
+// FollowLog waits for queued runs, then streams live growth until completion or owner exit.
+func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tail *int, out, notices io.Writer) error {
 	state, err := store.OpenExisting(stateDir)
 	if err != nil {
 		return err
 	}
 	defer state.Close()
-	run, err := state.RunByID(id)
+	run, orphaned, err := inspectStoredRun(state, id)
 	if err != nil {
 		return err
+	}
+	if run.Status == "queued" {
+		if _, err := fmt.Fprintf(notices, "noon: run %d is queued; waiting for it to start\n", id); err != nil {
+			return err
+		}
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for run.Status == "queued" {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				run, orphaned, err = inspectStoredRun(state, id)
+				if err != nil {
+					return err
+				}
+			}
+		}
 	}
 	var initial []byte
 	if run.LogPath.Valid {
@@ -379,8 +408,11 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 		if run.LogPath.Valid {
 			data, readErr := state.ReadRunLog(run)
 			if errors.Is(readErr, store.ErrLogUnavailable) {
-				if !activeStoredRun(run) {
-					return readErr
+				if !activeStoredRun(run) || orphaned {
+					if orphaned {
+						return OrphanedRunError(id)
+					}
+					return MissingRunLogError(RunFromStore(state, run))
 				}
 			} else if readErr != nil {
 				return readErr
@@ -405,7 +437,7 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 					}
 					markerShown = true
 				}
-				if !followedRunning || !activeStoredRun(run) {
+				if !followedRunning || !activeStoredRun(run) || orphaned {
 					if end > offset {
 						if _, err := io.Copy(out, bytes.NewReader(data[offset:end])); err != nil {
 							return err
@@ -423,7 +455,10 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 				}
 			}
 		} else if !activeStoredRun(run) {
-			return store.ErrLogUnavailable
+			return MissingRunLogError(RunFromStore(state, run))
+		}
+		if orphaned {
+			return OrphanedRunError(id)
 		}
 		if !activeStoredRun(run) {
 			return nil
@@ -433,7 +468,7 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 			return ctx.Err()
 		case <-ticker.C:
 			if !time.Now().Before(statusCheck) {
-				run, err = state.RunByID(id)
+				run, orphaned, err = inspectStoredRun(state, id)
 				if err != nil {
 					return err
 				}
@@ -441,6 +476,24 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 			}
 		}
 	}
+}
+
+// inspectStoredRun checks the same owner identity as recovery, but never writes.
+// Re-read after a failed identity check so a normal finish is not called orphaned.
+func inspectStoredRun(state *store.Store, id int64) (store.Run, bool, error) {
+	run, err := state.RunByID(id)
+	if err != nil || !activeStoredRun(run) {
+		return run, false, err
+	}
+	alive, err := runner.ProcessOwnerAlive(int(run.OwnerPID.Int64), run.OwnerStart.String)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return run, false, err
+	}
+	if alive {
+		return run, false, nil
+	}
+	run, err = state.RunByID(id)
+	return run, err == nil && activeStoredRun(run), err
 }
 
 func activeStoredRun(run store.Run) bool {

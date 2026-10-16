@@ -347,6 +347,16 @@ the same.
 - The log combines stdout and stderr in arrival order. The first 1 MiB is written live; output past
   that is kept in memory as the last 1 MiB and appended after an omission marker when the run ends.
   `logs --follow` therefore streams the first 1 MiB live and the tail at the end.
+- `logs RUN --follow` waits for a queued run, printing one stderr notice and polling status every
+  second before following output. A queued snapshot fails with `not_found` and suggests follow;
+  a terminal run without `started_at` explains that it never started. Only a missing log for a
+  started run uses the retention hint. These log errors exit 1.
+- Follow checks the recorded owner PID and start identity on each status poll, including active
+  hooks. After a failed identity check it re-reads status to avoid racing a normal finish. If still
+  active, it prints remaining stored bytes and exits 1 with `orphaned`:
+  `run ID's owner process exited without recording a result`, hint `Record it: noon cancel ID`.
+  MCP `get_run` returns boolean `orphaned` and stops `wait_seconds` early on the same condition.
+  Neither inspection path recovers runs, signals processes, or changes application state.
 - `noon logs` reads one file snapshot. Unflagged CLI snapshots include the full current bytes,
   including an active unterminated line; bounded CLI and MCP snapshots omit it so `next` remains on a
   line boundary. `--after-cursor` is a byte offset. `--match` uses case-sensitive

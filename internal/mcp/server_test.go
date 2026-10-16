@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -450,6 +451,40 @@ func TestMCP(t *testing.T) {
 	cancelledRun := cancelledValue["run"].(map[string]any)
 	if cancelledRun["status"] != "cancelled" || cancelledValue["log"] != "" || cancelledRun["log"].(map[string]any)["available"] != false {
 		t.Fatalf("get_run cancelled run returned unavailable-log error or wrong details: %+v", cancelledValue)
+	}
+
+	// A stale owner identity must end a wait without recovering the run or hook.
+	for _, hook := range []bool{false, true} {
+		t.Run(fmt.Sprintf("orphan hook=%t", hook), func(t *testing.T) {
+			state, err := store.Open(stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer state.Close()
+			projectID, err := state.RegisterProject(root, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: fmt.Sprintf("orphan-%t", hook), Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: os.Getpid(), OwnerStart: "stale-identity"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hook {
+				if err := state.FinishRun(run.ID, projectID, run.Job, store.Outcome{Status: "succeeded", FinishedAt: time.Now(), HookEvent: "on_success"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			result := callTool(t, waitCtx, clientSession, "get_run", map[string]any{"run_id": run.ID, "wait_seconds": 10})
+			if result.IsError || decodeObject(t, result.StructuredContent)["orphaned"] != true {
+				t.Fatalf("orphan detail: %+v", result)
+			}
+			stored, err := state.RunByID(run.ID)
+			if err != nil || (!hook && stored.Status != "running") || (hook && stored.HookStatus.String != "running") {
+				t.Fatalf("inspection recovered orphan: %+v err=%v", stored, err)
+			}
+		})
 	}
 
 	writeManifest(t, root, "jobs:\n  keep: {run: 'true'}\n")

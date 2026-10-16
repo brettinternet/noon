@@ -89,8 +89,18 @@ func MatchingJobRunNotFoundError(job string, statuses []string) *Error {
 	return &Error{Code: "not_found", Message: message, Hint: "Run noon history to inspect retained runs."}
 }
 
-func MissingRunLogError(id int64) *Error {
-	return &Error{Code: "not_found", Message: fmt.Sprintf("log for run %d is unavailable", id), Hint: "Logs are kept for the newest 10 runs per job."}
+func MissingRunLogError(run Run) *Error {
+	if run.Status == "queued" {
+		return &Error{Code: "not_found", Message: fmt.Sprintf("run %d is queued and has not started", run.ID), Hint: fmt.Sprintf("Follow it: noon logs %d --follow", run.ID)}
+	}
+	if run.StartedAt == nil && run.Status != "running" {
+		return &Error{Code: "not_found", Message: fmt.Sprintf("run %d was %s and never started, so it has no log", run.ID, run.Status)}
+	}
+	return &Error{Code: "not_found", Message: fmt.Sprintf("log for run %d is unavailable", run.ID), Hint: "Logs are kept for the newest 10 runs per job."}
+}
+
+func OrphanedRunError(id int64) *Error {
+	return &Error{Code: "orphaned", Message: fmt.Sprintf("run %d's owner process exited without recording a result", id), Hint: fmt.Sprintf("Record it: noon cancel %d", id)}
 }
 
 func editDistance(a, b string) int {

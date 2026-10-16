@@ -129,7 +129,11 @@ Existing local users: stop all old/new processes and back up your data; move `~/
 
 `noon logs` prints the latest started run's stored bytes; `noon logs NAME` selects that job's latest
 started run. NAME lookups use current jobs and retained history, including removed jobs.
-`noon logs RUN --follow` follows a running job. `--status S` selects runs by one or more statuses,
+`noon logs RUN --follow` waits for a queued run to start, then follows its output.
+It prints one waiting notice on stderr; cancelling a queued run ends follow with a never-started
+error. If the run or hook's owner exits without recording a result, follow prints remaining stored
+output and exits 1 with code `orphaned` and a `noon cancel RUN` hint. Inspection never recovers or
+cancels runs. `--status S` selects runs by one or more statuses,
 using the same repeated or comma-separated values as `history`; only an explicit status filter can
 select a queued or otherwise never-started run. Numeric RUN selectors cannot be combined with
 `--status`. `--tail/-n N` keeps the last 1–10000 lines;
@@ -193,7 +197,8 @@ shared-job approval rules as the CLI, pass an optional JSON `data` value to `run
 log tails or pages, search `get_run` with `match` and `context`, and cancel runs. `list_runs` accepts
 an optional status array. `get_run` accepts either a global `run_id` or a `job`; job selection uses
 the newest started matching run, with optional absolute `project` and status array. `get_run` returns
-`next`, `size`, `truncated`, and nullable `matched_lines`; pass `next` as `after` to page forward.
+`next`, `size`, `truncated`, nullable `matched_lines`, and `orphaned` (a boolean). Its optional
+`wait_seconds` stops early if the run or hook owner exits without recording a result; pass `next` as `after` to page forward.
 It cannot add, edit, remove, enable, approve, pause, or resume jobs. The initialize client's name and version
 are recorded as metadata on queued runs; identity does not grant authority. Optional `project`
 paths on `status`, `list_jobs`, `run_job`, `list_runs`, and `get_run` job selection must be absolute.
