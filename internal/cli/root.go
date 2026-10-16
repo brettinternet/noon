@@ -96,6 +96,8 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		},
 	}
 	_ = root.Walk(func(cmd *urfave.Command) error {
+		// urfave adds a help/h subcommand to every command; on leaves it would capture job names.
+		cmd.HideHelpCommand = len(cmd.Commands) == 0
 		cmd.OnUsageError = func(_ context.Context, _ *urfave.Command, err error, _ bool) error {
 			return usageError(err.Error(), "Run noon --help")
 		}
