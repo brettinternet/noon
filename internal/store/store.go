@@ -21,7 +21,10 @@ const (
 	maxRunLogBytes  = 1 << 20
 )
 
-var ErrNoDatabase = errors.New("run store does not exist")
+var (
+	ErrNoDatabase     = errors.New("run store does not exist")
+	ErrLogUnavailable = errors.New("run log is no longer available")
+)
 
 var migrations = []string{`
 CREATE TABLE projects (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
@@ -35,11 +38,14 @@ CREATE TABLE runs (
   log_path TEXT, log_bytes INTEGER NOT NULL DEFAULT 0, log_truncated INTEGER NOT NULL DEFAULT 0);
 CREATE UNIQUE INDEX runs_one_running ON runs(project_id, job) WHERE status = 'running';
 CREATE INDEX runs_by_job ON runs(project_id, job, id DESC);
+`, `
+ALTER TABLE runs ADD COLUMN log_overflow INTEGER NOT NULL DEFAULT 0;
 `}
 
 type Store struct {
-	dir string
-	db  *sql.DB
+	dir            string
+	db             *sql.DB
+	hasLogOverflow bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -60,13 +66,45 @@ func (e *AlreadyRunningError) Error() string {
 type Run struct {
 	ID, ProjectID                int64
 	Job, Status, Trigger, Digest string
+	ScheduledAt                  sql.NullString
 	CreatedAt, StartedAt         string
 	FinishedAt, Error, Signal    sql.NullString
 	ExitCode, OwnerPID, PGID     sql.NullInt64
 	OwnerStart, LeaderStart      sql.NullString
 	LogPath                      sql.NullString
 	LogBytes                     int64
-	LogTruncated                 bool
+	LogTruncated, LogOverflow    bool
+}
+
+const (
+	runColumnsV1          = `id, project_id, job, status, trigger, digest, scheduled_at, created_at, started_at, finished_at, exit_code, signal, error, owner_pid, owner_start, pgid, leader_start, log_path, log_bytes, log_truncated`
+	qualifiedRunColumnsV1 = `runs.id, runs.project_id, runs.job, runs.status, runs.trigger, runs.digest, runs.scheduled_at, runs.created_at, runs.started_at, runs.finished_at, runs.exit_code, runs.signal, runs.error, runs.owner_pid, runs.owner_start, runs.pgid, runs.leader_start, runs.log_path, runs.log_bytes, runs.log_truncated`
+	runColumns            = runColumnsV1 + `, log_overflow`
+	qualifiedRunColumns   = qualifiedRunColumnsV1 + `, runs.log_overflow`
+)
+
+func (s *Store) runSelectColumns() string {
+	if s.hasLogOverflow {
+		return runColumns
+	}
+	return runColumnsV1 + `, 0`
+}
+
+func (s *Store) qualifiedRunSelectColumns() string {
+	if s.hasLogOverflow {
+		return qualifiedRunColumns
+	}
+	return qualifiedRunColumnsV1 + `, 0`
+}
+
+type runScanner interface {
+	Scan(...any) error
+}
+
+func scanRun(row runScanner) (Run, error) {
+	var run Run
+	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &run.StartedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.LogOverflow)
+	return run, err
 }
 
 type NewRun struct {
@@ -122,7 +160,11 @@ func open(dir string, create bool) (*Store, error) {
 	query := url.Values{}
 	query.Add("_pragma", "busy_timeout(5000)")
 	query.Add("_pragma", "foreign_keys(1)")
-	query.Set("_txlock", "immediate")
+	if create {
+		query.Set("_txlock", "immediate")
+	} else {
+		query.Set("mode", "ro")
+	}
 	uri.RawQuery = query.Encode()
 	db, err := sql.Open("sqlite", uri.String())
 	if err != nil {
@@ -150,6 +192,10 @@ func open(dir string, create bool) (*Store, error) {
 		if !strings.EqualFold(mode, "wal") {
 			return closeOnError(fmt.Errorf("enable SQLite WAL: got %q", mode))
 		}
+	}
+	if !create {
+		state.hasLogOverflow = version >= 2
+		return state, nil
 	}
 	for {
 		tx, err := db.Begin()
@@ -182,10 +228,9 @@ func open(dir string, create bool) (*Store, error) {
 			return closeOnError(fmt.Errorf("commit state migration %d: %w", next, err))
 		}
 	}
-	if create {
-		if err := secureFiles(dir); err != nil {
-			return closeOnError(err)
-		}
+	state.hasLogOverflow = true
+	if err := secureFiles(dir); err != nil {
+		return closeOnError(err)
 	}
 	return state, nil
 }
@@ -466,29 +511,93 @@ func (s *Store) RunLog(projectID, runID int64) (*RunLog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create run log: %w", err)
 	}
-	return &RunLog{file: file, path: filepath.ToSlash(filepath.Join("logs", fmt.Sprint(projectID), fmt.Sprintf("%d.log", runID)))}, nil
+	return &RunLog{file: file, path: filepath.ToSlash(filepath.Join("logs", fmt.Sprint(projectID), fmt.Sprintf("%d.log", runID))), onOverflow: func() error {
+		_, err := s.db.Exec(`UPDATE runs SET log_overflow=1 WHERE id=? AND status='running'`, runID)
+		return err
+	}}, nil
 }
 
 func (s *Store) RunByID(id int64) (Run, error) {
-	var run Run
-	err := s.db.QueryRow(`SELECT id, project_id, job, status, trigger, digest, created_at, started_at, finished_at, exit_code, signal, error, owner_pid, owner_start, pgid, leader_start, log_path, log_bytes, log_truncated FROM runs WHERE id=?`, id).Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.CreatedAt, &run.StartedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated)
-	return run, err
+	return scanRun(s.db.QueryRow(`SELECT `+s.runSelectColumns()+` FROM runs WHERE id=?`, id))
 }
 
 // RunsForJob returns all retained runs, newest first; it is also useful to clients of the store.
 func (s *Store) RunsForJob(projectID int64, job string) ([]Run, error) {
-	rows, err := s.db.Query(`SELECT id, project_id, job, status, trigger, digest, created_at, started_at, finished_at, exit_code, signal, error, owner_pid, owner_start, pgid, leader_start, log_path, log_bytes, log_truncated FROM runs WHERE project_id=? AND job=? ORDER BY id DESC`, projectID, job)
+	rows, err := s.db.Query(`SELECT `+s.runSelectColumns()+` FROM runs WHERE project_id=? AND job=? ORDER BY id DESC`, projectID, job)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var runs []Run
 	for rows.Next() {
-		var r Run
-		if err := rows.Scan(&r.ID, &r.ProjectID, &r.Job, &r.Status, &r.Trigger, &r.Digest, &r.CreatedAt, &r.StartedAt, &r.FinishedAt, &r.ExitCode, &r.Signal, &r.Error, &r.OwnerPID, &r.OwnerStart, &r.PGID, &r.LeaderStart, &r.LogPath, &r.LogBytes, &r.LogTruncated); err != nil {
+		run, err := scanRun(rows)
+		if err != nil {
 			return nil, err
 		}
-		runs = append(runs, r)
+		runs = append(runs, run)
 	}
 	return runs, rows.Err()
+}
+
+// RunsForProject returns retained runs for a project, newest first. An empty job matches all jobs.
+func (s *Store) RunsForProject(project, job string, limit int) ([]Run, error) {
+	query := `SELECT ` + s.qualifiedRunSelectColumns() + ` FROM runs JOIN projects ON projects.id=runs.project_id WHERE projects.path=?`
+	args := []any{project}
+	if job != "" {
+		query += ` AND runs.job=?`
+		args = append(args, job)
+	}
+	query += ` ORDER BY runs.id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var runs []Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
+// LatestRunsForProject returns the latest retained run per job for a canonical project path.
+func (s *Store) LatestRunsForProject(project string) ([]Run, error) {
+	rows, err := s.db.Query(`SELECT `+s.qualifiedRunSelectColumns()+` FROM runs JOIN projects ON projects.id=runs.project_id WHERE projects.path=? AND runs.id IN (SELECT MAX(id) FROM runs WHERE project_id=(SELECT id FROM projects WHERE path=?) GROUP BY job) ORDER BY runs.id DESC`, project, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var runs []Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
+// ReadRunLog reads the persisted bytes without creating or changing the log file.
+func (s *Store) ReadRunLog(run Run) ([]byte, error) {
+	if !run.LogPath.Valid {
+		return nil, ErrLogUnavailable
+	}
+	relative := run.LogPath.String
+	if filepath.IsAbs(relative) || filepath.Clean(relative) != relative || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("unsafe log path %q", relative)
+	}
+	data, err := os.ReadFile(filepath.Join(s.dir, relative))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrLogUnavailable
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read run log: %w", err)
+	}
+	return data, nil
 }

@@ -192,7 +192,7 @@ func TestRunRecordsHistory(t *testing.T) {
 	if code := cli.Run(context.Background(), []string{"bump", "run", "tests"}, config.BuildOpts{}, &firstOut, &firstErr); code != 0 {
 		t.Fatalf("first run exit=%d stdout=%s stderr=%s", code, firstOut.String(), firstErr.String())
 	}
-	state, err := store.OpenExisting(stateDir)
+	state, err := store.Open(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,6 +230,7 @@ func TestRunRecordsHistory(t *testing.T) {
 	}()
 	deadline := time.Now().Add(3 * time.Second)
 	var active bool
+	var activeRunID int64
 	for time.Now().Before(deadline) {
 		runs, err := state.RunsForJob(projectID, "tests")
 		if err != nil {
@@ -237,6 +238,7 @@ func TestRunRecordsHistory(t *testing.T) {
 		}
 		if len(runs) == 2 && runs[0].Status == "running" {
 			active = true
+			activeRunID = runs[0].ID
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -246,7 +248,12 @@ func TestRunRecordsHistory(t *testing.T) {
 	}
 	var duplicateOut, duplicateErr bytes.Buffer
 	code := cli.Run(context.Background(), []string{"bump", "--json", "run", "tests"}, config.BuildOpts{}, &duplicateOut, &duplicateErr)
-	if code != 1 || !strings.Contains(duplicateOut.String(), `"code":"already_running"`) {
+	var duplicateResult map[string]any
+	if err := json.Unmarshal(duplicateOut.Bytes(), &duplicateResult); err != nil {
+		t.Fatal(err)
+	}
+	duplicateError := duplicateResult["error"].(map[string]any)
+	if code != 1 || duplicateError["code"] != "already_running" || duplicateError["hint"] != fmt.Sprintf("Follow it: bump logs %d --follow", activeRunID) {
 		t.Fatalf("concurrent duplicate exit=%d stdout=%s stderr=%s", code, duplicateOut.String(), duplicateErr.String())
 	}
 	select {

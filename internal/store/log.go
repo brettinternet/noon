@@ -8,15 +8,17 @@ import (
 
 // RunLog writes the first MiB directly and buffers only the last MiB of later output.
 type RunLog struct {
-	mu        sync.Mutex
-	file      *os.File
-	path      string
-	first     int64
-	tail      []byte
-	tailBytes int64
-	persisted int64
-	closed    bool
-	writeErr  error
+	mu               sync.Mutex
+	file             *os.File
+	path             string
+	first            int64
+	tail             []byte
+	tailBytes        int64
+	persisted        int64
+	closed           bool
+	overflowNotified bool
+	onOverflow       func() error
+	writeErr         error
 }
 
 func (l *RunLog) Write(p []byte) (int, error) {
@@ -46,6 +48,13 @@ func (l *RunLog) Write(p []byte) (int, error) {
 		}
 	}
 	if len(p) > 0 {
+		if !l.overflowNotified && l.onOverflow != nil {
+			if err := l.onOverflow(); err != nil {
+				l.writeErr = err
+				return written - len(p), err
+			}
+			l.overflowNotified = true
+		}
 		l.tailBytes += int64(len(p))
 		if len(p) >= maxRunLogBytes {
 			l.tail = append(l.tail[:0], p[len(p)-maxRunLogBytes:]...)
