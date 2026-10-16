@@ -84,11 +84,49 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	}
 	follow := cmd.Bool("follow")
 	pathOnly := cmd.Bool("path")
+	tailSet := cmd.IsSet("tail")
+	afterSet := cmd.IsSet("after-cursor")
+	matchSet := cmd.IsSet("match")
+	contextSet := cmd.IsSet("context")
+	limitSet := cmd.IsSet("limit-bytes")
+	hasSelection := tailSet || afterSet || matchSet || contextSet || limitSet
 	if pathOnly && (follow || cmd.Bool("json")) {
 		return usageError("logs --path cannot be used with --json or --follow", "Run noon logs [NAME|RUN] --json and read .run.log.path")
 	}
+	if pathOnly && hasSelection {
+		return usageError("logs --path cannot be used with log selection flags", "Read the selected log with noon logs [NAME|RUN]")
+	}
 	if follow && cmd.Bool("json") {
 		return usageError("logs --follow cannot be used with --json", "Run noon logs without --follow to get JSON")
+	}
+	if follow && (matchSet || contextSet || limitSet) {
+		return usageError("logs --follow cannot be used with --match, --context, or --limit-bytes", "Use --tail or --after-cursor to choose where following starts")
+	}
+	var query app.LogQuery
+	if tailSet {
+		value := cmd.Int("tail")
+		query.Tail = &value
+	}
+	if afterSet {
+		value := cmd.Int64("after-cursor")
+		query.After = &value
+	}
+	if matchSet {
+		value := cmd.String("match")
+		query.Match = &value
+	}
+	if contextSet {
+		value := cmd.Int("context")
+		query.Context = &value
+	}
+	if limitSet {
+		value := cmd.Int("limit-bytes")
+		query.LimitBytes = &value
+	}
+	query.RepairUTF8 = cmd.Bool("json")
+	query.IncludeActivePartial = !hasSelection && !follow
+	if err := app.ValidateLogQuery(query); err != nil {
+		return err
 	}
 	values, err := input(cmd)
 	if err != nil {
@@ -149,22 +187,30 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if follow {
-		if err := app.FollowLog(ctx, cfg.StateDir, run.ID, cmd.Writer); err != nil {
+		if err := app.FollowLog(ctx, cfg.StateDir, run.ID, query.After, query.Tail, cmd.Writer); err != nil {
 			return logReadError(run.ID, err)
 		}
 		return nil
 	}
-	if !run.Log.Available {
-		return prunedLogError(run.ID)
-	}
-	_, data, err := app.ReadRunLog(cfg.StateDir, run.ID)
+	run, selection, err := app.ReadRunLogSelection(cfg.StateDir, run.ID, query)
 	if err != nil {
 		return logReadError(run.ID, err)
 	}
-	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"run": run, "log": app.ValidLogText(data)})
+	if !run.Log.Available {
+		return prunedLogError(run.ID)
 	}
-	_, err = cmd.Writer.Write(data)
+	if cmd.Bool("json") {
+		return emit(cmd, map[string]any{
+			"run": run, "log": app.ValidLogText(selection.Bytes), "next": selection.Next,
+			"size": selection.Size, "truncated": selection.Truncated, "matched_lines": selection.MatchedLines,
+		})
+	}
+	if _, err := cmd.Writer.Write(selection.Bytes); err != nil {
+		return err
+	}
+	if hasSelection {
+		_, err = fmt.Fprintf(cmd.ErrWriter, "next: noon logs %d --after-cursor %d\n", run.ID, selection.Next)
+	}
 	return err
 }
 
@@ -181,6 +227,9 @@ func noRuns(cmd *urfave.Command, job string) error {
 }
 
 func logReadError(id int64, err error) error {
+	if failure, ok := err.(*app.Error); ok && failure.Usage {
+		return failure
+	}
 	if app.IsMissingLog(err) {
 		return prunedLogError(id)
 	}

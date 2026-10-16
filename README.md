@@ -123,12 +123,21 @@ Existing local users: stop all old/new processes and back up your data; move `~/
 ## Logs
 
 `noon logs` prints the latest run's stored bytes; `noon logs NAME` selects a job's latest run, and
-`noon logs RUN --follow` follows a running job. `noon logs [NAME|RUN] --path` prints the absolute
-path of the selected retained log; `--path` cannot be combined with `--json` or `--follow`. Run
-JSON (from `history`, `logs`, `run --json`, MCP run tools, `last_run`, and hook stdin) includes the
-canonical project path, retained `log.path`, optional event-file path, and stored request context.
-Foreground run start lines include the run ID; queued run output suggests whether to follow or read
-its log. Logs are retained for the newest 10 runs per job.
+`noon logs RUN --follow` follows a running job. `--tail/-n N` keeps the last 1–10000 lines;
+`--after-cursor/-c BYTES` reads forward from a byte offset; `--match/-m REGEX` searches lines with a
+case-sensitive Go RE2 expression, and `--context N` adds up to 50 lines around matches. Context
+requires `--match`. `--limit-bytes/-b N` caps output while keeping whole lines where possible.
+Unflagged CLI snapshots, including JSON, include the full current log; bounded CLI and MCP snapshots
+omit an active unfinished trailing line. JSON returns `log`, `next`, `size`, `truncated`, and
+`matched_lines`; pass `next` back as `--after-cursor` for a forward page. Bounded human reads keep
+selected text on stdout and print the resume command to stderr. Follow accepts only `--tail` and
+`--after-cursor`; `--path` cannot be combined with selection flags, `--json`, or `--follow`.
+
+`noon logs [NAME|RUN] --path` prints the absolute path of the selected retained log. Run JSON (from
+`history`, `logs`, `run --json`, MCP run tools, `last_run`, and hook stdin) includes the canonical
+project path, retained `log.path`, optional event-file path, and stored request context. Foreground
+run start lines include the run ID; queued run output suggests whether to follow or read its log.
+Logs are retained for the newest 10 runs per job.
 
 ## Safety
 
@@ -172,7 +181,9 @@ A generic client can use this configuration:
 
 MCP can inspect jobs and runs, queue only jobs permitted by the same project enablement and
 shared-job approval rules as the CLI, pass an optional JSON `data` value to `run_job`, read bounded
-log tails, and cancel runs. It cannot add, edit, remove, enable, approve, pause, or resume jobs. The initialize client's name and version
+log tails or pages, search `get_run` with `match` and `context`, and cancel runs. `get_run` returns
+`next`, `size`, `truncated`, and nullable `matched_lines`; pass `next` as `after` to page forward.
+It cannot add, edit, remove, enable, approve, pause, or resume jobs. The initialize client's name and version
 are recorded as metadata on queued runs; identity does not grant authority. Optional `project`
 paths on `status`, `list_jobs`, `run_job`, and `list_runs` must be absolute. `get_run` and
 `cancel_run` use globally unique run IDs, like the CLI. MCP is a local stdio transport, not a
