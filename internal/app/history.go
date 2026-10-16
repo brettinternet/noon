@@ -299,6 +299,9 @@ func ReadRunLog(stateDir string, id int64) (Run, []byte, error) {
 
 // GetRun optionally waits for a terminal status and returns one bounded log selection.
 func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds int, query LogQuery) (RunDetail, error) {
+	if err := ctx.Err(); err != nil {
+		return RunDetail{}, err
+	}
 	if waitSeconds < 0 || waitSeconds > 60 {
 		return RunDetail{}, UsageError("wait_seconds must be between 0 and 60", "")
 	}
@@ -355,6 +358,11 @@ func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds int, que
 			return RunDetail{}, failure
 		}
 		return RunDetail{}, StateError(err)
+	}
+	// Cancellation can arrive while reading a run that became terminal before
+	// the wait loop, so it must also be observed on the non-waiting path.
+	if err := ctx.Err(); err != nil {
+		return RunDetail{}, err
 	}
 	return RunDetail{
 		SchemaVersion: 1, Run: view, Orphaned: orphaned, Log: ValidLogText(selection.Bytes), Next: selection.Next,
