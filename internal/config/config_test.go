@@ -85,6 +85,35 @@ func TestStateDirectoryScopeAndOrigins(t *testing.T) {
 	}
 }
 
+func TestStateDirectoryResolvesWithoutProjectDiscovery(t *testing.T) {
+	t.Parallel()
+	root := canonical(t, t.TempDir())
+	userDir := filepath.Join(root, "user")
+	put(t, filepath.Join(userDir, "noon/config.yaml"), "state_dir: private-state\n")
+	cwd := filepath.Join(root, "not-a-project")
+	defaultDir := filepath.Join(root, "default")
+	resolved, err := config.StateDirectory(config.Input{CWD: cwd, UserConfigDir: userDir, StateDirDefault: defaultDir})
+	if err != nil || resolved != filepath.Join(userDir, "noon/private-state") {
+		t.Fatalf("user state directory = %q, err=%v", resolved, err)
+	}
+	override := "override"
+	resolved, err = config.StateDirectory(config.Input{CWD: cwd, UserConfigDir: userDir, StateDirDefault: defaultDir, StateDir: &override})
+	if err != nil || resolved != filepath.Join(cwd, override) {
+		t.Fatalf("explicit state directory = %q, err=%v", resolved, err)
+	}
+}
+
+func TestMalformedYAMLLineIsReportedWithoutDecoderText(t *testing.T) {
+	t.Parallel()
+	root := canonical(t, t.TempDir())
+	path := filepath.Join(root, "noon.yaml")
+	put(t, path, "jobs:\n  tests:\n    run: 'private-secret'\n    env: [broken\n")
+	_, err := config.Load(config.Input{CWD: root})
+	if err == nil || !strings.Contains(err.Error(), path+":3:") || strings.Contains(err.Error(), "private-secret") || strings.Contains(err.Error(), "did not find") {
+		t.Fatalf("malformed YAML diagnostic = %v", err)
+	}
+}
+
 func TestLoadDiscoveryStopsAtGitBoundary(t *testing.T) {
 	t.Parallel()
 	root := canonical(t, t.TempDir())

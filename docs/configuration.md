@@ -129,8 +129,9 @@ See [the complete example](../examples/jobs.yaml).
 | `missed` | `run_once` | `run_once` or `skip` |
 | `enabled` | `true` | Boolean |
 
-Foreground runs honor `cwd`, `env`, `timeout`, and `enabled`. Scheduling,
-`overlap`, and `missed` policies are validated but not yet executed. Hooks are not implemented.
+Foreground and scheduled runs honor `cwd`, `env`, `timeout`, and `enabled`.
+`noon serve` executes schedules with the configured `overlap` and `missed` policies.
+Hooks are not implemented.
 Unknown fields, aliases, nulls, duplicate keys, and wrong types are errors with file, line, and YAML path.
 
 ### Agent prompts
@@ -175,10 +176,11 @@ not. Both record the local source path and `overrides: true`.
 in the project timezone, and commands. No jobs means a copy-paste example.
 Bare `noon` and `noon status` add project information. None executes, writes state,
 or checks whether commands or working directories exist. Intervals preview
-`now + interval` until a future scheduler persists their phase. Manual and disabled
+`now + interval` until `noon serve` persists their phase; then NEXT uses that watermark. Manual and disabled
 jobs have no next time. `noon config check` reports the validated job count.
 
-`noon list --json` returns `schema_version: 1`, `project` (`path`, `timezone`, `enabled`),
+`noon list --json` returns `schema_version: 1`, `project` (`path`, `timezone`, `enabled`,
+`scheduler`, and `config_error` when present),
 and `jobs`. Each job contains `name`, `description`, `schedule`, `next_at`,
 `run`, `prompt`, `prompt_file`, the effective `agent` for prompt jobs, `cwd`, `env_keys`, `timeout`, `overlap`, `missed`, `enabled`,
 `source`, `shared`, `overrides`, `digest`, and `approval` (`not_required`, `approved`, or `needs_approval`).
@@ -198,7 +200,11 @@ all current shared job digests. Repeating it preserves unchanged approval timest
 manifests or validate jobs, so invalid job edits cannot prevent revocation. It resolves
 state from user config or an explicit config file; if that file is unreadable or invalid
 YAML, pass `--state-dir` to select the existing store directly. Neither starts a scheduler;
-unattended execution is not implemented yet.
+run `noon serve` explicitly to execute enabled projects' schedules. Serve uses each project's
+recorded config selection, rejects project/config/timezone/JSON flags and their environment
+variables, and reloads changed files every two seconds. Invalid edits preserve the last valid
+jobs and record a config error until fixed. Bare noon and list report scheduler status from
+its heartbeat; a heartbeat older than five seconds is offline.
 
 Local jobs and whole-job local overrides need no approval. An enabled-only local
 toggle retains the shared digest and approval requirement. Changing a shared action,

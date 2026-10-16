@@ -47,6 +47,16 @@ ALTER TABLE projects ADD COLUMN config_file TEXT;
 CREATE TABLE approvals (
   project_id INTEGER NOT NULL REFERENCES projects(id), job TEXT NOT NULL,
   digest TEXT NOT NULL, approved_at TEXT NOT NULL, PRIMARY KEY(project_id, job));
+`, `
+CREATE TABLE job_state (
+  project_id INTEGER NOT NULL REFERENCES projects(id), job TEXT NOT NULL,
+  schedule_key TEXT NOT NULL, next_at TEXT NOT NULL, PRIMARY KEY(project_id, job));
+CREATE TABLE scheduler (
+  id INTEGER PRIMARY KEY CHECK (id = 1), pid INTEGER NOT NULL,
+  start_identity TEXT NOT NULL, version TEXT NOT NULL,
+  started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL);
+ALTER TABLE runs ADD COLUMN due_at TEXT;
+ALTER TABLE projects ADD COLUMN config_error TEXT;
 `}
 
 type Store struct {
@@ -54,6 +64,7 @@ type Store struct {
 	db             *sql.DB
 	hasLogOverflow bool
 	hasApprovals   bool
+	hasScheduler   bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -80,6 +91,7 @@ type Run struct {
 	ExitCode, OwnerPID, PGID     sql.NullInt64
 	OwnerStart, LeaderStart      sql.NullString
 	LogPath                      sql.NullString
+	DueAt                        sql.NullString
 	LogBytes                     int64
 	LogTruncated, LogOverflow    bool
 }
@@ -92,17 +104,25 @@ const (
 )
 
 func (s *Store) runSelectColumns() string {
+	columns := runColumnsV1 + `, 0`
 	if s.hasLogOverflow {
-		return runColumns
+		columns = runColumns
 	}
-	return runColumnsV1 + `, 0`
+	if s.hasScheduler {
+		return columns + `, due_at`
+	}
+	return columns + `, NULL`
 }
 
 func (s *Store) qualifiedRunSelectColumns() string {
+	columns := qualifiedRunColumnsV1 + `, 0`
 	if s.hasLogOverflow {
-		return qualifiedRunColumns
+		columns = qualifiedRunColumns
 	}
-	return qualifiedRunColumnsV1 + `, 0`
+	if s.hasScheduler {
+		return columns + `, runs.due_at`
+	}
+	return columns + `, NULL`
 }
 
 type runScanner interface {
@@ -111,7 +131,9 @@ type runScanner interface {
 
 func scanRun(row runScanner) (Run, error) {
 	var run Run
-	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &run.StartedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.LogOverflow)
+	var startedAt sql.NullString
+	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.LogOverflow, &run.DueAt)
+	run.StartedAt = startedAt.String
 	return run, err
 }
 
@@ -204,6 +226,7 @@ func open(dir string, create bool) (*Store, error) {
 	if !create {
 		state.hasLogOverflow = version >= 2
 		state.hasApprovals = version >= 3
+		state.hasScheduler = version >= 4
 		return state, nil
 	}
 	for {
@@ -239,6 +262,7 @@ func open(dir string, create bool) (*Store, error) {
 	}
 	state.hasLogOverflow = true
 	state.hasApprovals = true
+	state.hasScheduler = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}

@@ -30,6 +30,56 @@ func testStore(t *testing.T) (*Store, int64) {
 	return s, project
 }
 
+// Never-started scheduled records must remain readable and bounded without a
+// successful process completion to trigger retention.
+func TestScheduledHistoryRetention(t *testing.T) {
+	s, projectID := testStore(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := s.SetScheduler(SchedulerRecord{PID: 1, StartIdentity: "test", StartedAt: FormatTime(now), HeartbeatAt: FormatTime(now)}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.ScheduleTick(now, 1, "test", func(SchedulerSnapshot) (SchedulerPlan, error) {
+		plan := SchedulerPlan{}
+		for i := 0; i < 51; i++ {
+			plan.Create = append(plan.Create, ScheduledRunInput{ProjectID: projectID, Job: "job", Status: "missed", Trigger: "schedule", ScheduledAt: now, DueAt: now})
+		}
+		plan.Create = append(plan.Create, ScheduledRunInput{ProjectID: projectID, Job: "job", Status: "queued", Trigger: "schedule", ScheduledAt: now, DueAt: now})
+		return plan, nil
+	}, func(SchedulerSnapshot) (DispatchPlan, error) { return DispatchPlan{}, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunByID(1); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("old missed run retained: %v", err)
+	}
+	queued, err := s.RunByID(52)
+	if err != nil || queued.Status != "queued" || queued.StartedAt != "" {
+		t.Fatalf("queued record: %+v %v", queued, err)
+	}
+	var project string
+	if err := s.db.QueryRow(`SELECT path FROM projects WHERE id=?`, projectID).Scan(&project); err != nil {
+		t.Fatal(err)
+	}
+	if runs, err := s.RunsForProject(project, "", 50); err != nil || len(runs) != 50 {
+		t.Fatalf("history length=%d error=%v", len(runs), err)
+	}
+	if runs, err := s.LatestRunsForProject(project); err != nil || len(runs) != 1 || runs[0].ID != 52 {
+		t.Fatalf("latest=%+v error=%v", runs, err)
+	}
+	_, err = s.ScheduleTick(now, 1, "test", func(SchedulerSnapshot) (SchedulerPlan, error) {
+		return SchedulerPlan{}, nil
+	}, func(SchedulerSnapshot) (DispatchPlan, error) { return DispatchPlan{Expire: []int64{52}}, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunByID(2); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expiry did not prune oldest terminal: %v", err)
+	}
+	if run, err := s.RunByID(52); err != nil || run.Status != "expired" || run.StartedAt != "" {
+		t.Fatalf("expired record: %+v %v", run, err)
+	}
+}
+
 func deadPID(t *testing.T) int {
 	t.Helper()
 	cmd := exec.Command("sleep", "30")
@@ -71,8 +121,20 @@ func TestStore(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 4 {
 			t.Fatalf("user_version=%d err=%v", version, err)
+		}
+		for _, statement := range []string{
+			`SELECT project_id, job, schedule_key, next_at FROM job_state`,
+			`SELECT id, pid, start_identity, version, started_at, heartbeat_at FROM scheduler`,
+			`SELECT due_at FROM runs`,
+			`SELECT config_error FROM projects`,
+		} {
+			rows, err := s.db.Query(statement)
+			if err != nil {
+				t.Fatalf("migration schema %q: %v", statement, err)
+			}
+			_ = rows.Close()
 		}
 		var journal string
 		if err := s.db.QueryRow("PRAGMA journal_mode").Scan(&journal); err != nil || journal != "wal" {
@@ -178,8 +240,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 3", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 4 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 4", version, err)
 		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.LogOverflow {
@@ -194,7 +256,7 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=4"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=5"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -206,8 +268,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 4 {
-			t.Fatalf("Open error = %v, want StateTooNewError(4)", err)
+		if !errors.As(err, &newer) || newer.Version != 5 {
+			t.Fatalf("Open error = %v, want StateTooNewError(5)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {

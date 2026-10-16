@@ -47,6 +47,10 @@ func (s *Store) EnableProject(path string, configFile *string, digests map[strin
 	}
 	defer tx.Rollback()
 	stamp := FormatTime(now)
+	wasEnabled := false
+	if err := tx.QueryRow(`SELECT enabled FROM projects WHERE path=?`, path).Scan(&wasEnabled); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	_, err = tx.Exec(`INSERT INTO projects(path, created_at, enabled, enabled_at, config_file) VALUES(?, ?, 1, ?, ?)
  ON CONFLICT(path) DO UPDATE SET enabled=1,
  enabled_at=CASE WHEN projects.enabled=0 THEN excluded.enabled_at ELSE projects.enabled_at END,
@@ -58,28 +62,51 @@ func (s *Store) EnableProject(path string, configFile *string, digests map[strin
 	if err := tx.QueryRow(`SELECT id FROM projects WHERE path=?`, path).Scan(&id); err != nil {
 		return err
 	}
-	rows, err := tx.Query(`SELECT job FROM approvals WHERE project_id=?`, id)
+	rows, err := tx.Query(`SELECT job, digest FROM approvals WHERE project_id=?`, id)
 	if err != nil {
 		return err
 	}
-	var obsolete []string
+	previous := make(map[string]string)
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var name, digest string
+		if err := rows.Scan(&name, &digest); err != nil {
 			rows.Close()
 			return err
 		}
-		if _, ok := digests[name]; !ok {
-			obsolete = append(obsolete, name)
-		}
+		previous[name] = digest
 	}
 	err = errors.Join(rows.Err(), rows.Close())
 	if err != nil {
 		return err
 	}
+	var obsolete, reset []string
+	for name, digest := range previous {
+		requested, ok := digests[name]
+		if !ok {
+			obsolete = append(obsolete, name)
+		} else if requested != digest {
+			reset = append(reset, name)
+		}
+	}
+	for name := range digests {
+		if _, ok := previous[name]; !ok {
+			reset = append(reset, name)
+		}
+	}
 	for _, name := range obsolete {
 		if _, err := tx.Exec(`DELETE FROM approvals WHERE project_id=? AND job=?`, id, name); err != nil {
 			return err
+		}
+	}
+	if !wasEnabled {
+		if _, err := tx.Exec(`DELETE FROM job_state WHERE project_id=?`, id); err != nil {
+			return err
+		}
+	} else {
+		for _, name := range append(reset, obsolete...) {
+			if _, err := tx.Exec(`DELETE FROM job_state WHERE project_id=? AND job=?`, id, name); err != nil {
+				return err
+			}
 		}
 	}
 	for name, digest := range digests {

@@ -11,7 +11,7 @@ import (
 
 // Enable approves the complete validated snapshot before any background use.
 func Enable(cfg config.Config, now time.Time) (Project, []string, error) {
-	project := Project{Path: cfg.Project, Timezone: cfg.Timezone}
+	project := Project{Path: cfg.Project, Timezone: cfg.Timezone, Scheduler: "offline"}
 	digests := map[string]string{}
 	approved := []string{}
 	for name, job := range cfg.Jobs {
@@ -30,11 +30,18 @@ func Enable(cfg config.Config, now time.Time) (Project, []string, error) {
 		return project, nil, err
 	}
 	project.Enabled = true
+	if record, exists, err := state.SchedulerInfo(); err != nil {
+		return project, nil, err
+	} else if exists {
+		if heartbeat, err := time.Parse(store.TimestampLayout, record.HeartbeatAt); err == nil && now.Sub(heartbeat) >= 0 && now.Sub(heartbeat) < 5*time.Second {
+			project.Scheduler = "running"
+		}
+	}
 	return project, approved, nil
 }
 
 func Disable(cfg config.Config) (Project, error) {
-	project := Project{Path: cfg.Project, Timezone: cfg.Timezone}
+	project := Project{Path: cfg.Project, Timezone: cfg.Timezone, Scheduler: "offline"}
 	state, err := store.Open(cfg.StateDir)
 	if err != nil {
 		return project, err

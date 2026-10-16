@@ -220,7 +220,7 @@ func TestListJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result) != 3 || len(project) != 3 || project["enabled"] != false || project["path"] != canonical || project["timezone"] != "America/Chicago" {
+	if len(result) != 3 || len(project) != 4 || project["enabled"] != false || project["path"] != canonical || project["timezone"] != "America/Chicago" || project["scheduler"] != "offline" {
 		t.Fatal(result)
 	}
 	jobs := result["jobs"].([]any)

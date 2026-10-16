@@ -19,8 +19,9 @@ Init rejects this invocation override (rather than ignoring it). Initialize a re
 on the host, or explicitly unset the variable inside the container if you really
 intend to create config there. Do not run init against a read-only mount.
 
-Scheduling is not implemented. When delivered, the container will run
-`noon serve` in the foreground. Persistent state needs a volume writable by the
+To run schedules, explicitly enable the mounted project and run `noon serve` in the
+foreground with an init process (`--init`) to reap orphaned children. Persistent state
+needs a volume writable by the
 container UID; repository access should be read-only unless a job explicitly needs
 to modify it. Concurrent runs of the same project job are refused by the state store.
 

@@ -39,12 +39,13 @@ design; no source code was copied.
 The CLI is the product. Rules:
 
 - Bare `noon` is a dashboard for the current project, never a service start or a TUI.
-- Every command is valid without arguments: it inspects, lists candidates, or shows copy-paste
-  examples. A missing target never means "all", and never mutates.
+- Inspection commands without arguments inspect, list candidates, or show copy-paste examples.
+  `noon serve` explicitly runs all enabled projects; `enable` and `disable` act on the current
+  project. Missing job targets never mean "all".
 - Human output is compact, uses the project timezone with relative hints ("in 14h"), and ends with
   at most one "Next:" line. An error is one `noon: MESSAGE` line on stderr, optionally followed by
   one `Hint: ...` line with the fix.
-- `--json` works on every command that finishes: exactly one object on stdout,
+- `--json` works on implemented commands that finish: exactly one object on stdout,
   `schema_version: 1`. Long-running commands (`serve`, `mcp`, `tui`, `logs --follow`) reject
   `--json` as a usage error. Errors are
   `{"schema_version":1,"error":{"code":"…","message":"…","hint":"…"}}`. Job output never mixes into
@@ -84,7 +85,7 @@ deploy   manual              —             never
 | `noon logs` | Latest run in project | `NAME` or `RUN`; `--follow` |
 | `noon history` | Recent runs | `NAME`; `--limit` |
 | `noon enable`, `disable` | Acts on current project | — |
-| `noon serve` | Foreground scheduler for enabled projects | `--listen ADDR` for webhooks |
+| `noon serve` | Foreground scheduler for enabled projects | No arguments; webhook `--listen` is planned |
 | `noon service` | Service status | `install`, `uninstall` |
 | `noon doctor` | Diagnose setup | — |
 | `noon init`, `config` | Implemented today | — |
@@ -93,7 +94,8 @@ deploy   manual              —             never
 | `noon tui` | Terminal UI | — |
 
 Global flags work before or after subcommands: `-C/--project`, `--config`, `--timezone`,
-`--state-dir`, `--json`.
+`--state-dir`, `--json`. `noon serve` accepts only `--state-dir`; project/config/timezone selection
+comes from each project's enable-time record, and `--json` is rejected.
 
 ## Jobs and configuration
 
@@ -193,10 +195,10 @@ when the run starts and are limited to 64 KiB. Context comes from environment va
 
 ### Schedules
 
-The pure `internal/schedule` parser, job configuration validation, and CLI next-run
-previews are implemented; actual scheduling and execution are not. `Parse` returns an immutable
-schedule with normalized `String`, `Next(after, loc)`, and `Interval` methods. `Next` is strictly
-after the supplied instant; interval phase remains the planner's responsibility. `ParseDuration`
+The `internal/schedule` parser, job configuration validation, CLI next-run previews, and durable
+schedule execution through `noon serve` are implemented. `Parse` returns an immutable schedule
+with normalized `String`, `Next(after, loc)`, and `Interval` methods. `Next` is strictly after the
+supplied instant; persisted `job_state` keeps interval phase across restarts. `ParseDuration`
 accepts nonnegative integer components in `s`, `m`, `h`, and `d`, rejecting overflow.
 
 Accepted forms, case-insensitive, normalized for display:
@@ -236,10 +238,10 @@ Wall-clock rules in the project timezone:
 ### Missed runs, overlap, and concurrency
 
 The pure `internal/scheduler.Due` and `Dispatch` planners implement these decisions
-using caller-supplied time and snapshots, without I/O. Persistence and the serve loop
-are not implemented yet. Callers must atomically apply each plan before replanning.
-Schedule state is keyed by normalized schedule text plus timezone name; inactive,
-manual, and removed jobs lose their state. A timezone change resets the watermark too.
+using caller-supplied time and snapshots, without I/O. `noon serve` persists each tick's schedule
+and dispatch changes atomically and starts the selected runs afterward. Schedule state is keyed by
+normalized schedule text plus timezone name; inactive, manual, and removed jobs lose their state.
+A timezone change resets the watermark too.
 
 - First sight of a job, a schedule change, enabling, approving a changed job, re-adding, or
   resuming starts from "now": no catch-up. Commands that reactivate a job clear its schedule
@@ -264,12 +266,17 @@ manual, and removed jobs lose their state. A timezone change resets the watermar
 
 ## Scheduler lifetime
 
-Decided in decision-1. Noon needs a long-running scheduler for overlap, catch-up, queues, events,
-webhooks, and live status. It does **not** self-daemonize, and it is **not** one process per repo.
+Decided in decision-1. `noon serve` is implemented as one foreground scheduler for every enabled
+project in its state directory. It does **not** self-daemonize, and it is **not** one process per repo.
 
-- `noon serve` is one foreground scheduler for every enabled project in its state directory. A
-  second scheduler on the same state refuses, naming the owner's PID and start time.
-- `noon service install` (once per machine) registers a launchd agent or systemd user unit that
+- `noon serve` owns a non-blocking lock and persists its PID, process identity, version, start time,
+  and heartbeat. A second scheduler on the same state refuses with `scheduler_running`, naming the
+  owner's PID and start time; a database newer than the binary exits 75.
+- `noon serve` polls every second, reloads candidate config files every two seconds including absent
+  files, validates before replacing the current snapshot, and records reload errors on the project.
+  Shutdown on SIGINT/SIGTERM stops dispatch, terminates active process groups, and records runs as
+  interrupted before releasing the lock.
+- Planned `noon service install` (once per machine) will register a launchd agent or systemd user unit that
   runs `noon serve`. It records the installer's `PATH` and resolved state directory explicitly,
   because service managers otherwise run jobs with a minimal `PATH` and a different working
   directory. Nothing else installs or starts services.
@@ -277,15 +284,14 @@ webhooks, and live status. It does **not** self-daemonize, and it is **not** one
 - `noon run NAME` executes in the foreground without any scheduler, like `task NAME`.
 - The scheduler loads each enabled project with the configuration selection recorded by
   `noon enable` (automatic files, or the explicit `--config` file) plus user config. It rejects
-  `--config`, `--timezone`, `--project`, and their environment variables as usage errors.
-- An invalid config edit keeps the project's last valid jobs running and records the error, which
-  status and doctor show until the file is fixed.
-- There is no IPC socket. CLI, MCP, HTTP, and TUI clients read and write the SQLite store; the
-  scheduler polls it every second for queued runs and cancellations, and polls config files every
-  two seconds, including files that do not exist yet. Revisit only if latency or polling cost
-  becomes a measured problem.
-- Commands that need the scheduler (queued runs, MCP `run_job`) still succeed while it is offline,
-  record durable intent, and say plainly that nothing will run until a scheduler serves the project.
+  `--config`, `--timezone`, `--project`, `--json`, and their environment variables as usage errors.
+- An invalid config edit keeps the project's last valid jobs running and records the file/line
+  error, which status shows until the file is fixed.
+- There is no IPC socket. Implemented CLI clients read the SQLite store for scheduler status and
+  persisted next times; future MCP, HTTP, and TUI clients will use the same store. Revisit polling
+  only if latency or cost becomes a measured problem.
+- Future commands that need the scheduler (queued runs, MCP `run_job`) will record durable intent
+  and say plainly when no scheduler is running.
 
 ### Enable and approve
 

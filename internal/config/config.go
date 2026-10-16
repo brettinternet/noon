@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	_ "time/tzdata" // Named zones work in minimal containers too.
@@ -198,6 +199,10 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 	}
 	values, err := parse(data)
 	if err != nil {
+		var diagnostic *yamlDiagnostic
+		if errors.As(err, &diagnostic) && diagnostic.line > 0 {
+			return fmt.Errorf("config %s:%d: %w", path, diagnostic.line, err)
+		}
 		return fmt.Errorf("config %s: %w", path, err)
 	}
 	if stateOnly {
@@ -254,6 +259,34 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 	return nil
 }
 
+type yamlDiagnostic struct {
+	line    int
+	message string
+}
+
+func (e *yamlDiagnostic) Error() string { return e.message }
+
+func safeYAMLLine(err error) int {
+	message := err.Error()
+	index := strings.Index(message, "line ")
+	if index < 0 {
+		return 0
+	}
+	text := message[index+len("line "):]
+	end := 0
+	for end < len(text) && text[end] >= '0' && text[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0
+	}
+	line, parseErr := strconv.Atoi(text[:end])
+	if parseErr != nil || line < 1 {
+		return 0
+	}
+	return line
+}
+
 // parse accepts only the implemented settings and job schema. Unknown fields,
 // aliases, duplicate keys, nulls, and trailing documents cannot silently hide errors.
 func parse(data []byte) (map[string]*yaml.Node, error) {
@@ -261,41 +294,41 @@ func parse(data []byte) (map[string]*yaml.Node, error) {
 	var doc yaml.Node
 	if err := decoder.Decode(&doc); err != nil {
 		// Decoder diagnostics can quote raw environment values (for example an
-		// unknown anchor). Never forward them to human or JSON output.
-		return nil, errors.New("invalid YAML: expected one mapping; check syntax and do not use aliases")
+		// unknown anchor). Keep only a numeric line; never forward their text.
+		return nil, &yamlDiagnostic{line: safeYAMLLine(err), message: "invalid YAML: expected one mapping; check syntax and do not use aliases"}
 	}
 	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, errors.New("expected a YAML mapping")
+		return nil, &yamlDiagnostic{line: 1, message: "expected a YAML mapping"}
 	}
 	values := make(map[string]*yaml.Node)
 	root := doc.Content[0]
 	for i := 0; i < len(root.Content); i += 2 {
 		key, value := root.Content[i], root.Content[i+1]
 		if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
-			return nil, errors.New("configuration keys must be strings")
+			return nil, &yamlDiagnostic{line: key.Line, message: "configuration keys must be strings"}
 		}
 		if _, exists := values[key.Value]; exists {
-			return nil, fmt.Errorf("duplicate field %q", key.Value)
+			return nil, &yamlDiagnostic{line: key.Line, message: fmt.Sprintf("duplicate field %q", key.Value)}
 		}
 		switch key.Value {
 		case "version":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!int" || value.Value != "1" {
-				return nil, errors.New("version must be 1")
+				return nil, &yamlDiagnostic{line: value.Line, message: "version must be 1"}
 			}
 		case "agents":
 			// The profile schema is validated with source and YAML-path diagnostics below.
 		case "default_agent":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
-				return nil, errors.New("default_agent must be a string")
+				return nil, &yamlDiagnostic{line: value.Line, message: "default_agent must be a string"}
 			}
 		case "jobs":
 			// Nested job validation retains source lines and YAML paths.
 		case "timezone", "state_dir":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
-				return nil, fmt.Errorf("%s must be a string", key.Value)
+				return nil, &yamlDiagnostic{line: value.Line, message: fmt.Sprintf("%s must be a string", key.Value)}
 			}
 		default:
-			return nil, fmt.Errorf("unknown field %q", key.Value)
+			return nil, &yamlDiagnostic{line: key.Line, message: fmt.Sprintf("unknown field %q", key.Value)}
 		}
 		values[key.Value] = value
 	}

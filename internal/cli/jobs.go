@@ -38,11 +38,20 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 	if err != nil {
 		return stateError(err)
 	}
+	view, err = app.WithScheduler(view, now)
+	if err != nil {
+		return stateError(err)
+	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "jobs": view.Jobs})
 	}
 	if dashboard {
-		fmt.Fprintf(cmd.Writer, "%s · %s · %s\n", filepath.Base(view.Project.Path), view.Project.Path, view.Project.Timezone)
+		fmt.Fprintf(cmd.Writer, "%s · %s · scheduler %s · %s\n", filepath.Base(view.Project.Path), view.Project.Path, view.Project.Scheduler, view.Project.Timezone)
+	} else {
+		fmt.Fprintf(cmd.Writer, "Scheduler %s\n", view.Project.Scheduler)
+	}
+	if view.Project.ConfigError != "" {
+		fmt.Fprintf(cmd.Writer, "Config error: %s\n", cell(view.Project.ConfigError, 240))
 	}
 	printJobs(cmd.Writer, view.Jobs, now)
 	changed, scheduled := 0, false

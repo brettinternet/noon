@@ -9,9 +9,11 @@ import (
 )
 
 type Project struct {
-	Path     string `json:"path"`
-	Timezone string `json:"timezone"`
-	Enabled  bool   `json:"enabled"`
+	Path        string `json:"path"`
+	Timezone    string `json:"timezone"`
+	Enabled     bool   `json:"enabled"`
+	Scheduler   string `json:"scheduler"`
+	ConfigError string `json:"config_error,omitempty"`
 }
 
 // Job exposes environment names, never their values.
@@ -55,7 +57,7 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 	if err != nil {
 		return Inspection{}, err
 	}
-	result := Inspection{Project: Project{Path: cfg.Project, Timezone: cfg.Timezone}, Jobs: []Job{}, StateDir: cfg.StateDir}
+	result := Inspection{Project: Project{Path: cfg.Project, Timezone: cfg.Timezone, Scheduler: "offline"}, Jobs: []Job{}, StateDir: cfg.StateDir}
 	names := make([]string, 0, len(cfg.Jobs))
 	for name := range cfg.Jobs {
 		names = append(names, name)

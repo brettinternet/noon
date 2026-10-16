@@ -23,7 +23,12 @@ func enableProject(_ context.Context, cmd *urfave.Command) error {
 		return emit(cmd, map[string]any{"project": project, "approved": approved})
 	}
 	fmt.Fprintf(cmd.Writer, "Enabled %s · %d jobs · approved %d shared jobs\n", project.Path, len(cfg.Jobs), len(approved))
-	fmt.Fprintln(cmd.Writer, "Nothing runs in the background until a scheduler serves this project.")
+	if project.Scheduler == "running" {
+		fmt.Fprintln(cmd.Writer, "Scheduler is running.")
+	} else {
+		fmt.Fprintln(cmd.Writer, "Nothing runs in the background until a scheduler serves this project.")
+		fmt.Fprintln(cmd.Writer, "Next: noon serve")
+	}
 	return nil
 }
 

@@ -6,12 +6,13 @@ A Go CLI for recurring commands and agent work, designed for your machine first
 and containers when needed. CLI now; optional TUI later. No required web UI,
 Python, Node, cloud service, or agent provider.
 
-**Status: foreground execution.** Working today: project discovery, layered settings,
-non-destructive initialization, strict job validation, job listing with next-run
-previews, foreground command and agent-prompt execution, durable per-user run records and bounded logs,
-human/JSON output, explicit project opt-in and shared-job approvals, read-only run history and log inspection, and development tooling.
-Scheduling, cron import, hooks, MCP, service installation, and TUI are designed but
-**not implemented**. There is no background daemon yet.
+**Status: foreground scheduling.** Working today: project discovery, layered settings,
+non-destructive initialization, strict job validation, schedule parsing and previews,
+foreground command and agent-prompt execution, durable per-user run records and bounded logs,
+explicit project opt-in and shared-job approvals, `noon serve` for durable schedules across
+enabled projects, read-only run history and log inspection, and development tooling. Cron
+import, hooks, MCP, service installation, and TUI are designed but **not implemented**. Noon
+never backgrounds itself; keep `noon serve` in the foreground or under an OS/container supervisor.
 
 ## Try it
 
@@ -23,6 +24,8 @@ task cli:build
 bin/noon                 # useful repo summary; starts nothing
 bin/noon init            # create noon.yaml; preserve it if it exists
 bin/noon list            # validated jobs and next-run previews; executes nothing
+bin/noon enable          # explicitly approve this checkout for scheduled runs
+bin/noon serve           # foreground scheduler; stop with Ctrl-C or SIGTERM
 bin/noon run             # list runnable jobs; starts nothing
 bin/noon run tests       # execute this job now, in the foreground
 bin/noon history         # inspect recent runs
@@ -58,14 +61,17 @@ bin/noon --config ./custom.yaml config check
 ```
 
 `--config` replaces automatic config files. No config is required for inspection.
-No-argument commands do something useful without prompting or executing work.
+No-argument inspection commands do something useful without prompting or executing work;
+`noon serve` explicitly starts the scheduler.
 Invalid commands and configuration fail instead of pretending to succeed.
 Errors with `--json` produce one stdout object:
 `{"schema_version":1,"error":{"code":"…","message":"…","hint":"…"}}` (`hint` is omitted
 when empty). Human errors go to stderr. Exit codes are 0 for success, 2 for usage
-errors, and 1 for other failures. Foreground runs instead return the child’s exit
-code: 124 on timeout, 130 on cancellation, 128+N for signal N, and 125–127 on
-start failure. Job output streams directly; status lines go to stderr.
+errors, and 1 for other failures (`noon serve` exits 75 when the database is newer than the
+binary). Foreground runs instead return the child’s exit code: 124 on timeout, 130 on cancellation,
+128+N for signal N, and 125–127 on start failure. Job output streams directly; status lines go to
+stderr. `noon serve` rejects `--json`, `--config`, `--timezone`, `--project` and their environment
+variables; projects use the selection recorded by `noon enable`.
 `noon run NAME --json` sends both job streams to stderr and one run summary to
 stdout. Each foreground run is recorded in the per-user SQLite database with a bounded log;
 only one run of a given job can be active per project. SIGINT, SIGTERM, or SIGHUP cancels
@@ -80,10 +86,11 @@ Existing local users: stop all old/new processes and back up your data; move `~/
 ## Safety
 
 `noon enable` opts in this canonical checkout and approves its current shared job
- definitions. It starts nothing: background scheduling is not implemented yet.
+ definitions. It starts nothing; schedules run only while `noon serve` is running.
 `noon disable` revokes opt-in and approvals while keeping run history.
-Changed shared definitions show `needs approval`; rerun `noon enable` after review.
-Foreground `noon run NAME` needs no approval.
+Changed shared definitions show `needs approval`; rerun `noon enable` after review. When the
+scheduler is offline, `noon enable` prints `Next: noon serve`. Foreground `noon run NAME` needs no
+approval.
 
 Digests cover job definitions, not the contents of referenced scripts or prompt
 files. Only enable repositories you would run by hand. Keep `.noon.yaml` ignored
@@ -92,13 +99,13 @@ a sandbox and cannot protect against an agent or user with local shell access.
 
 ## Direction
 
-Designed, not built yet ([design](docs/design.md), [decisions](backlog/decisions)):
+Implemented foundations and planned extensions ([design](docs/design.md), [decisions](backlog/decisions)):
 
-- Command and agent-prompt jobs, schedule parsing, and foreground `noon run NAME` already work;
-  background scheduling is still planned.
-- One per-user `noon serve` runs every enabled repo's schedules;
-  `noon service install` keeps it alive across reboots. Docker runs the same
-  foreground process. Noon never backgrounds itself.
+- Command and agent-prompt jobs, schedule parsing, foreground `noon run NAME`, and
+  durable scheduling through `noon serve` already work.
+- One per-user `noon serve` runs every enabled repo's schedules. `noon service install` to keep
+  it alive across reboots is planned. Docker runs the same foreground process. Noon never
+  backgrounds itself.
 - Nothing from a repository runs unattended until you `noon enable` that
   checkout, and changed shared jobs wait for re-approval.
 - After sleep, a missed job runs once, never in a burst.
@@ -112,8 +119,8 @@ task docker:smoke
 docker run --rm noon:dev --help
 ```
 
-The image currently supports the same inspection/config and foreground run commands as the host
-binary. It does not run schedules. See [Docker](docs/docker.md).
+The image supports the host CLI, including `noon serve`; enable projects explicitly and keep the
+scheduler in the foreground. See [Docker](docs/docker.md).
 
 ## Documentation
 
