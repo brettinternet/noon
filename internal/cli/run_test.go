@@ -324,6 +324,10 @@ func TestRunCommand(t *testing.T) {
     run: 'echo child-out; echo child-err >&2; exit 7'
   safe:
     run: 'echo success'
+  h:
+    run: 'echo ran-h'
+  help:
+    run: 'echo ran-help'
   disabled:
     enabled: false
     run: 'touch SHOULD_NOT_EXIST'
@@ -338,7 +342,7 @@ func TestRunCommand(t *testing.T) {
 		stdout, stderr string
 		json           bool
 	}{
-		{"bare", []string{"run"}, 0, "Next: noon run safe", "", false},
+		{"bare", []string{"run"}, 0, "Next: noon run h", "", false},
 		{"bare json", []string{"run", "--json"}, 0, "description", "", true},
 		{"suggestion", []string{"--json", "run", "tset"}, 1, `"code":"not_found"`, "", true},
 		{"disabled", []string{"run", "disabled", "--json"}, 1, `"code":"disabled"`, "", true},
@@ -347,6 +351,8 @@ func TestRunCommand(t *testing.T) {
 		{"json after name", []string{"run", "tests", "--json"}, 7, `"status":"failed"`, "child-err", true},
 		{"human child exit", []string{"run", "tests"}, 7, "child-out", "failed: exit 7", false},
 		{"success", []string{"run", "safe"}, 0, "success", "succeeded", false},
+		{"job named h", []string{"run", "h"}, 0, "ran-h", "succeeded", false},
+		{"job named help", []string{"run", "help"}, 0, "ran-help", "succeeded", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out, stderr bytes.Buffer
