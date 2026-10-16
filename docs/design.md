@@ -235,13 +235,20 @@ Wall-clock rules in the project timezone:
 
 ### Missed runs, overlap, and concurrency
 
+The pure `internal/scheduler.Due` and `Dispatch` planners implement these decisions
+using caller-supplied time and snapshots, without I/O. Persistence and the serve loop
+are not implemented yet. Callers must atomically apply each plan before replanning.
+Schedule state is keyed by normalized schedule text plus timezone name; inactive,
+manual, and removed jobs lose their state. A timezone change resets the watermark too.
+
 - First sight of a job, a schedule change, enabling, approving a changed job, re-adding, or
   resuming starts from "now": no catch-up. Commands that reactivate a job clear its schedule
   state, so this holds even when the scheduler was not running at the time.
 - An occurrence noticed within 60s of its time is on time. Later than that, it was missed (sleep,
   downtime): `missed: run_once` (default) runs once as `catch_up`, never a burst, and
   `missed: skip` records one `missed` entry. Either way the record carries the first missed
-  occurrence, and the next occurrence is computed from now.
+  occurrence. Cron advances to the first occurrence after now; intervals advance by
+  whole periods from the previous watermark, preserving phase across downtime.
 - `overlap: skip` (default) records a `skipped` run when the job is already running.
   `overlap: queue` keeps at most one pending run.
 - The scheduler starts a run only while fewer than one run is active in its project and fewer than
@@ -250,7 +257,10 @@ Wall-clock rules in the project timezone:
 - A due-now request (`--detach`, MCP, triggers, webhooks) for a job that already has a due queued
   run returns that run instead of adding another. One-shots for later (`--in`, `--at`) each keep
   their own run.
-- Queued runs expire one hour after they were due if they never start.
+- Queued runs expire when more than one hour overdue if they never start. Inactive or
+  removed jobs' queued runs are cancelled instead, even if overdue. Dispatch orders
+  eligible work by due time, then run ID. Future one-shots never suppress a scheduled
+  occurrence; an already-due queued run does, recording the occurrence as `skipped`.
 
 ## Scheduler lifetime
 
