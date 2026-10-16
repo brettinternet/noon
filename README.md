@@ -9,7 +9,7 @@ Python, Node, cloud service, or agent provider.
 **Status: foreground scheduling with explicit OS supervision.** Working today: project discovery,
 layered settings, non-destructive initialization, strict job validation, byte-preserving job add/remove,
 schedule parsing and previews, foreground command and agent-prompt execution, durable per-user run records and bounded
-logs, success/failure lifecycle hooks, queued one-shot runs with idempotency and cancellation, explicit project opt-in and shared-job
+logs, success/failure lifecycle hooks, queued one-shot runs with idempotency and cancellation, Git and agent triggers with durable event payloads, cooldowns, and recursion guards, explicit project opt-in and shared-job
 approvals, pausing and resuming background jobs, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
 systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics, stdio MCP tools, and development tooling. Cron import
 and TUI are designed but **not implemented**. Noon never backgrounds itself; keep
@@ -37,6 +37,7 @@ bin/noon service         # inspect service and scheduler heartbeat
 bin/noon run             # list runnable jobs; starts nothing
 bin/noon run tests       # execute this job now, in the foreground
 bin/noon run tests --detach # queue this job to run as soon as capacity is available
+bin/noon run tests --detach --data '{"commit":"abc"}' # queue a run with JSON event data
 bin/noon run tests --in 2h --key nightly-check # queue a one-shot with idempotency
 bin/noon cancel          # list active runs without changing them
 bin/noon cancel 12       # cancel run 12, including another terminal's foreground run
@@ -90,7 +91,11 @@ only one run of a given job can run at a time per project. Queued requests requi
 for that checkout and run only while `noon serve` is active. `--detach` requests due-now work;
 `--in DURATION` and `--at TIME` queue independent one-shots. `--key KEY` deduplicates against the
 same project's retained runs of that job; keys are retained with the newest 50 terminal runs per
-job. A due-now request coalesces with an already-due queued run. When the scheduler is offline,
+job. `--data JSON`, `--data @FILE`, and `--data -` (stdin) accept valid JSON up to 256 KiB; the
+payload is persisted as an event file before dispatch and exposed to the job as `NOON_EVENT_FILE`.
+A configured `cooldown` applies only to queued requests, after idempotency and authorization checks;
+foreground and scheduled runs ignore it. A due-now request coalesces with an already-due queued run.
+When the scheduler is offline,
 Noon says that queued work will wait until it starts. `noon cancel RUN` cancels queued work
 immediately or asks the run owner to stop a running process group; `noon cancel NAME` requests
 cancellation for every active run of that job. `noon disable` also cancels queued runs. SIGINT,
@@ -151,8 +156,8 @@ A generic client can use this configuration:
 ```
 
 MCP can inspect jobs and runs, queue only jobs permitted by the same project enablement and
-shared-job approval rules as the CLI, read bounded log tails, and cancel runs. It cannot add,
-edit, remove, enable, approve, pause, or resume jobs. The initialize client's name and version
+shared-job approval rules as the CLI, pass an optional JSON `data` value to `run_job`, read bounded
+log tails, and cancel runs. It cannot add, edit, remove, enable, approve, pause, or resume jobs. The initialize client's name and version
 are recorded as metadata on queued runs; identity does not grant authority. Optional `project`
 paths on `status`, `list_jobs`, `run_job`, and `list_runs` must be absolute. `get_run` and
 `cancel_run` use globally unique run IDs, like the CLI. MCP is a local stdio transport, not a
@@ -171,9 +176,9 @@ Implemented foundations and planned extensions ([design](docs/design.md), [decis
 - Nothing from a repository runs unattended until you `noon enable` that
   checkout, and changed shared jobs wait for re-approval.
 - After sleep, a missed job runs once, never in a burst.
-- MCP's local stdio tools use the shared app operations. Lifecycle hooks run commands from the
-  shared execution path; Git and agent triggers, webhooks, and a TUI remain planned integrations.
-  Commands are the integration boundary: no plugin system.
+- MCP's local stdio tools use the shared app operations. Lifecycle hooks and inbound Git/agent
+  triggers run through the shared execution path; signed webhooks and a TUI remain planned
+  integrations. Commands are the integration boundary: no plugin system.
 
 ## Docker bootstrap
 
@@ -189,6 +194,7 @@ scheduler in the foreground. See [Docker](docs/docker.md).
 
 - [Configuration](docs/configuration.md): implemented sources, paths, precedence.
 - [Lifecycle hooks](docs/hooks.md): command examples, execution and safety contract.
+- [Triggers](docs/triggers.md): Git and agent hook examples with durable JSON event payloads.
 - [Service](docs/service.md): install, inspect, logs, upgrades, uninstall, and Linux lingering.
 - [Design](docs/design.md): CLI, scheduler, jobs, events, MCP, security.
 - [Development](docs/development.md): tooling, tests, commits, contribution workflow.

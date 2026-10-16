@@ -36,11 +36,21 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	if cmd.Args().Len() == 0 && queueMode != "" {
 		return usageError("queued run options require a job name", "Run noon run to list jobs")
 	}
+	if cmd.IsSet("data") && cmd.Args().Len() == 0 {
+		return usageError("--data requires a job name", "Run noon run NAME --data JSON")
+	}
 	if cmd.IsSet("key") && queueMode == "" {
 		return usageError("--key requires --detach, --in, or --at", "Use --key with a queued run")
 	}
 	if cmd.IsSet("key") && !app.ValidIdempotencyKey(cmd.String("key")) {
 		return usageError("--key must be 1–200 characters of [A-Za-z0-9._:-]", "Choose a key using letters, digits, dot, underscore, colon, or hyphen")
+	}
+	var eventData []byte
+	if cmd.IsSet("data") {
+		eventData, err = readEventData(cmd, cmd.String("data"))
+		if err != nil {
+			return err
+		}
 	}
 	values, err := input(cmd)
 	if err != nil {
@@ -88,7 +98,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		if err != nil {
 			return usageError(err.Error(), "Use --in 2h or --at '2026-10-16 09:00'")
 		}
-		result, err := app.QueueRun(cfg, name, cmd.String("key"), dueAt, now, time.Now, queueMode == "detach", "cli")
+		result, err := app.QueueRun(cfg, name, cmd.String("key"), dueAt, now, time.Now, queueMode == "detach", "cli", app.QueueOptions{EventData: eventData, EventSource: "cli"})
 		if err != nil {
 			return queueError(err)
 		}
@@ -96,6 +106,9 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 			output := map[string]any{"run": result.Run, "created": result.Created, "scheduler": result.Scheduler}
 			if !result.Created {
 				output["reason"] = result.Reason
+			}
+			if result.CooldownUntil != "" {
+				output["cooldown_until"] = result.CooldownUntil
 			}
 			return emit(cmd, output)
 		}
@@ -116,6 +129,9 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	}
 	if !job.Enabled {
 		return &Error{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
+	}
+	if err := app.CheckRecursion(cfg.Project, name, os.Environ()); err != nil {
+		return err
 	}
 	now := time.Now()
 	ownerStart, err := runner.ProcessStartIdentity(os.Getpid())
@@ -138,7 +154,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return stateError(err)
 	}
-	run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: name, Trigger: "manual", Digest: job.Digest, Now: now, OwnerPID: os.Getpid(), OwnerStart: ownerStart})
+	run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: name, Trigger: "manual", Digest: job.Digest, Now: now, OwnerPID: os.Getpid(), OwnerStart: ownerStart, Depth: app.RequestDepth(os.Environ()), EventData: eventData, EventSource: "cli"})
 	if err != nil {
 		return stateError(err)
 	}
@@ -212,6 +228,10 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	spec, startErr := app.RunSpec(cfg.Project, job, os.Environ())
 	if startErr == nil {
 		spec.Env = setRunEnv(spec.Env, "NOON_RUN_ID", strconv.FormatInt(run.ID, 10))
+		spec.Env = setRunEnv(spec.Env, "NOON_DEPTH", strconv.Itoa(run.Depth+1))
+		if eventPath, ok := state.EventFilePath(run); ok {
+			spec.Env = setRunEnv(spec.Env, "NOON_EVENT_FILE", eventPath)
+		}
 		value := ""
 		if hasSuccess {
 			if at, err := time.Parse(store.TimestampLayout, lastSuccess); err == nil {
@@ -336,6 +356,46 @@ func printHookResult(out io.Writer, result *app.HookResult) {
 		detail = "timed out"
 	}
 	fmt.Fprintf(out, "%s hook: %s\n", result.Event, detail)
+}
+
+func readEventData(cmd *urfave.Command, value string) ([]byte, error) {
+	var reader io.Reader
+	if value == "-" {
+		reader = cmd.Reader
+	} else if strings.HasPrefix(value, "@") {
+		path := strings.TrimPrefix(value, "@")
+		if path == "" {
+			return nil, usageError("--data @FILE requires a file path", "Pass a JSON value, @FILE, or - for stdin")
+		}
+		file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			return nil, usageError(fmt.Sprintf("read --data file %q: %v", path, err), "Pass a readable regular file")
+		}
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			_ = file.Close()
+			if err != nil {
+				return nil, usageError(fmt.Sprintf("read --data file %q: %v", path, err), "Pass a readable regular file")
+			}
+			return nil, usageError(fmt.Sprintf("--data file %q must be a regular file", path), "Pass a readable regular file")
+		}
+		reader = file
+		defer file.Close()
+	} else {
+		data := []byte(value)
+		if err := app.ValidateEventData(data); err != nil {
+			return nil, err
+		}
+		return data, nil
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, store.MaxEventBytes+1))
+	if err != nil {
+		return nil, usageError(fmt.Sprintf("read --data: %v", err), "Pass a readable JSON input")
+	}
+	if err := app.ValidateEventData(data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func setRunEnv(env []string, key, value string) []string {

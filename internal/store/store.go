@@ -68,6 +68,9 @@ CREATE TABLE pauses (
 `, `
 ALTER TABLE runs ADD COLUMN hook_status TEXT;
 ALTER TABLE runs ADD COLUMN hook_exit_code INTEGER;
+`, `
+ALTER TABLE runs ADD COLUMN event_path TEXT;
+ALTER TABLE runs ADD COLUMN depth INTEGER NOT NULL DEFAULT 0;
 `}
 
 type Store struct {
@@ -79,6 +82,7 @@ type Store struct {
 	hasQueue       bool
 	hasPauses      bool
 	hasHooks       bool
+	hasTriggers    bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -113,6 +117,8 @@ type Run struct {
 	LogTruncated, LogOverflow    bool
 	HookStatus                   sql.NullString
 	HookExitCode                 sql.NullInt64
+	EventPath                    sql.NullString
+	Depth                        int
 }
 
 const (
@@ -138,9 +144,14 @@ func (s *Store) runSelectColumns() string {
 		columns += `, NULL, NULL`
 	}
 	if s.hasHooks {
-		return columns + `, hook_status, hook_exit_code`
+		columns += `, hook_status, hook_exit_code`
+	} else {
+		columns += `, NULL, NULL`
 	}
-	return columns + `, NULL, NULL`
+	if s.hasTriggers {
+		return columns + `, event_path, depth`
+	}
+	return columns + `, NULL, 0`
 }
 
 func (s *Store) qualifiedRunSelectColumns() string {
@@ -159,9 +170,14 @@ func (s *Store) qualifiedRunSelectColumns() string {
 		columns += `, NULL, NULL`
 	}
 	if s.hasHooks {
-		return columns + `, runs.hook_status, runs.hook_exit_code`
+		columns += `, runs.hook_status, runs.hook_exit_code`
+	} else {
+		columns += `, NULL, NULL`
 	}
-	return columns + `, NULL, NULL`
+	if s.hasTriggers {
+		return columns + `, runs.event_path, runs.depth`
+	}
+	return columns + `, NULL, 0`
 }
 
 type runScanner interface {
@@ -171,7 +187,7 @@ type runScanner interface {
 func scanRun(row runScanner) (Run, error) {
 	var run Run
 	var startedAt sql.NullString
-	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt, &run.HookStatus, &run.HookExitCode)
+	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt, &run.HookStatus, &run.HookExitCode, &run.EventPath, &run.Depth)
 	run.StartedAt = startedAt.String
 	return run, err
 }
@@ -182,6 +198,9 @@ type NewRun struct {
 	Now                  time.Time
 	OwnerPID             int
 	OwnerStart           string
+	Depth                int
+	EventData            []byte
+	EventSource          string
 }
 
 type Outcome struct {
@@ -270,6 +289,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasQueue = version >= 5
 		state.hasPauses = version >= 6
 		state.hasHooks = version >= 7
+		state.hasTriggers = version >= 8
 		return state, nil
 	}
 	for {
@@ -309,6 +329,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasQueue = true
 	state.hasPauses = true
 	state.hasHooks = true
+	state.hasTriggers = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}
@@ -374,15 +395,20 @@ func (s *Store) LastSuccess(projectID int64, job string) (string, bool, error) {
 	return value.String, value.Valid, nil
 }
 
-// CreateRun records the running row before the child is started.
+// CreateRun records the running row and event before the child is started.
 func (s *Store) CreateRun(input NewRun) (Run, error) {
 	created := FormatTime(input.Now)
-	result, err := s.db.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, created_at, started_at, owner_pid, owner_start)
-VALUES(?, ?, 'running', ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, input.Trigger, input.Digest, created, created, input.OwnerPID, input.OwnerStart)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Run{}, fmt.Errorf("begin create run: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, created_at, started_at, owner_pid, owner_start, depth)
+VALUES(?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, input.Trigger, input.Digest, created, created, input.OwnerPID, input.OwnerStart, input.Depth)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "runs_one_running") || strings.Contains(err.Error(), "UNIQUE constraint failed: runs.project_id, runs.job") {
 			var existing Run
-			e := s.db.QueryRow(`SELECT id, started_at FROM runs WHERE project_id=? AND job=? AND status='running'`, input.ProjectID, input.Job).Scan(&existing.ID, &existing.StartedAt)
+			e := tx.QueryRow(`SELECT id, started_at FROM runs WHERE project_id=? AND job=? AND status='running'`, input.ProjectID, input.Job).Scan(&existing.ID, &existing.StartedAt)
 			if e == nil {
 				return Run{}, &AlreadyRunningError{RunID: existing.ID, StartedAt: existing.StartedAt}
 			}
@@ -393,7 +419,28 @@ VALUES(?, ?, 'running', ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, input.Tr
 	if err != nil {
 		return Run{}, fmt.Errorf("get run ID: %w", err)
 	}
-	return Run{ID: id, ProjectID: input.ProjectID, Job: input.Job, Status: "running", Trigger: input.Trigger, Digest: input.Digest, CreatedAt: created, StartedAt: created}, nil
+	var eventPath string
+	if len(input.EventData) > 0 {
+		eventPath, err = s.writeEvent(id, input.EventSource, input.Now, input.EventData)
+		if err != nil {
+			return Run{}, err
+		}
+		if _, err := tx.Exec(`UPDATE runs SET event_path=? WHERE id=?`, eventPath, id); err != nil {
+			_ = s.removeEvent(eventPath)
+			return Run{}, fmt.Errorf("store run event path: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		if eventPath != "" {
+			_ = s.removeEvent(eventPath)
+		}
+		return Run{}, fmt.Errorf("commit run: %w", err)
+	}
+	var savedEventPath sql.NullString
+	if eventPath != "" {
+		savedEventPath = sql.NullString{String: eventPath, Valid: true}
+	}
+	return Run{ID: id, ProjectID: input.ProjectID, Job: input.Job, Status: "running", Trigger: input.Trigger, Digest: input.Digest, CreatedAt: created, StartedAt: created, Depth: input.Depth, EventPath: savedEventPath}, nil
 }
 
 // SetRunLog makes the live log path visible before the child starts writing.
@@ -645,18 +692,19 @@ func (s *Store) finishWithTerminalTolerance(runID, projectID int64, job string, 
 }
 
 func pruneRuns(tx *sql.Tx, dir string, projectID int64, job string) error {
-	rows, err := tx.Query(`SELECT id, log_path FROM runs WHERE project_id=? AND job=? AND status NOT IN ('queued','running') AND (hook_status IS NULL OR hook_status!='running') ORDER BY id DESC`, projectID, job)
+	rows, err := tx.Query(`SELECT id, log_path, event_path FROM runs WHERE project_id=? AND job=? AND status NOT IN ('queued','running') AND (hook_status IS NULL OR hook_status!='running') ORDER BY id DESC`, projectID, job)
 	if err != nil {
 		return err
 	}
 	type retained struct {
-		id   int64
-		path sql.NullString
+		id        int64
+		logPath   sql.NullString
+		eventPath sql.NullString
 	}
 	var all []retained
 	for rows.Next() {
 		var r retained
-		if err := rows.Scan(&r.id, &r.path); err != nil {
+		if err := rows.Scan(&r.id, &r.logPath, &r.eventPath); err != nil {
 			_ = rows.Close()
 			return err
 		}
@@ -668,12 +716,19 @@ func pruneRuns(tx *sql.Tx, dir string, projectID int64, job string) error {
 	}
 	_ = rows.Close()
 	for i, r := range all {
-		if i >= 10 && r.path.Valid {
-			if err := removeLog(dir, r.path.String); err != nil {
-				return err
+		if i >= 10 {
+			if r.logPath.Valid {
+				if err := removeLog(dir, r.logPath.String); err != nil {
+					return err
+				}
+			}
+			if r.eventPath.Valid {
+				if err := removeEventFile(dir, r.eventPath.String); err != nil {
+					return err
+				}
 			}
 			if i < 50 {
-				if _, err := tx.Exec(`UPDATE runs SET log_path=NULL WHERE id=?`, r.id); err != nil {
+				if _, err := tx.Exec(`UPDATE runs SET log_path=NULL, event_path=NULL WHERE id=?`, r.id); err != nil {
 					return err
 				}
 			}

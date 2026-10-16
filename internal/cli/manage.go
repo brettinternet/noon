@@ -211,7 +211,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		}
 	}
 	if queued {
-		if _, err := app.QueueRun(updated, name, "", queueDue, now, time.Now, false, "cli"); err != nil {
+		if _, err := app.QueueRun(updated, name, "", queueDue, now, time.Now, false, "cli", app.QueueOptions{}); err != nil {
 			return queueError(err)
 		}
 	}

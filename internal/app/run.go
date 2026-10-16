@@ -85,6 +85,8 @@ func JobEnvironment(project string, job config.Job, inherited []string) []string
 	env["NOON_PROJECT"], env["NOON_JOB"], env["NOON_TRIGGER"] = project, job.Name, "manual"
 	delete(env, "NOON_RUN_ID")
 	delete(env, "NOON_LAST_SUCCESS_AT")
+	delete(env, "NOON_DEPTH")
+	delete(env, "NOON_EVENT_FILE")
 	if job.Prompt != nil || job.PromptFile != nil {
 		env["NOON_AGENT"] = job.Agent
 	}

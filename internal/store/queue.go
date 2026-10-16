@@ -24,13 +24,18 @@ type QueueRunInput struct {
 	NowFunc                          func() time.Time
 	JobExists, JobEnabled, JobShared bool
 	Coalesce                         bool
+	Cooldown                         time.Duration
+	Depth                            int
+	EventData                        []byte
+	EventSource                      string
 }
 
 type QueueRunResult struct {
-	Run       Run
-	Created   bool
-	Reason    string
-	Scheduler string
+	Run           Run
+	Created       bool
+	Reason        string
+	Scheduler     string
+	CooldownUntil string
 }
 
 // QueueRun performs idempotency, authorization, due-run coalescing, and insert
@@ -44,6 +49,13 @@ func (s *Store) QueueRun(input QueueRunInput) (QueueRunResult, error) {
 		return QueueRunResult{}, fmt.Errorf("begin queued request: %w", err)
 	}
 	defer tx.Rollback()
+	eventPath := ""
+	committed := false
+	defer func() {
+		if !committed && eventPath != "" {
+			_ = s.removeEvent(eventPath)
+		}
+	}()
 	if input.NowFunc != nil {
 		input.Now = input.NowFunc()
 		if input.Coalesce {
@@ -86,6 +98,27 @@ func (s *Store) QueueRun(input QueueRunInput) (QueueRunResult, error) {
 		}
 	}
 
+	if input.Cooldown > 0 {
+		cutoff := FormatTime(input.Now.Add(-input.Cooldown))
+		run, err := scanRun(tx.QueryRow(`SELECT `+s.runSelectColumns()+` FROM runs WHERE project_id=? AND job=? AND created_at>=? ORDER BY id DESC LIMIT 1`, input.ProjectID, input.Job, cutoff))
+		if err == nil {
+			createdAt, parseErr := time.Parse(TimestampLayout, run.CreatedAt)
+			if parseErr != nil {
+				return QueueRunResult{}, fmt.Errorf("parse cooldown run creation time: %w", parseErr)
+			}
+			until := createdAt.Add(input.Cooldown)
+			if until.After(input.Now) {
+				status, statusErr := schedulerStatus(tx, input.Now)
+				if statusErr != nil {
+					return QueueRunResult{}, statusErr
+				}
+				return QueueRunResult{Run: run, Created: false, Reason: "cooldown", Scheduler: status, CooldownUntil: FormatTime(until)}, nil
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return QueueRunResult{}, fmt.Errorf("find cooldown run: %w", err)
+		}
+	}
+
 	if input.Coalesce {
 		run, err := scanRun(tx.QueryRow(`SELECT `+s.runSelectColumns()+` FROM runs WHERE project_id=? AND job=? AND status='queued' AND due_at<=? ORDER BY due_at, id LIMIT 1`, input.ProjectID, input.Job, FormatTime(input.Now)))
 		if err == nil {
@@ -105,14 +138,23 @@ func (s *Store) QueueRun(input QueueRunInput) (QueueRunResult, error) {
 		key = input.IdempotencyKey
 	}
 	stamp, due := FormatTime(input.Now), FormatTime(input.DueAt)
-	result, err := tx.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, scheduled_at, due_at, created_at, requested_by, idempotency_key)
-VALUES(?, ?, 'queued', 'queued', ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, input.Digest, due, due, stamp, input.RequestedBy, key)
+	result, err := tx.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, scheduled_at, due_at, created_at, requested_by, idempotency_key, depth)
+VALUES(?, ?, 'queued', 'queued', ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, input.Digest, due, due, stamp, input.RequestedBy, key, input.Depth)
 	if err != nil {
 		return QueueRunResult{}, fmt.Errorf("create queued run: %w", err)
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
 		return QueueRunResult{}, fmt.Errorf("get queued run ID: %w", err)
+	}
+	if len(input.EventData) > 0 {
+		eventPath, err = s.writeEvent(id, input.EventSource, input.Now, input.EventData)
+		if err != nil {
+			return QueueRunResult{}, err
+		}
+		if _, err := tx.Exec(`UPDATE runs SET event_path=? WHERE id=?`, eventPath, id); err != nil {
+			return QueueRunResult{}, fmt.Errorf("store queued event path: %w", err)
+		}
 	}
 	run, err := scanRun(tx.QueryRow(`SELECT `+s.runSelectColumns()+` FROM runs WHERE id=?`, id))
 	if err != nil {
@@ -125,6 +167,7 @@ VALUES(?, ?, 'queued', 'queued', ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job,
 	if err := tx.Commit(); err != nil {
 		return QueueRunResult{}, fmt.Errorf("commit queued request: %w", err)
 	}
+	committed = true
 	return QueueRunResult{Run: run, Created: true, Scheduler: status}, nil
 }
 

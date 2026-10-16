@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"time"
 
@@ -28,12 +29,30 @@ type QueuedRun struct {
 	Created       bool   `json:"created"`
 	Reason        string `json:"reason,omitempty"`
 	Scheduler     string `json:"scheduler"`
+	CooldownUntil string `json:"cooldown_until,omitempty"`
+}
+
+type QueueOptions struct {
+	EventData   []byte
+	EventSource string
 }
 
 // QueueRun is the shared client operation for durable one-shot requests.
-func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc func() time.Time, coalesce bool, requestedBy string) (QueuedRun, error) {
+func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc func() time.Time, coalesce bool, requestedBy string, queueOptions ...QueueOptions) (QueuedRun, error) {
+	var options QueueOptions
+	if len(queueOptions) > 0 {
+		options = queueOptions[0]
+	}
 	if key != "" && !ValidIdempotencyKey(key) {
 		return QueuedRun{}, &QueueError{Code: "usage", Message: "--key must be 1–200 characters of [A-Za-z0-9._:-]"}
+	}
+	if err := CheckRecursion(cfg.Project, name, os.Environ()); err != nil {
+		return QueuedRun{}, err
+	}
+	if len(options.EventData) > 0 {
+		if err := ValidateEventData(options.EventData); err != nil {
+			return QueuedRun{}, err
+		}
 	}
 	state, err := store.Open(cfg.StateDir)
 	if err != nil {
@@ -49,7 +68,8 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 		ProjectID: projectID, Job: name, Digest: job.Digest, IdempotencyKey: key,
 		RequestedBy: requestedBy, DueAt: dueAt, Now: now, NowFunc: nowFunc,
 		JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared,
-		Coalesce: coalesce,
+		Coalesce: coalesce, Cooldown: job.Cooldown, Depth: RequestDepth(os.Environ()),
+		EventData: options.EventData, EventSource: options.EventSource,
 	})
 	if err != nil {
 		switch {
@@ -64,7 +84,7 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 		}
 		return QueuedRun{}, err
 	}
-	return QueuedRun{SchemaVersion: 1, Run: RunFromStore(result.Run), Created: result.Created, Reason: result.Reason, Scheduler: result.Scheduler}, nil
+	return QueuedRun{SchemaVersion: 1, Run: RunFromStore(result.Run), Created: result.Created, Reason: result.Reason, Scheduler: result.Scheduler, CooldownUntil: result.CooldownUntil}, nil
 }
 
 // QueueDueAt applies the same one-shot time syntax as the CLI.

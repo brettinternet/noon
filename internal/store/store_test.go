@@ -133,7 +133,7 @@ func TestStore(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 7 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 8 {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		for _, statement := range []string{
@@ -143,6 +143,7 @@ func TestStore(t *testing.T) {
 			`SELECT config_error FROM projects`,
 			`SELECT idempotency_key, cancel_requested_at FROM runs`,
 			`SELECT hook_status, hook_exit_code FROM runs`,
+			`SELECT event_path, depth FROM runs`,
 		} {
 			rows, err := s.db.Query(statement)
 			if err != nil {
@@ -254,8 +255,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 7 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 7", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 8 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 8", version, err)
 		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.LogOverflow {
@@ -270,7 +271,7 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=8"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=9"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -282,8 +283,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 8 {
-			t.Fatalf("Open error = %v, want StateTooNewError(8)", err)
+		if !errors.As(err, &newer) || newer.Version != 9 {
+			t.Fatalf("Open error = %v, want StateTooNewError(9)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {

@@ -38,6 +38,7 @@ type Job struct {
 	CWD          string
 	Env          map[string]string `json:"-"`
 	Timeout      string
+	Cooldown     time.Duration
 	Overlap      string
 	Missed       string
 	Enabled      bool
@@ -367,7 +368,7 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				job.Env[key] = text
 			}
 			execution[key] = job.Env
-		case "description", "schedule", "cwd", "timeout", "overlap", "missed":
+		case "description", "schedule", "cwd", "timeout", "cooldown", "overlap", "missed":
 			text, err := jobString(file, field, value)
 			if err != nil {
 				return Job{}, err
@@ -399,6 +400,16 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 					text = duration.String()
 				}
 				job.Timeout = text
+			case "cooldown":
+				duration, err := schedule.ParseDuration(text)
+				if err != nil {
+					return Job{}, jobError(file, value, field, err.Error())
+				}
+				if duration < time.Second {
+					return Job{}, jobError(file, value, field, "must be at least 1s")
+				}
+				job.Cooldown = duration
+				text = duration.String()
 			case "overlap":
 				if text != "skip" && text != "queue" {
 					return Job{}, jobError(file, value, field, "must be skip or queue")

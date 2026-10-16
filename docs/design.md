@@ -358,8 +358,9 @@ the same.
   oversized prompt file).
 - Environment: inherited (the scheduler's for background runs, your shell's for manual runs), then
   job `env`, then `NOON_PROJECT`, `NOON_JOB`, `NOON_RUN_ID`, `NOON_TRIGGER`, `NOON_SCHEDULED_AT`,
-  `NOON_LAST_SUCCESS_AT` (start of the last successful run), and `NOON_EVENT_FILE` when a run has a
-  payload. Noon never sources shell rc files, creates worktrees, or changes branches.
+  `NOON_LAST_SUCCESS_AT` (start of the last successful run), `NOON_DEPTH` (request depth + 1), and
+  `NOON_EVENT_FILE` when a run has a payload. The scheduler derives depth from the persisted run,
+  not its own environment. Noon never sources shell rc files, creates worktrees, or changes branches.
 
 ## State
 
@@ -379,9 +380,10 @@ pollutes worktrees, and lets one scheduler see every enabled project.
   stands for (the first missed one for `catch_up` and `missed`) or the due time of a queued run.
   Queued runs also store `due_at`; `requested_by` records claimed client identity as metadata only.
   `idempotency_key` is unique per project and job, while `cancel_requested_at` records a durable
-  request for the run owner to stop its process group.
+  request for the run owner to stop its process group. `event_path` points to an optional payload
+  file and `depth` stores the request's recursion depth (scheduled runs start at zero).
 - Times are stored as UTC text, `2006-01-02T15:04:05.000Z`, so they sort as strings.
-- Retention: the newest 50 terminal runs per job; logs and payloads for the newest 10 of them.
+- Retention: the newest 50 terminal runs per job; logs and event payloads for the newest 10 of them.
   Queued and running runs are never pruned. Idempotency keys and webhook delivery IDs deduplicate
   only against retained runs.
 - Recovery: a `running` run whose owner process is gone becomes `interrupted` and is never re-run.
@@ -396,15 +398,24 @@ Decided in decision-4: no plugin system. Commands are the integration boundary.
   stdin plus `NOON_*` variables. 30s timeout, 64 KiB captured output, recorded on the run, no hooks
   for hook failures. Desktop notifications and chat posts are examples, not built-ins.
 - **Triggers**: Git hooks and agent hooks call `noon run NAME --detach --key ID [--data JSON]`.
-  Payloads are files, never interpolated. Cooldowns, deduplication, coalescing, and a recursion
-  guard (depth carried through queued runs) bound noisy sources. Nothing installs hooks for you.
+  CLI data accepts a JSON value, `@FILE`, or stdin `-`, up to 256 KiB; MCP `run_job` accepts an
+  optional JSON `data` value with the same limit. A queued run and its event file are committed in
+  file-before-database order so dispatch cannot race payload persistence. Event files contain
+  `schema_version`, `source`, `received_at`, and `data`; sources are `cli`, `mcp`, and (for the
+  future webhook adapter) `webhook`. Payloads are files, never interpolated into commands.
+  `cooldown` is a digested job duration of at least 1s and applies to queued requests after key
+  deduplication and requirements checks but before due-run coalescing. Foreground and scheduled
+  runs ignore cooldowns. Runs persist the requesting process's `NOON_DEPTH` for foreground and
+  queued requests; scheduled runs start at zero. Jobs and hooks receive that stored depth + 1.
+  Requests at depth 3 or greater and requests from the same project/job are refused. Nothing
+  installs hooks for you.
 - **Webhooks**: `noon serve --listen ADDR` opt-in, loopback by default, per-job `webhook:` opt-in,
   HMAC signatures, delivery deduplication, body limits. Payloads choose data, never commands.
 - **Event files**: one JSON object for every payload with keys `schema_version` (1), `source`
-  (`cli` or `webhook`), `received_at`, `data`, and, for webhooks only, `headers`. `data` is the
+  (`cli`, `mcp`, or `webhook`), `received_at`, `data`, and, for webhooks only, `headers`. `data` is the
   JSON payload, or a string when a webhook body is not JSON.
 - **MCP**: `noon mcp` over stdio with the official Go SDK exposes `status`, `list_jobs`, `run_job`,
-  `list_runs`, `get_run`, and `cancel_run`. The first four accept an optional absolute `project`
+  `list_runs`, `get_run`, and `cancel_run`. `run_job` accepts optional JSON `data`. The first four accept an optional absolute `project`
   path; run lookup and cancellation use globally unique run IDs. Agents cannot approve, add, or edit
   unattended commands.
 - **Crontab import**: preview YAML from a user crontab; `--write` adds the jobs to `.noon.yaml`.

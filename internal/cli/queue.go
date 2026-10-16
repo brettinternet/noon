@@ -40,6 +40,10 @@ func queueError(err error) error {
 	if errors.As(err, &failure) {
 		return &Error{Code: failure.Code, Message: failure.Message, Hint: failure.Hint, Usage: failure.Code == "usage"}
 	}
+	var operationError *app.Error
+	if errors.As(err, &operationError) {
+		return operationError
+	}
 	return stateError(err)
 }
 
@@ -54,6 +58,12 @@ func printQueuedRun(cmd *urfave.Command, queued app.QueuedRun, now time.Time, lo
 		fmt.Fprintf(cmd.Writer, "Queued %s as run %d · %s\n", run.Job, run.ID, due)
 	case queued.Reason == "queued":
 		fmt.Fprintf(cmd.Writer, "%s is already queued as run %d · due now\n", run.Job, run.ID)
+	case queued.Reason == "cooldown":
+		until := queued.CooldownUntil
+		if parsed, err := time.Parse(store.TimestampLayout, until); err == nil {
+			until = parsed.In(location).Format("Mon 15:04:05")
+		}
+		fmt.Fprintf(cmd.Writer, "%s is cooling down until %s (run %d)\n", run.Job, until, run.ID)
 	default:
 		at := run.FinishedAt
 		if at == nil {

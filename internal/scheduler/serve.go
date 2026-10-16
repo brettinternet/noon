@@ -627,6 +627,10 @@ func executeScheduledRun(ctx context.Context, state *store.Store, run store.Run,
 		return
 	}
 	spec.Env = setEnvironment(spec.Env, "NOON_RUN_ID", strconv.FormatInt(run.ID, 10))
+	spec.Env = setEnvironment(spec.Env, "NOON_DEPTH", strconv.Itoa(run.Depth+1))
+	if eventPath, ok := state.EventFilePath(run); ok {
+		spec.Env = setEnvironment(spec.Env, "NOON_EVENT_FILE", eventPath)
+	}
 	spec.Env = setEnvironment(spec.Env, "NOON_TRIGGER", run.Trigger)
 	scheduledAt := ""
 	if run.ScheduledAt.Valid {

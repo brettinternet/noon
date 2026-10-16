@@ -28,6 +28,12 @@ func TestMCP(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 	t.Setenv("HOME", root)
+	for _, key := range []string{"NOON_PROJECT", "NOON_JOB", "NOON_DEPTH", "NOON_EVENT_FILE", "NOON_STATE_DIR"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
 	userConfigDir := filepath.Join(root, "user")
 	stateDir := filepath.Join(root, "state", "noon")
 	t.Setenv("XDG_CONFIG_HOME", userConfigDir)
@@ -144,7 +150,26 @@ func TestMCP(t *testing.T) {
 		t.Fatalf("rejected job request created a run: runs=%+v err=%v", unapproved, err)
 	}
 
-	queued := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved", "in": "1h"})
+	withMCPEnvironment(t, "NOON_DEPTH", "3", func() {
+		refused := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved"})
+		if !refused.IsError || decodeObject(t, refused.StructuredContent)["error"].(map[string]any)["code"] != "recursion" {
+			t.Fatalf("MCP ignored its process recursion depth: %+v", refused)
+		}
+	})
+	withMCPEnvironment(t, "NOON_PROJECT", root, func() {
+		withMCPEnvironment(t, "NOON_JOB", "approved", func() {
+			refused := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved"})
+			if !refused.IsError || decodeObject(t, refused.StructuredContent)["error"].(map[string]any)["code"] != "recursion" {
+				t.Fatalf("MCP ignored its process project/job recursion guard: %+v", refused)
+			}
+		})
+	})
+	tooLarge := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved", "data": strings.Repeat("x", store.MaxEventBytes)})
+	if !tooLarge.IsError || decodeObject(t, tooLarge.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
+		t.Fatalf("MCP accepted oversized event data: %+v", tooLarge)
+	}
+
+	queued := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved", "in": "1h", "data": map[string]any{"context": "from-agent", "count": 2}})
 	if queued.IsError {
 		t.Fatalf("approved job queue: %s", textContent(queued))
 	}
@@ -171,6 +196,21 @@ func TestMCP(t *testing.T) {
 	_ = state.Close()
 	if err != nil || stored.Status != "queued" || stored.RequestedBy.String != "mcp:mcp-test/1.2.3" {
 		t.Fatalf("queued MCP run metadata: run=%+v err=%v", stored, err)
+	}
+	if eventPath, ok := state.EventFilePath(stored); !ok {
+		t.Fatalf("queued MCP run has no event file: %+v", stored)
+	} else {
+		data, err := os.ReadFile(eventPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var event map[string]any
+		if err := json.Unmarshal(data, &event); err != nil {
+			t.Fatalf("decode MCP event file: %v", err)
+		}
+		if event["schema_version"] != float64(1) || event["source"] != "mcp" || !reflect.DeepEqual(event["data"], map[string]any{"context": "from-agent", "count": float64(2)}) {
+			t.Fatalf("MCP event file shape/data: %+v", event)
+		}
 	}
 
 	runs := callTool(t, ctx, clientSession, "list_runs", map[string]any{"job": "approved"})
@@ -496,4 +536,20 @@ func textContent(result *protocol.CallToolResult) string {
 		}
 	}
 	return strings.Join(text, "\n")
+}
+
+func withMCPEnvironment(t *testing.T, key, value string, action func()) {
+	t.Helper()
+	previous, exists := os.LookupEnv(key)
+	if err := os.Setenv(key, value); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if exists {
+			_ = os.Setenv(key, previous)
+		} else {
+			_ = os.Unsetenv(key)
+		}
+	}()
+	action()
 }

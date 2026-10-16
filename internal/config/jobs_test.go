@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/brettinternet/noon/internal/config"
 )
@@ -30,8 +31,13 @@ func TestLoadJobs(t *testing.T) {
 		}},
 		{name: "defaults", shared: "jobs: {tests: {run: 'true'}}", check: func(t *testing.T, c config.Config) {
 			j := c.Jobs["tests"]
-			if j.Run != "true" || j.Timeout != "1h" || j.Overlap != "skip" || j.Missed != "run_once" || !j.Enabled || j.CWD != c.Project || j.Schedule != nil {
+			if j.Run != "true" || j.Timeout != "1h" || j.Cooldown != 0 || j.Overlap != "skip" || j.Missed != "run_once" || !j.Enabled || j.CWD != c.Project || j.Schedule != nil {
 				t.Fatalf("defaults: %+v", j)
+			}
+		}},
+		{name: "cooldown", shared: "jobs: {tests: {run: 'true', cooldown: 2m}}", check: func(t *testing.T, c config.Config) {
+			if got := c.Jobs["tests"].Cooldown; got != 2*time.Minute {
+				t.Fatalf("cooldown = %s, want 2m", got)
 			}
 		}},
 		{name: "whole override", shared: "jobs: {tests: {run: original, env: {TOKEN: secret}, schedule: daily, timeout: 5m}}", local: "jobs: {tests: {run: replacement}}", check: func(t *testing.T, c config.Config) {
@@ -71,6 +77,7 @@ func TestLoadJobs(t *testing.T) {
 		{name: "empty argv", shared: "jobs: {tests: {run: []}}", want: "jobs.tests.run: must not be empty"},
 		{name: "numeric argv", shared: "jobs: {tests: {run: [echo, 1]}}", want: "jobs.tests.run: must be a string"},
 		{name: "timeout zero", shared: "jobs: {tests: {run: hi, timeout: 0s}}", want: "must be at least 1s"},
+		{name: "cooldown zero", shared: "jobs: {tests: {run: hi, cooldown: 0s}}", want: "must be at least 1s"},
 		{name: "timeout none", shared: "jobs: {tests: {run: hi, timeout: none}}", check: func(t *testing.T, c config.Config) {
 			if c.Jobs["tests"].Timeout != "none" {
 				t.Fatal(c.Jobs)
@@ -190,16 +197,16 @@ func TestJobDigest(t *testing.T) {
 		}
 		return cfg.Jobs["tests"].Digest
 	}
-	base := "    run: echo hi\n    schedule: weekdays at 9am\n    env: {A: a, B: b}\n    cwd: subdir\n    timeout: 1h\n"
+	base := "    run: echo hi\n    schedule: weekdays at 9am\n    env: {A: a, B: b}\n    cwd: subdir\n    timeout: 1h\n    cooldown: 5m\n"
 	digest := load(base, "{}")
 	if len(digest) != 71 || !strings.HasPrefix(digest, "sha256:") {
 		t.Fatal(digest)
 	}
-	equivalent := "    timeout: 60m\n    cwd: subdir\n    env: {B: b, A: a}\n    schedule: WEEKDAYS AT 09:00\n    run: echo hi # comment\n    description: changed\n    enabled: false\n"
+	equivalent := "    cooldown: 300s\n    timeout: 60m\n    cwd: subdir\n    env: {B: b, A: a}\n    schedule: WEEKDAYS AT 09:00\n    run: echo hi # comment\n    description: changed\n    enabled: false\n"
 	if load(equivalent, "{}") != digest || load(base, "jobs: {tests: {enabled: false}}") != digest {
 		t.Fatal("cosmetic edits/toggle changed digest")
 	}
-	for _, change := range [][2]string{{"echo hi", "echo bye"}, {"9am", "10am"}, {"A: a", "A: changed"}, {"subdir", "other"}, {"1h", "2h"}} {
+	for _, change := range [][2]string{{"echo hi", "echo bye"}, {"9am", "10am"}, {"A: a", "A: changed"}, {"subdir", "other"}, {"1h", "2h"}, {"5m", "6m"}} {
 		if load(strings.Replace(base, change[0], change[1], 1), "{}") == digest {
 			t.Fatalf("%v did not change digest", change)
 		}

@@ -64,6 +64,12 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 	env := setHookEnvironment(hookEnvironment, "NOON_PROJECT", project)
 	env = setHookEnvironment(env, "NOON_JOB", job.Name)
 	env = setHookEnvironment(env, "NOON_RUN_ID", strconv.FormatInt(stored.ID, 10))
+	env = setHookEnvironment(env, "NOON_DEPTH", strconv.Itoa(stored.Depth+1))
+	if eventPath, ok := state.EventFilePath(stored); ok {
+		env = setHookEnvironment(env, "NOON_EVENT_FILE", eventPath)
+	} else {
+		env = setHookEnvironment(env, "NOON_EVENT_FILE", "")
+	}
 	env = setHookEnvironment(env, "NOON_TRIGGER", stored.Trigger)
 	env = setHookEnvironment(env, "NOON_STATUS", stored.Status)
 	exitCode := 125

@@ -38,6 +38,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		Action: status,
 		Commands: []*urfave.Command{
 			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
+				&urfave.StringFlag{Name: "data", Usage: "JSON event data, @FILE, or - for stdin (up to 256 KiB)"},
 				&urfave.BoolFlag{Name: "detach", Usage: "Queue NAME to run as soon as capacity is available"},
 				&urfave.StringFlag{Name: "in", Usage: "Queue NAME after DURATION (at least 1s)"},
 				&urfave.StringFlag{Name: "at", Usage: "Queue NAME at HH:MM, YYYY-MM-DD HH:MM, or RFC 3339 time"},

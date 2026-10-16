@@ -4,6 +4,7 @@ package mcp
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -27,6 +28,7 @@ type runJobArgs struct {
 	Key     *string `json:"key,omitempty" jsonschema:"idempotency key"`
 	In      *string `json:"in,omitempty" jsonschema:"queue after a duration, such as 2h"`
 	At      *string `json:"at,omitempty" jsonschema:"queue at HH:MM, local date/time, or RFC 3339"`
+	Data    any     `json:"data,omitempty" jsonschema:"JSON event payload (up to 256 KiB)"`
 }
 
 type listRunsArgs struct {
@@ -106,6 +108,15 @@ func NewServer(input config.Input, version string) *protocol.Server {
 		if args.In != nil && args.At != nil {
 			return toolFailure(app.UsageError("--detach, --in, and --at are mutually exclusive", "Choose one queued run time"))
 		}
+		eventData, hasEventData, err := mcpEventData(req)
+		if err != nil {
+			return toolFailure(err)
+		}
+		if hasEventData {
+			if err := app.ValidateEventData(eventData); err != nil {
+				return toolFailure(err)
+			}
+		}
 		key := ""
 		if args.Key != nil {
 			key = *args.Key
@@ -133,12 +144,14 @@ func NewServer(input config.Input, version string) *protocol.Server {
 		if err != nil {
 			return toolFailure(app.UsageError(err.Error(), "Use --in 2h or --at '2026-10-16 09:00'"))
 		}
-		result, err := app.QueueRun(cfg, args.Name, key, dueAt, now, time.Now, mode == "detach", requestedBy(req))
+		result, err := app.QueueRun(cfg, args.Name, key, dueAt, now, time.Now, mode == "detach", requestedBy(req), app.QueueOptions{EventData: eventData, EventSource: "mcp"})
 		if err != nil {
 			return toolFailure(queueError(err))
 		}
 		summary := fmt.Sprintf("Queued %s as run %d.", result.Run.Job, result.Run.ID)
-		if !result.Created {
+		if result.Reason == "cooldown" {
+			summary = fmt.Sprintf("%s is cooling down until %s (run %d).", result.Run.Job, result.CooldownUntil, result.Run.ID)
+		} else if !result.Created {
 			summary = fmt.Sprintf("Run %d was already requested.", result.Run.ID)
 		}
 		return toolSuccess(summary, result)
@@ -228,6 +241,15 @@ func stateDirectory(input config.Input) (string, error) {
 	return cfg.StateDir, nil
 }
 
+func mcpEventData(req *protocol.CallToolRequest) ([]byte, bool, error) {
+	var arguments map[string]json.RawMessage
+	if err := json.Unmarshal(req.Params.Arguments, &arguments); err != nil {
+		return nil, false, app.UsageError("run_job arguments must be a JSON object", "Pass a valid MCP tool argument object")
+	}
+	data, ok := arguments["data"]
+	return data, ok, nil
+}
+
 func requestedBy(req *protocol.CallToolRequest) string {
 	client := req.ClientInfo()
 	if client == nil {
@@ -247,6 +269,10 @@ func queueError(err error) error {
 	var queueErr *app.QueueError
 	if errors.As(err, &queueErr) {
 		return &app.Error{Code: queueErr.Code, Message: queueErr.Message, Hint: queueErr.Hint, Usage: queueErr.Code == "usage"}
+	}
+	var operationError *app.Error
+	if errors.As(err, &operationError) {
+		return operationError
 	}
 	return app.StateError(err)
 }
