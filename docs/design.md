@@ -190,12 +190,18 @@ environment variables (below), so a prompt can say "summarize commits since
 
 ### Schedules
 
+The pure `internal/schedule` parser and next-occurrence calculation are implemented;
+job configuration and CLI scheduling are not yet wired to them. `Parse` returns an immutable
+schedule with normalized `String`, `Next(after, loc)`, and `Interval` methods. `Next` is strictly
+after the supplied instant; interval phase remains the planner's responsibility. `ParseDuration`
+accepts nonnegative integer components in `s`, `m`, `h`, and `d`, rejecting overflow.
+
 Accepted forms, case-insensitive, normalized for display:
 
 | Form | Examples | Meaning |
 | --- | --- | --- |
 | Cron | `0 9 * * 1-5`, `*/15 * * * *` | Five fields: lists, ranges, steps, `jan`–`dec`, `sun`–`sat`, `0` or `7` = Sunday |
-| Macro | `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`, also bare `hourly` … `monthly` | Cron equivalents; `@reboot` is rejected |
+| Macro | `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`, also bare `hourly`, `daily`, `weekly`, `monthly`, `yearly` | Cron equivalents; `@reboot` is rejected |
 | Calendar | `every day at 2am`, `daily at 14:30`, `weekdays at 9:30am`, `weekends at noon`, `mon,wed at 18:00`, `every friday at 5pm` | Compiles to one cron expression. One time per schedule: `H[:MM]am`/`pm`, 24-hour `H:MM`, `noon`, or `midnight` |
 | Interval | `every 15m`, `every 6h`, `every 1d12h`, `every 2 hours` | Elapsed time in whole minutes, from `1m` to `365d` |
 
@@ -205,7 +211,13 @@ that rule. `a/n` means `a-max/n`. Wrap-around ranges such as `fri-mon` are rejec
 can never match, such as `0 0 30 2 *`, are rejected. Ambiguous phrases are rejected with a
 suggestion rather than guessed: `every day` and `every hour` (clock-aligned or elapsed?), and a
 bare `at 9` (`9am` or `9:00`?). For example: "`every day` needs a time: try `every day at 9am`,
-`daily` (midnight), or `every 24h`".
+`daily` (midnight), or `every 24h`". `every minute` suggests `* * * * *` or `every 1m`;
+`every 30s` suggests `every 1m`. Six-field cron is rejected because Bump has no seconds field;
+`@every 5m` suggests `every 5m`, and `@reboot` explains that Bump has no boot trigger.
+
+Display keeps five cron fields lowercase and macro names prefixed with `@`. Calendar times
+use `HH:MM`; day lists use three-letter names in Monday-to-Sunday order, with a single day
+shown as `every friday at 17:00`. Intervals use largest units first (`every 1d12h`).
 
 Intervals keep their phase from when the job was first scheduled, or its schedule last changed, and
 continue across restarts. Use cron or calendar forms for clock-aligned times.
