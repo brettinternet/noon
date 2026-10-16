@@ -1,10 +1,10 @@
 ---
 id: NOON-5
 title: Queue detached and one-shot runs and cancel runs
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 06:38'
 labels:
   - scheduler
   - cli
@@ -62,15 +62,35 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestQueueRuns|TestServeQueued|TestCancelForeground)$' -count=1 -v` exits 0 and prints `--- PASS` for all three, covering every case listed under Tests
-- [ ] #2 `task race` exits 0
+- [x] #1 `task cli:test -- -run '^(TestQueueRuns|TestServeQueued|TestCancelForeground)$' -count=1 -v` exits 0 and prints `--- PASS` for all three, covering every case listed under Tests
+- [x] #2 `task race` exits 0
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Extend store migration and atomic queue/cancel operations, reusing approval and recovery logic. 2. Add shared app operations and CLI queue/cancel rendering and validation. 3. Poll cancellation in foreground and scheduler owners; include queued dashboard and disable handling. 4. Add critical queue concurrency, dispatch and process cancellation regression tests; run acceptance and CI. 5. Independently review transactional approval and cancellation safety, commit, merge locally and remove owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Worklease claim 2987a475d9384f830da4320bd2f97538 held by loop 53909a3c-e1ac-40d5-a491-b52b62d6687d. Implementation worktree .worktrees/noon-5-queue-cancel. docs/design.md is additionally allowed to update stale queued-operation wording to match implemented behavior (DoD 5).
+
+AC#1: task cli:test -- -run '^(TestQueueRuns|TestServeQueued|TestCancelForeground)$' -count=1 -v -> exit 0; all three PASS, rerun on main after integration. AC#2: task race -> exit 0, including corrected cancellation regressions. task ci passed on implementation commit 04a78fa (security, vet, staticcheck, full tests, race, build, smoke); task check:staged and diff checks passed. Independent review found concurrent orphan finalization, lost force-kill signal handling, and unbounded global cancellation recovery; all corrected with regression tests and checks rerun. No tests deleted, skipped or weakened. Modified paths within contract plus previously justified docs/design.md. Commit 04a78fa fast-forward merged into main; owned worktree and branch removed via Worktrunk. No remaining blocker or resumable implementation step.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented durable detach/in/at requests with atomic idempotency, approval and coalescing, queued dashboard/disable behavior, and cancellation of queued, scheduler and foreground runs. Added concurrency, recovery, signal and dispatch regression coverage. Focused acceptance, race and CI pass; locally merged as 04a78fa and worktree cleaned. Nothing pushed.
+<!-- SECTION:FINAL_SUMMARY:END -->
