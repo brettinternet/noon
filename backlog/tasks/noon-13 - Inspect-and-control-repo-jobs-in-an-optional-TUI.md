@@ -1,10 +1,10 @@
 ---
 id: NOON-13
 title: Inspect and control jobs in a terminal UI
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 17:32'
+updated_date: '2026-10-16 20:14'
 labels:
   - tui
 dependencies:
@@ -58,16 +58,42 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestTUIModel|TestTUINonInteractive)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
-- [ ] #2 `task cli:build && bin/noon tui < /dev/null; echo "exit=$?"` prints the terminal-required error immediately and `exit=2`
-- [ ] #3 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon` exits 0
+- [x] #1 `task cli:test -- -run '^(TestTUIModel|TestTUINonInteractive)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
+- [x] #2 `task cli:build && bin/noon tui < /dev/null; echo "exit=$?"` prints the terminal-required error immediately and `exit=2`
+- [x] #3 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon` exits 0
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Reuse existing app dashboard, queue, pause, history, and log operations in a Bubble Tea v2 model with jobs/runs/log views and specified keys. 2. Wire terminal-only CLI entry and document implemented behavior. 3. Add critical real-store model and noninteractive CLI regression coverage after implementation. 4. Run all acceptance commands, independent review, full CI, commit, merge, and remove owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Worklease claim fc143caad22fe75f5f7e61f003c2b527 acquired by loop f48b0ec2-74b7-419d-8099-77f0ce9f10bc. Implementation checkout /Users/brett/dev/me/bump/.worktrees/noon-13-tui (branch noon-13-tui); receipt /Users/brett/dev/me/bump/.git/worktrees/noon-13-tui/agent-creation.json. Bubble Tea v2 is the task-required maintained TUI dependency, replacing no existing TUI framework; CGO-disabled build is an acceptance requirement.
+
+Implementation is present in the owned worktree; executor reported focused acceptance checks and task ci passing. Its accidental worktree-local task completion was discarded, preserving this primary record as authoritative. docs/design.md expansion is accepted to correct stale claims that implemented MCP/TUI adapters remain future work, as required by DoD#5. Independent review and terminal checks pending; not complete yet.
+
+AC#1: task cli:test -- -run '^(TestTUIModel|TestTUINonInteractive)$' -count=1 -v -> exit 0; both named tests printed --- PASS (parent rerun). AC#2: task cli:build && bin/noon tui < /dev/null; echo "exit=$?" -> immediate terminal-required error and exit=2 (parent rerun). AC#3: CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon -> exit 0 (parent rerun). PTY direct execution with an isolated project rendered example job and restored identical stty attributes after q and SIGTERM. LSP diagnostics clean for internal/tui/tui.go. Independent review is still pending.
+
+Independent general review completed: two concrete P2 defects found in TUI log cursor replacement (g/G can skip or duplicate output) and follow-cap notice detection (unfinished line at persisted 1 MiB cap). Bounded fixes and regression checks are in progress; no second general review planned. Integration remains pending.
+
+Delivered implementation commit 9bed9dedb24f7deac35aaa95e2818f6502a14249, fast-forward merged into main. task ci passed on that final implementation commit (security, vet/staticcheck, full and race suites, build, smoke). All three exact acceptance commands were rerun after corrections and passed with the previously recorded results. Independent review found cursor replacement and unfinished-line follow-cap notice defects; both fixed and covered by real-store regressions. No tests deleted, skipped, or weakened. Documentation and help describe implemented behavior. Owned worktree and branch noon-13-tui removed through Worktrunk; matching Herdr workspace wDG verified absent. No retained checkout or workspace, no remaining blocker, no next resumable implementation step. No push performed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented noon tui: live job/run views, bounded searchable sectional logs, and explicit queue/pause/confirmed cancel controls over shared app operations. Verified acceptance commands, task ci on implementation commit, independent review corrections, and PTY restoration on quit/SIGTERM. Merged locally as 9bed9de and cleaned owned worktree/workspace.
+<!-- SECTION:FINAL_SUMMARY:END -->
