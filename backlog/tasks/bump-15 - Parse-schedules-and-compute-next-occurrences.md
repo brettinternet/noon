@@ -1,10 +1,10 @@
 ---
 id: BUMP-15
 title: Parse schedules and compute next occurrences
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 02:40'
 labels:
   - schedule
 dependencies: []
@@ -61,16 +61,38 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestScheduleParse|TestScheduleNext)$' -count=1 -v` exits 0 and prints `--- PASS: TestScheduleParse` and `--- PASS: TestScheduleNext`, with Next cases for every DST fixture named in the description
-- [ ] #2 `mise exec go -- go test ./internal/schedule -run '^$' -fuzz '^FuzzScheduleParse$' -fuzztime 30s` exits 0
-- [ ] #3 `rg -n 'time\.Now\(' internal/schedule` prints nothing
+- [x] #1 `task cli:test -- -run '^(TestScheduleParse|TestScheduleNext)$' -count=1 -v` exits 0 and prints `--- PASS: TestScheduleParse` and `--- PASS: TestScheduleNext`, with Next cases for every DST fixture named in the description
+- [x] #2 `mise exec go -- go test ./internal/schedule -run '^$' -fuzz '^FuzzScheduleParse$' -fuzztime 30s` exits 0
+- [x] #3 `rg -n 'time\.Now\(' internal/schedule` prints nothing
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Implement the pure schedule API, strict grammar, normalization, and wall-clock DST resolution. 2. Add parsing, next-occurrence regression tables and round-trip fuzzing. 3. Run all acceptance commands, independent scoped review, and CI; commit, merge to main, finalize task, and remove the owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fuzzing found that the suggested 8-year Next search bound violates the required next-occurrence contract: 0 1 1 1 */7 has no occurrence within 8 years after 2026-01-01 (next is Sunday 2034-01-01). Use the complete 400-year Gregorian cycle as the search bound, still advancing by unmatched fields. Retain the minimized fuzz regression. No settled decision or exported API changes.
+
+AC#1: task cli:test -- -run '^(TestScheduleParse|TestScheduleNext)$' -count=1 -v -> exit 0, both named tests PASS, including Denver spring/fall, Lord Howe spring/fall, Santiago midnight gap and repeated-hour suppression. AC#2: mise exec go -- go test ./internal/schedule -run '^$' -fuzz '^FuzzScheduleParse$' -fuzztime 30s -> exit 0, 26,331,707 executions after fixing the discovered search-bound regression. AC#3: rg -n 'time\.Now\(' internal/schedule -> no output (exit 1, expected no matches). Full task ci passed before commit: security, formatting, vet, Staticcheck, unit tests, race, smoke. LSP diagnostics clean. Diff confined to internal/schedule/** and docs/design.md plus this task record; no existing tests removed or weakened. CLI remains unchanged and design explicitly distinguishes the implemented library from future CLI scheduling. Independent scoped review pending; final-commit CI and delivery remain.
+
+Delivery: dd260cd feat(schedule): parse schedules and compute occurrences fast-forward merged into main. task ci passed on this final implementation commit. The single independent reviewer found no validated defects (static review; execution was performed by the parent). Worktrunk removed the verified session-owned feat/bump-15-schedules worktree and branch; its Herdr workspace wBK was removed. All acceptance and delivery requirements satisfied; no blocker or resumable implementation work remains.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented the pure schedule API with cron, macros, calendar phrases, intervals, normalized display, overflow-safe durations, and DST gap/fold semantics. Verified all acceptance commands, 30-second fuzzing, full CI on dd260cd, and independent review. Merged to main and cleaned up the owned worktree.
+<!-- SECTION:FINAL_SUMMARY:END -->
