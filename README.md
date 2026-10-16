@@ -3,8 +3,8 @@
 **Repo-local scheduling, without a platform.**
 
 A Go CLI for recurring commands and agent work, designed for your machine first
-and containers when needed. CLI now; optional TUI later. No required web UI,
-Python, Node, cloud service, or agent provider.
+and containers when needed, with an optional keyboard-driven terminal UI. No
+required web UI, Python, Node, cloud service, or agent provider.
 
 **Status: foreground scheduling with explicit OS supervision.** Working today: project discovery,
 layered settings, non-destructive initialization, strict job validation, byte-preserving job add/remove,
@@ -12,8 +12,8 @@ schedule parsing and previews, foreground command and agent-prompt execution, du
 logs, success/failure lifecycle hooks, queued one-shot runs with idempotency and cancellation, Git and agent triggers with durable event payloads, signed webhooks, cooldowns, and recursion guards, explicit project opt-in and shared-job
 approvals, pausing and resuming background jobs, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
 systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics,
-stdio MCP tools, and development tooling. Cron import is implemented as a preview-first conversion to
-Noon YAML; the TUI remains designed but **not implemented**. Noon never backgrounds itself; keep
+stdio MCP tools, an optional terminal UI, and development tooling. Cron import is implemented as a
+preview-first conversion to Noon YAML. Noon never backgrounds itself; keep
 `noon serve` in the foreground or use the explicit service installer or an OS/container supervisor.
 
 ## Try it
@@ -25,6 +25,7 @@ task cli:build
 
 bin/noon                 # project dashboard and next action; starts nothing
 bin/noon doctor          # read-only setup checks; exit 1 if any check fails
+bin/noon tui             # interactive jobs, runs, and log inspection/control
 bin/noon init            # create noon.yaml; preserve it if it exists
 bin/noon list            # validated jobs and next-run previews; executes nothing
 bin/noon add tests "every day at 2am" -- go test ./... # add a private scheduled job
@@ -126,6 +127,18 @@ Warnings exit 0; failing checks exit 1. JSON contains `ok` and `checks`
 with `name`, `status` (`ok`, `warn`, `fail`), `message`, and `hint`.
 
 Existing local users: stop all old/new processes and back up your data; move `~/.local/state/bump` to `~/.local/state/noon` and `~/.config/bump` to `~/.config/noon` only if the destinations do not exist, then rename `bump.db` to `noon.db` inside the moved state directory, along with any `bump.db-wal`/`bump.db-shm` sidecars to `noon.db-wal`/`noon.db-shm`; never overwrite existing destinations, and keep the `logs/` tree intact.
+
+## Terminal UI
+
+`noon tui` requires terminal stdin and stdout and does not support `--json`;
+noninteractive inspection should use `noon status`. It refreshes the current project's
+jobs and runs every second, follows active logs through bounded reads, and supports RE2
+log search with three lines of context. Use `j`/`k` or arrows to move, `enter` to open
+runs, `l` to open a log, `f` to cycle run status filters, `/` to search, `s` to cycle
+job/hook/all log sections, `g`/`G` to jump to the top/bottom of the log, `r` to queue
+the selected job now, and `p` to pause or resume it. `c` asks for confirmation before
+cancelling a run; `esc` returns, `?` shows help, and `q` exits. The TUI never edits jobs
+or enables or approves a project. The terminal is restored on exit, panic, or SIGTERM.
 
 ## Logs
 
@@ -232,9 +245,9 @@ Implemented foundations and planned extensions ([design](docs/design.md), [decis
 - Nothing from a repository runs unattended until you `noon enable` that
   checkout, and changed shared jobs wait for re-approval.
 - After sleep, a missed job runs once, never in a burst.
-- MCP's local stdio tools use the shared app operations. Lifecycle hooks, inbound Git/agent
-  triggers, and signed webhooks run through the shared execution path; the TUI remains planned.
-  Commands are the integration boundary: no plugin system.
+- MCP and the optional TUI use the shared app operations. Lifecycle hooks, inbound Git/agent
+  triggers, and signed webhooks run through the shared execution path. Commands are the integration
+  boundary: no plugin system.
 
 ## Docker
 

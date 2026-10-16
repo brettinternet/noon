@@ -306,9 +306,8 @@ project in its state directory. It does **not** self-daemonize, and it is **not*
   `--config`, `--timezone`, `--project`, `--json`, and their environment variables as usage errors.
 - An invalid config edit keeps the project's last valid jobs running and records the file/line
   error, which status shows until the file is fixed.
-- There is no IPC socket. Implemented CLI clients read the SQLite store for scheduler status and
-  persisted next times; future MCP, HTTP, and TUI clients will use the same store. Revisit polling
-  only if latency or cost becomes a measured problem.
+- There is no IPC socket. CLI, MCP, and TUI clients read the SQLite store for scheduler status and
+  persisted next times. Revisit polling only if latency or cost becomes a measured problem.
 - `noon run NAME --detach`, `--in`, and `--at` record queued intent in one immediate SQLite
   transaction, checking retained idempotency keys, project/job requirements, and due-run coalescing
   before insertion. A due-now duplicate returns the existing queued run; future one-shots remain
