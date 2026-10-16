@@ -38,9 +38,13 @@ type listRunsArgs struct {
 }
 
 type getRunArgs struct {
-	RunID       int64 `json:"run_id" jsonschema:"globally unique run ID"`
-	WaitSeconds *int  `json:"wait_seconds,omitempty" jsonschema:"wait up to 60 seconds for the run to finish"`
-	LogBytes    *int  `json:"log_bytes,omitempty" jsonschema:"maximum 65536 bytes of log tail; defaults to 16384"`
+	RunID       int64   `json:"run_id" jsonschema:"globally unique run ID"`
+	WaitSeconds *int    `json:"wait_seconds,omitempty" jsonschema:"wait up to 60 seconds for the run to finish"`
+	LogBytes    *int    `json:"log_bytes,omitempty" jsonschema:"maximum 65536 bytes; defaults to 16384 and keeps whole lines"`
+	After       *int64  `json:"after,omitempty" jsonschema:"start at this byte offset; pass the previous next value to page forward"`
+	Tail        *int    `json:"tail,omitempty" jsonschema:"keep the last 1 to 10000 selected log lines"`
+	Match       *string `json:"match,omitempty" jsonschema:"case-sensitive Go RE2 regular expression matched against each line"`
+	Context     *int    `json:"context,omitempty" jsonschema:"include 0 to 50 lines around each match; requires match"`
 }
 
 type cancelRunArgs struct {
@@ -176,7 +180,7 @@ func NewServer(input config.Input, version string) *protocol.Server {
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "get_run", Description: "Get a run and a bounded tail of its log; optionally wait for it to finish.", Annotations: readOnly,
+		Name: "get_run", Description: "Get a run and a bounded, line-aligned log selection. Use next as after to page forward, or match and context to search; optionally wait for the run to finish.", Annotations: readOnly,
 	}, func(ctx context.Context, _ *protocol.CallToolRequest, args getRunArgs) (*protocol.CallToolResult, any, error) {
 		stateDir, err := stateDirectory(input)
 		if err != nil {
@@ -190,7 +194,8 @@ func NewServer(input config.Input, version string) *protocol.Server {
 		if args.LogBytes != nil {
 			logBytes = *args.LogBytes
 		}
-		view, err := app.GetRun(ctx, stateDir, args.RunID, waitSeconds, logBytes)
+		query := app.LogQuery{After: args.After, Tail: args.Tail, Match: args.Match, Context: args.Context, LimitBytes: &logBytes, RepairUTF8: true}
+		view, err := app.GetRun(ctx, stateDir, args.RunID, waitSeconds, query)
 		if err != nil {
 			return toolFailure(err)
 		}

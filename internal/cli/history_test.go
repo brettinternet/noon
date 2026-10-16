@@ -163,6 +163,14 @@ func TestHistoryAndLogs(t *testing.T) {
 		if code != 0 || int64(namedLog["run"].(map[string]any)["id"].(float64)) != testsID || namedLog["log"] != "tests-log�" {
 			t.Fatalf("job logs selection or UTF-8 replacement: %d %+v", code, namedLog)
 		}
+		code, repairedPage := invoke(t, "logs", fmt.Sprint(testsID), "--json", "--after-cursor", "0", "--limit-bytes", "10")
+		if code != 0 || repairedPage["log"] != "tests-log" || repairedPage["next"] != float64(9) || len(repairedPage["log"].(string)) > 10 {
+			t.Fatalf("repaired forward page exceeded its byte cap or used repaired cursor: %d %+v", code, repairedPage)
+		}
+		code, repairedNext := invoke(t, "logs", fmt.Sprint(testsID), "--json", "--after-cursor", "9", "--limit-bytes", "3")
+		if code != 0 || repairedNext["log"] != "�" || repairedNext["next"] != float64(10) || len(repairedNext["log"].(string)) > 3 {
+			t.Fatalf("repaired next page did not resume at raw byte offset 9: %d %+v", code, repairedNext)
+		}
 		code, runLog := invoke(t, "logs", fmt.Sprint(testsID), "--json")
 		if code != 0 || int64(runLog["run"].(map[string]any)["id"].(float64)) != testsID {
 			t.Fatalf("run ID logs selection: %d %+v", code, runLog)
@@ -258,6 +266,40 @@ func TestHistoryAndLogs(t *testing.T) {
 		}
 	})
 
+	t.Run("tail selection and query usage errors", func(t *testing.T) {
+		project := sandbox(t)
+		stateDir := filepath.Join(t.TempDir(), "state")
+		t.Setenv("NOON_STATE_DIR", stateDir)
+		manifest := "jobs:\n  tests:\n    run: \"printf 'one\\ntwo\\nthree\\n'\"\n"
+		if err := os.WriteFile(filepath.Join(project, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var runOut, runErr bytes.Buffer
+		if code := cli.Run(context.Background(), []string{"noon", "run", "tests"}, config.BuildOpts{}, &runOut, &runErr); code != 0 {
+			t.Fatalf("run tests: exit=%d stdout=%q stderr=%q", code, runOut.String(), runErr.String())
+		}
+		var out, stderr bytes.Buffer
+		if code := cli.Run(context.Background(), []string{"noon", "logs", "tests", "--tail", "2"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+			t.Fatalf("logs --tail 2: exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
+		}
+		if out.String() != "two\nthree\n" || !strings.HasPrefix(stderr.String(), "next: noon logs 1 --after-cursor ") {
+			t.Fatalf("tail output/cursor = stdout %q stderr %q", out.String(), stderr.String())
+		}
+		for _, args := range [][]string{
+			{"logs", "tests", "--context", "2"},
+			{"logs", "tests", "--match", "("},
+			{"logs", "tests", "--follow", "--match", "boom"},
+			{"logs", "tests", "--path", "--tail", "1"},
+		} {
+			out.Reset()
+			stderr.Reset()
+			code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)
+			if code != 2 || out.Len() != 0 || !strings.Contains(stderr.String(), "noon:") {
+				t.Errorf("usage case %v: exit=%d stdout=%q stderr=%q", args, code, out.String(), stderr.String())
+			}
+		}
+	})
+
 	t.Run("read-only inspection with no state", func(t *testing.T) {
 		root := sandbox(t)
 		manifest := "jobs:\n  tests:\n    run: 'printf not-run'\n"
@@ -290,9 +332,13 @@ func TestLogsFollow(t *testing.T) {
 	t.Setenv("NOON_STATE_DIR", stateDir)
 	manifest := `jobs:
   tests:
-    run: 'printf "first\\n"; sleep 0.5; printf "later\\n"'
+    run: 'printf "earlier\\n"; sleep 0.2; printf "first\\n"; sleep 0.5; printf "later\\n"'
+  tail:
+    run: "printf 'earlier\\n'; sleep 0.2; printf 'latest\\n'; sleep 0.5; printf 'later\\n'"
   large:
     run: "head -c 1048576 /dev/zero | tr '\\000' x; sleep 0.3; head -c 100000 /dev/zero | tr '\\000' y; printf 'TAIL-MARKER\\n'"
+  partial:
+    run: "printf 'complete\\npartial'; sleep 1; printf '\\nfinished\\n'"
 `
 	if err := os.WriteFile(filepath.Join(project, "noon.yaml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
@@ -307,7 +353,7 @@ func TestLogsFollow(t *testing.T) {
 	}
 	defer state.Close()
 
-	runAndFollow := func(name string) (string, time.Time) {
+	runAndFollow := func(name string, followArgs []string, readyLine string) (string, time.Time) {
 		t.Helper()
 		type result struct {
 			code int
@@ -336,11 +382,33 @@ func TestLogsFollow(t *testing.T) {
 		if runID == 0 {
 			t.Fatalf("%s run did not become active", name)
 		}
+		if readyLine != "" {
+			ready := false
+			readyDeadline := time.Now().Add(3 * time.Second)
+			for time.Now().Before(readyDeadline) {
+				runs, err := state.RunsForJob(projectID, name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(runs) > 0 && runs[0].LogPath.Valid {
+					data, readErr := state.ReadRunLog(runs[0])
+					if readErr == nil && bytes.Contains(data, []byte(readyLine)) {
+						ready = true
+						break
+					}
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if !ready {
+				t.Fatalf("%s log did not contain %q before follow", name, readyLine)
+			}
+		}
 		followStarted := time.Now()
 		followDone := make(chan result, 1)
 		go func() {
 			var out, stderr bytes.Buffer
-			code := cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(runID), "--follow"}, config.BuildOpts{}, &out, &stderr)
+			args := append([]string{"noon", "logs", fmt.Sprint(runID)}, followArgs...)
+			code := cli.Run(context.Background(), args, config.BuildOpts{}, &out, &stderr)
 			followDone <- result{code: code, out: out.String(), err: stderr.String(), at: time.Now()}
 		}()
 		var runResult result
@@ -367,11 +435,71 @@ func TestLogsFollow(t *testing.T) {
 		}
 	}
 
-	followed, _ := runAndFollow("tests")
-	if !strings.Contains(followed, "first\nlater\n") {
+	type partialRunResult struct {
+		code int
+		err  string
+	}
+	partialDone := make(chan partialRunResult, 1)
+	go func() {
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"noon", "run", "partial"}, config.BuildOpts{}, &out, &stderr)
+		partialDone <- partialRunResult{code: code, err: stderr.String()}
+	}()
+	partialRunID := int64(0)
+	partialDeadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(partialDeadline) {
+		runs, err := state.RunsForJob(projectID, "partial")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(runs) > 0 && runs[0].Status == "running" && runs[0].LogPath.Valid {
+			data, readErr := state.ReadRunLog(runs[0])
+			if readErr == nil && bytes.Equal(data, []byte("complete\npartial")) {
+				partialRunID = runs[0].ID
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if partialRunID == 0 {
+		t.Fatal("partial run did not expose its unterminated log line while active")
+	}
+	var plainOut, plainErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(partialRunID)}, config.BuildOpts{}, &plainOut, &plainErr); code != 0 || plainErr.Len() != 0 || plainOut.String() != "complete\npartial" {
+		t.Fatalf("unflagged active log = exit %d stdout=%q stderr=%q; want all raw bytes", code, plainOut.String(), plainErr.String())
+	}
+	var jsonOut, jsonErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(partialRunID), "--json"}, config.BuildOpts{}, &jsonOut, &jsonErr); code != 0 || jsonErr.Len() != 0 {
+		t.Fatalf("unflagged active JSON log = exit %d stdout=%q stderr=%q", code, jsonOut.String(), jsonErr.String())
+	}
+	var jsonLog struct {
+		Log string `json:"log"`
+	}
+	if err := json.Unmarshal(jsonOut.Bytes(), &jsonLog); err != nil || jsonLog.Log != "complete\npartial" {
+		t.Fatalf("unflagged active JSON log=%q err=%v; want complete and partial lines", jsonLog.Log, err)
+	}
+	var selectedOut, selectedErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(partialRunID), "--after-cursor", "0"}, config.BuildOpts{}, &selectedOut, &selectedErr); code != 0 || selectedOut.String() != "complete\n" {
+		t.Fatalf("flagged active log = exit %d stdout=%q stderr=%q; want only complete lines", code, selectedOut.String(), selectedErr.String())
+	}
+	select {
+	case result := <-partialDone:
+		if result.code != 0 {
+			t.Fatalf("partial run failed: exit=%d stderr=%q", result.code, result.err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("partial run did not finish")
+	}
+
+	followed, _ := runAndFollow("tests", []string{"--follow"}, "")
+	if !strings.Contains(followed, "earlier\nfirst\nlater\n") {
 		t.Fatalf("follow omitted output written after it began: %q", followed)
 	}
-	followed, _ = runAndFollow("large")
+	followed, _ = runAndFollow("tail", []string{"--tail", "1", "--follow"}, "latest\n")
+	if strings.Contains(followed, "earlier\n") || !strings.Contains(followed, "latest\nlater\n") {
+		t.Fatalf("tail follow output = %q; want latest and later but not earlier", followed)
+	}
+	followed, _ = runAndFollow("large", []string{"--follow"}, "")
 	notice := "[noon: output past 1 MiB is shown when the run ends]"
 	noticeAt := strings.Index(followed, notice)
 	if noticeAt < 0 || noticeAt > (1<<20)+1 || !strings.Contains(followed, "TAIL-MARKER") || strings.Index(followed, "TAIL-MARKER") < noticeAt {

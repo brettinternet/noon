@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,8 @@ import (
 	"github.com/brettinternet/noon/internal/store"
 	protocol "github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+const defaultTestLogLimit = 16_384
 
 func TestMCP(t *testing.T) {
 	root := t.TempDir()
@@ -40,7 +43,7 @@ func TestMCP(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Dir(stateDir))
 	input := config.Input{CWD: root, UserConfigDir: userConfigDir, StateDirDefault: stateDir}
 
-	manifest := "jobs:\n  shared: {run: 'true'}\n  approved: {run: 'printf mcp-finished'}\n  queued-cancel: {run: 'true'}\n"
+	manifest := "jobs:\n  shared: {run: 'true'}\n  approved: {run: 'printf mcp-finished'}\n  queued-cancel: {run: 'true'}\n  search: {run: \"printf 'before\\nneedle\\nafter\\n'\"}\n  large: {run: 'seq 1 5000'}\n  invalid: {run: \"printf '\\\\377\\\\n'\"}\n"
 	writeManifest(t, root, manifest)
 	cfg, err := config.Load(input)
 	if err != nil {
@@ -234,6 +237,10 @@ func TestMCP(t *testing.T) {
 	if !boundedLog.IsError || decodeObject(t, boundedLog.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
 		t.Fatalf("get_run accepted a log tail over 65536 bytes: %+v", boundedLog)
 	}
+	invalidContext := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": immediateID, "context": 0})
+	if !invalidContext.IsError || decodeObject(t, invalidContext.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
+		t.Fatalf("get_run accepted context without match: %+v", invalidContext)
+	}
 
 	schedulerCtx, stopScheduler := context.WithCancel(ctx)
 	schedulerDone := make(chan error, 1)
@@ -263,6 +270,84 @@ func TestMCP(t *testing.T) {
 	if detailValue["run"].(map[string]any)["status"] != "succeeded" || !strings.Contains(detailValue["log"].(string), "mcp-finished") {
 		t.Fatalf("get_run did not return the finished run and log: %+v", detailValue)
 	}
+
+	searchRequest := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "search"})
+	if searchRequest.IsError {
+		t.Fatalf("queue searchable job: %s", textContent(searchRequest))
+	}
+	searchID := int64(decodeObject(t, searchRequest.StructuredContent)["run"].(map[string]any)["id"].(float64))
+	searchResult := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": searchID, "wait_seconds": 5, "match": "needle", "context": 1})
+	if searchResult.IsError {
+		t.Fatalf("get_run with match: %s", textContent(searchResult))
+	}
+	searchValue := decodeObject(t, searchResult.StructuredContent)
+	if searchValue["log"] != "1-before\n2:needle\n3-after\n" || searchValue["matched_lines"] != float64(1) {
+		t.Fatalf("get_run match result = %+v", searchValue)
+	}
+	searchNext := int64(searchValue["next"].(float64))
+	searchPage := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": searchID, "after": searchNext, "match": "needle", "context": 1})
+	if searchPage.IsError || decodeObject(t, searchPage.StructuredContent)["log"] != "" {
+		t.Fatalf("get_run after terminal next: error=%v result=%+v", searchPage.IsError, searchPage.StructuredContent)
+	}
+
+	invalidRequest := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "invalid"})
+	if invalidRequest.IsError {
+		t.Fatalf("queue invalid UTF-8 job: %s", textContent(invalidRequest))
+	}
+	invalidID := int64(decodeObject(t, invalidRequest.StructuredContent)["run"].(map[string]any)["id"].(float64))
+	invalidDetail := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": invalidID, "wait_seconds": 5})
+	if invalidDetail.IsError || decodeObject(t, invalidDetail.StructuredContent)["log"] != "�\n" {
+		t.Fatalf("get_run invalid UTF-8 fixture: %+v", invalidDetail)
+	}
+	tooSmall := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": invalidID, "after": 0, "log_bytes": 2})
+	if !tooSmall.IsError || decodeObject(t, tooSmall.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
+		t.Fatalf("get_run emitted repaired text beyond a two-byte budget: %+v", tooSmall)
+	}
+	invalidPage := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": invalidID, "after": 0, "log_bytes": 3})
+	if invalidPage.IsError {
+		t.Fatalf("get_run repaired page: %s", textContent(invalidPage))
+	}
+	invalidValue := decodeObject(t, invalidPage.StructuredContent)
+	if invalidValue["log"] != "�" || invalidValue["next"] != float64(1) || len(invalidValue["log"].(string)) > 3 {
+		t.Fatalf("get_run repaired page/cursor = %+v", invalidValue)
+	}
+	invalidNext := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": invalidID, "after": int64(invalidValue["next"].(float64)), "log_bytes": 3})
+	if invalidNext.IsError {
+		t.Fatalf("get_run repaired continuation: %s", textContent(invalidNext))
+	}
+	invalidNextValue := decodeObject(t, invalidNext.StructuredContent)
+	if invalidNextValue["log"] != "\n" || invalidNextValue["next"] != float64(2) {
+		t.Fatalf("get_run repaired continuation = %+v", invalidNextValue)
+	}
+
+	largeRequest := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "large"})
+	if largeRequest.IsError {
+		t.Fatalf("queue large job: %s", textContent(largeRequest))
+	}
+	largeID := int64(decodeObject(t, largeRequest.StructuredContent)["run"].(map[string]any)["id"].(float64))
+	largeResult := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": largeID, "wait_seconds": 5})
+	if largeResult.IsError {
+		t.Fatalf("get_run default bounded tail: %s", textContent(largeResult))
+	}
+	largeValue := decodeObject(t, largeResult.StructuredContent)
+	largeLog := largeValue["log"].(string)
+	if len(largeLog) == 0 || len(largeLog) > defaultTestLogLimit || largeValue["size"].(float64) <= defaultTestLogLimit || largeValue["truncated"] != true || !strings.HasSuffix(largeLog, "\n") {
+		t.Fatalf("get_run default page metadata/log = %+v", largeValue)
+	}
+	largeLines := strings.Split(strings.TrimSuffix(largeLog, "\n"), "\n")
+	for i, line := range largeLines {
+		if line == "" {
+			t.Fatalf("default get_run page contains an empty/partial line: %+v", largeValue)
+		}
+		if i > 0 {
+			previous, parseErr := strconv.Atoi(largeLines[i-1])
+			current, currentErr := strconv.Atoi(line)
+			if parseErr != nil || currentErr != nil || current != previous+1 {
+				t.Fatalf("default get_run split or skipped a line: %+v", largeValue)
+			}
+		}
+	}
+
 	tail := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": immediateID, "log_bytes": 1})
 	if tail.IsError || decodeObject(t, tail.StructuredContent)["log"] != "d" {
 		t.Fatalf("get_run did not enforce a one-byte log tail: %+v", tail)

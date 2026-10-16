@@ -9,7 +9,6 @@ import (
 	"io"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/brettinternet/noon/internal/config"
 	"github.com/brettinternet/noon/internal/store"
@@ -65,6 +64,10 @@ type RunDetail struct {
 	SchemaVersion int    `json:"schema_version"`
 	Run           Run    `json:"run"`
 	Log           string `json:"log"`
+	Next          int64  `json:"next"`
+	Size          int64  `json:"size"`
+	Truncated     bool   `json:"truncated"`
+	MatchedLines  *int   `json:"matched_lines"`
 }
 
 // RunFromStore maps persisted state to the client-independent run JSON shape.
@@ -241,13 +244,16 @@ func ReadRunLog(stateDir string, id int64) (Run, []byte, error) {
 	return RunFromStore(state, stored), data, err
 }
 
-// GetRun optionally waits for a terminal status and returns at most logBytes of log tail.
-func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds, logBytes int) (RunDetail, error) {
+// GetRun optionally waits for a terminal status and returns one bounded log selection.
+func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds int, query LogQuery) (RunDetail, error) {
 	if waitSeconds < 0 || waitSeconds > 60 {
 		return RunDetail{}, UsageError("wait_seconds must be between 0 and 60", "")
 	}
-	if logBytes < 0 || logBytes > 65536 {
+	if query.LimitBytes == nil || *query.LimitBytes < 0 || *query.LimitBytes > 65536 {
 		return RunDetail{}, UsageError("log_bytes must be between 0 and 65536", "")
+	}
+	if err := ValidateLogQuery(query); err != nil {
+		return RunDetail{}, err
 	}
 	run, err := RunByID(stateDir, id)
 	if err != nil {
@@ -279,32 +285,24 @@ func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds, logByte
 			}
 		}
 	}
-	run, data, err := ReadRunLog(stateDir, id)
+	run, selection, err := ReadRunLogSelection(stateDir, id, query)
 	if err != nil {
 		if IsMissingRun(err) || NoDatabase(err) {
 			return RunDetail{}, RunNotFoundError(id)
 		}
-		if IsMissingLog(err) {
-			run.Log.Available = false
-			run.Log.Path = nil
-			data = nil
-		} else {
-			return RunDetail{}, StateError(err)
+		if failure, ok := err.(*Error); ok && failure.Usage {
+			return RunDetail{}, failure
 		}
+		return RunDetail{}, StateError(err)
 	}
-	if len(data) > logBytes {
-		data = data[len(data)-logBytes:]
-	}
-	log := ValidLogText(data)
-	for len(log) > logBytes {
-		_, size := utf8.DecodeRuneInString(log)
-		log = log[size:]
-	}
-	return RunDetail{SchemaVersion: 1, Run: run, Log: log}, nil
+	return RunDetail{
+		SchemaVersion: 1, Run: run, Log: ValidLogText(selection.Bytes), Next: selection.Next,
+		Size: selection.Size, Truncated: selection.Truncated, MatchedLines: selection.MatchedLines,
+	}, nil
 }
 
 // FollowLog streams live file growth and waits for a running run to finish.
-func FollowLog(ctx context.Context, stateDir string, id int64, out io.Writer) error {
+func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tail *int, out io.Writer) error {
 	state, err := store.OpenExisting(stateDir)
 	if err != nil {
 		return err
@@ -314,7 +312,19 @@ func FollowLog(ctx context.Context, stateDir string, id int64, out io.Writer) er
 	if err != nil {
 		return err
 	}
-	var offset int64
+	var initial []byte
+	if run.LogPath.Valid {
+		initial, err = state.ReadRunLog(run)
+		if errors.Is(err, store.ErrLogUnavailable) {
+			initial = nil
+		} else if err != nil {
+			return err
+		}
+	}
+	offset, err := FollowLogStart(initial, after, tail)
+	if err != nil {
+		return err
+	}
 	followedRunning := activeStoredRun(run)
 	markerShown := false
 	statusCheck := time.Now().Add(time.Second)

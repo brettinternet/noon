@@ -51,6 +51,11 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "logs", Usage: "Read a run log, follow it, or print its path", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "follow", Usage: "Follow a running run until it finishes"},
 				&urfave.BoolFlag{Name: "path", Usage: "Print the absolute log path"},
+				&urfave.IntFlag{Name: "tail", Aliases: []string{"n"}, Usage: "keep the last 1–10000 selected lines"},
+				&urfave.Int64Flag{Name: "after-cursor", Aliases: []string{"c"}, Usage: "read from byte offset BYTES and return a resumable cursor"},
+				&urfave.StringFlag{Name: "match", Aliases: []string{"m"}, Usage: "select lines matching a Go RE2 regular expression"},
+				&urfave.IntFlag{Name: "context", Usage: "include 0–50 surrounding lines; requires --match"},
+				&urfave.IntFlag{Name: "limit-bytes", Aliases: []string{"b"}, Usage: "cap emitted log text in bytes"},
 			}, Action: runLogs},
 			{Name: "enable", Usage: "Enable this checkout and approve current shared job definitions", Action: enableProject},
 			{Name: "disable", Usage: "Disable this checkout and revoke approvals; keep history", Action: disableProject},

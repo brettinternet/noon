@@ -83,7 +83,7 @@ Next: noon enable
 | `noon remove`, `rm` | Candidates | Remove a job from the file that defines it |
 | `noon pause`, `resume` | Candidates | Pause or resume background runs of a job |
 | `noon cancel` | Active runs | Cancel a run, or a job's active and queued runs |
-| `noon logs` | Latest run in project | `NAME` or `RUN`; `--follow`; `--path` (not with `--json` or `--follow`) |
+| `noon logs` | Latest run in project | `NAME` or `RUN`; `--tail/-n`, `--after-cursor/-c`, `--match/-m`, `--context`, `--limit-bytes/-b`; `--follow` accepts only tail/cursor; `--path` cannot combine with `--json`, `--follow`, or selection flags |
 | `noon history` | Recent runs | `NAME`; `--limit` |
 | `noon enable`, `disable` | Acts on current project | — |
 | `noon serve` | Foreground scheduler for enabled projects; signed webhooks when explicitly requested | `--listen ADDR` opts in to an HTTP listener; otherwise no listener starts |
@@ -347,6 +347,14 @@ the same.
 - The log combines stdout and stderr in arrival order. The first 1 MiB is written live; output past
   that is kept in memory as the last 1 MiB and appended after an omission marker when the run ends.
   `logs --follow` therefore streams the first 1 MiB live and the tail at the end.
+- `noon logs` reads one file snapshot. Unflagged CLI snapshots include the full current bytes,
+  including an active unterminated line; bounded CLI and MCP snapshots omit it so `next` remains on a
+  line boundary. `--after-cursor` is a byte offset. `--match` uses case-sensitive
+  Go RE2 expressions and `--context` adds bounded grep-style line context. `--tail` applies after
+  match/context, then `--limit-bytes` keeps whole lines (newest without a cursor, earliest with one),
+  cutting a single oversized line on a UTF-8 rune boundary. JSON returns `log`, `next`, `size`,
+  `truncated`, and nullable `matched_lines`; pass `next` back as `--after-cursor` to page. Follow
+  remains separate and accepts only `--tail` and `--after-cursor` to choose its starting point.
 - A foreground run streams the job's stdout to stdout and stderr to stderr, so
   `noon run report > report.md` works; Noon's own status lines go to stderr. SIGINT, SIGTERM, or
   SIGHUP to `noon run` cancels the job as above; a second signal kills the group immediately.
