@@ -66,6 +66,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.StringFlag{Name: "listen", Usage: "Listen for signed webhooks at ADDR; no listener starts without this flag"},
 			}, Action: serveAction(build.Version)},
 			{Name: "mcp", Usage: "Serve MCP tools over stdio", Action: mcpCommand(build.Version)},
+			{Name: "skill", Usage: "Print the shell-only agent skill", Action: showSkill},
 			{Name: "service", Usage: "Inspect or manage the per-user scheduler service", Action: serviceStatus, Commands: []*urfave.Command{
 				{Name: "install", Usage: "Install and start the per-user scheduler service", Flags: []urfave.Flag{
 					&urfave.BoolFlag{Name: "print", Usage: "Print the service unit without installing or starting it"},

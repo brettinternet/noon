@@ -129,6 +129,8 @@ Existing local users: stop all old/new processes and back up your data; move `~/
 
 ## Logs
 
+See the [agent log workflow](docs/agents.md) for bounded CLI and MCP examples.
+
 `noon logs` prints the latest started run's stored bytes; `noon logs NAME` selects that job's latest
 started run. NAME lookups use current jobs and retained history, including removed jobs.
 `noon logs RUN --follow` waits for a queued run to start, then follows its output.
@@ -179,6 +181,9 @@ in Git: local jobs and whole-job local overrides bypass approval. Approval is no
 a sandbox and cannot protect against an agent or user with local shell access.
 
 ## MCP
+
+The [agent guide](docs/agents.md) covers failure diagnosis and the shell-only
+`noon skill` fallback when MCP is unavailable.
 
 `noon mcp` serves six tools over stdio: `status`, `list_jobs`, `run_job`, `list_runs`,
 `get_run`, and `cancel_run`. In Claude Code or Codex, add Noon with:

@@ -92,6 +92,7 @@ Next: noon enable
 | `noon init`, `config` | Implemented today | — |
 | `noon import crontab` | Usage and example | `FILE` or `-`; `--write` |
 | `noon mcp` | stdio MCP server | — |
+| `noon skill` | Print embedded shell-only Agent Skills document | `--json` returns `schema_version: 1` and `content`; arguments are a usage error |
 | `noon tui` | Terminal UI | — |
 
 The dashboard and doctor are implemented. Dashboard JSON contains `schema_version: 1`,
@@ -425,6 +426,8 @@ pollutes worktrees, and lets one scheduler see every enabled project.
 ## Integrations
 
 Decided in decision-4: no plugin system. Commands are the integration boundary.
+See the [agent guide](../docs/agents.md) for implemented CLI/MCP log workflows and
+`noon skill`, the shell-only fallback. The skill is printed unchanged, never auto-installed.
 
 - **Hooks**: `on_success` and `on_failure` commands get a versioned JSON run summary on
   stdin plus `NOON_*` variables. 30s timeout, 64 KiB captured output, recorded on the run, no hooks
