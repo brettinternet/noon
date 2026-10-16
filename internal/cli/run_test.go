@@ -4,15 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/brettinternet/bump/internal/cli"
 	"github.com/brettinternet/bump/internal/config"
+	"github.com/brettinternet/bump/internal/store"
 )
 
 func TestPromptJobs(t *testing.T) {
@@ -171,6 +174,122 @@ agents:
 	var listOut, listErr bytes.Buffer
 	if code := cli.Run(context.Background(), []string{"bump", "list"}, config.BuildOpts{}, &listOut, &listErr); code != 0 || !strings.Contains(listOut.String(), "claude: inline stdin first…") || !strings.Contains(listOut.String(), "codex: prompts/stdin.md") {
 		t.Fatalf("human prompt list: code=%d stdout=%s stderr=%s", code, &listOut, &listErr)
+	}
+}
+
+func TestRunRecordsHistory(t *testing.T) {
+	project := sandbox(t)
+	stateDir := filepath.Join(t.TempDir(), "state")
+	t.Setenv("BUMP_STATE_DIR", stateDir)
+	manifest := `jobs:
+  tests:
+    run: 'printf "run=%s last=%s\\n" "$BUMP_RUN_ID" "$BUMP_LAST_SUCCESS_AT"; sleep 0.3'
+`
+	if err := os.WriteFile(filepath.Join(project, "bump.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var firstOut, firstErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"bump", "run", "tests"}, config.BuildOpts{}, &firstOut, &firstErr); code != 0 {
+		t.Fatalf("first run exit=%d stdout=%s stderr=%s", code, firstOut.String(), firstErr.String())
+	}
+	state, err := store.OpenExisting(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	projectID, err := state.RegisterProject(project, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRuns, err := state.RunsForJob(projectID, "tests")
+	if err != nil || len(firstRuns) != 1 || firstRuns[0].Status != "succeeded" || !firstRuns[0].ExitCode.Valid || firstRuns[0].ExitCode.Int64 != 0 {
+		t.Fatalf("first persisted run = %+v, err=%v", firstRuns, err)
+	}
+	if !firstRuns[0].LogPath.Valid {
+		t.Fatalf("first run has no log: %+v", firstRuns[0])
+	}
+	firstLog, err := os.ReadFile(filepath.Join(stateDir, firstRuns[0].LogPath.String))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(firstLog), fmt.Sprintf("run=%d last=", firstRuns[0].ID)) {
+		t.Fatalf("first log is missing run metadata: %q", firstLog)
+	}
+
+	secondDone := make(chan struct {
+		code     int
+		out, err string
+	}, 1)
+	go func() {
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"bump", "run", "tests"}, config.BuildOpts{}, &out, &stderr)
+		secondDone <- struct {
+			code     int
+			out, err string
+		}{code, out.String(), stderr.String()}
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	var active bool
+	for time.Now().Before(deadline) {
+		runs, err := state.RunsForJob(projectID, "tests")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(runs) == 2 && runs[0].Status == "running" {
+			active = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !active {
+		t.Fatal("second run did not become running before the deadline")
+	}
+	var duplicateOut, duplicateErr bytes.Buffer
+	code := cli.Run(context.Background(), []string{"bump", "--json", "run", "tests"}, config.BuildOpts{}, &duplicateOut, &duplicateErr)
+	if code != 1 || !strings.Contains(duplicateOut.String(), `"code":"already_running"`) {
+		t.Fatalf("concurrent duplicate exit=%d stdout=%s stderr=%s", code, duplicateOut.String(), duplicateErr.String())
+	}
+	select {
+	case result := <-secondDone:
+		if result.code != 0 {
+			t.Fatalf("second run exit=%d stdout=%s stderr=%s", result.code, result.out, result.err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("second run did not finish")
+	}
+	runs, err := state.RunsForJob(projectID, "tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("stored %d runs after duplicate refusal, want 2: %+v", len(runs), runs)
+	}
+	for _, run := range runs {
+		if run.Status != "succeeded" || !run.ExitCode.Valid || run.ExitCode.Int64 != 0 || !run.LogPath.Valid {
+			t.Fatalf("incomplete run record: %+v", run)
+		}
+		if _, err := os.Stat(filepath.Join(stateDir, run.LogPath.String)); err != nil {
+			t.Fatalf("missing run log: %v", err)
+		}
+	}
+	lastAt, err := time.Parse(store.TimestampLayout, firstRuns[0].StartedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondLog, err := os.ReadFile(filepath.Join(stateDir, runs[0].LogPath.String))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLast := lastAt.UTC().Format(time.RFC3339Nano)
+	if !strings.Contains(string(secondLog), fmt.Sprintf("run=%d last=%s", runs[0].ID, wantLast)) {
+		t.Fatalf("last success metadata missing: %q", secondLog)
+	}
+	entries, err := os.ReadDir(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "bump.yaml" {
+		t.Fatalf("run added files to project: %v", entries)
 	}
 }
 

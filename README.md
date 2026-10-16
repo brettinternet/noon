@@ -8,7 +8,8 @@ Python, Node, cloud service, or agent provider.
 
 **Status: foreground execution.** Working today: project discovery, layered settings,
 non-destructive initialization, strict job validation, job listing with next-run
-previews, foreground command and agent-prompt execution, human/JSON output, and development tooling.
+previews, foreground command and agent-prompt execution, durable per-user run records and bounded logs,
+human/JSON output, and development tooling.
 Scheduling, cron import, hooks, MCP, service installation, and TUI are designed but
 **not implemented**. There is no background daemon yet.
 
@@ -31,7 +32,10 @@ bin/bump --help
 ```
 
 `bump init --local` creates a private `.bump.yaml` override instead. Ignore
-`.bump.yaml` and `.bump/` in Git. Configuration layers are:
+`.bump.yaml` in Git. Run state is stored per user under `$XDG_STATE_HOME/bump`,
+or `~/.local/state/bump` when XDG is unset; `BUMP_STATE_DIR` and `--state-dir`
+can override it. `state_dir` belongs only in user config or an explicit `--config`
+file, never a project file. Configuration layers are:
 defaults → user config → `bump.yaml` → `.bump.yaml` → environment → CLI flags.
 
 ```yaml
@@ -59,8 +63,10 @@ errors, and 1 for other failures. Foreground runs instead return the child’s e
 code: 124 on timeout, 130 on cancellation, 128+N for signal N, and 125–127 on
 start failure. Job output streams directly; status lines go to stderr.
 `bump run NAME --json` sends both job streams to stderr and one run summary to
-stdout. SIGINT, SIGTERM, or SIGHUP cancels the process group (TERM, then KILL
-after 10s); a second signal kills it immediately. No run history is stored yet.
+stdout. Each foreground run is recorded in the per-user SQLite database with a bounded log;
+only one run of a given job can be active per project. SIGINT, SIGTERM, or SIGHUP cancels
+the process group (TERM, then KILL after 10s); a second signal kills it immediately.
+Read-only commands do not create the state directory.
 
 ## Direction
 
@@ -74,8 +80,8 @@ Designed, not built yet ([design](docs/design.md), [decisions](backlog/decisions
 - Nothing from a repository runs unattended until you `bump enable` that
   checkout, and changed shared jobs wait for re-approval.
 - After sleep, a missed job runs once, never in a burst.
-- History, logs, hooks, Git and agent triggers, webhooks, MCP, and a TUI build
-  on one store. Commands are the integration boundary: no plugin system.
+- History/log inspection commands, hooks, Git and agent triggers, webhooks, MCP, and a TUI
+  build on the store. Commands are the integration boundary: no plugin system.
 
 ## Docker bootstrap
 

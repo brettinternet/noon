@@ -73,6 +73,8 @@ func RunSpec(project string, job config.Job, inherited []string) (runner.Spec, e
 		env[key] = value
 	}
 	env["BUMP_PROJECT"], env["BUMP_JOB"], env["BUMP_TRIGGER"] = project, job.Name, "manual"
+	delete(env, "BUMP_RUN_ID")
+	delete(env, "BUMP_LAST_SUCCESS_AT")
 	if job.Prompt != nil || job.PromptFile != nil {
 		env["BUMP_AGENT"] = job.Agent
 	}

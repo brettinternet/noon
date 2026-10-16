@@ -3,6 +3,7 @@ package runner_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,6 +70,22 @@ func TestRunner(t *testing.T) {
 		result, out := run(t, spec)
 		if result.ExitCode != 0 || out != "input" {
 			t.Fatalf("%+v %q", result, out)
+		}
+	})
+	t.Run("terminal failure does not interrupt durable log output", func(t *testing.T) {
+		terminal := &failingTerminalWriter{}
+		var log bytes.Buffer
+		spec := base("/bin/sh", "-c", `i=0; while [ "$i" -lt 10000 ]; do printf 'abcdefghij'; i=$((i + 1)); done`)
+		spec.Stdout, spec.Log = terminal, &log
+		result := runner.Run(context.Background(), spec)
+		if result.ExitCode != 0 || result.StartError != nil {
+			t.Fatalf("runner result = %+v", result)
+		}
+		if terminal.writes != 1 {
+			t.Fatalf("terminal writer was called %d times after failure, want 1", terminal.writes)
+		}
+		if got, want := log.String(), strings.Repeat("abcdefghij", 10000); got != want {
+			t.Fatalf("durable log has %d bytes, want %d", len(got), len(want))
 		}
 	})
 	t.Run("job PATH and relative executable", func(t *testing.T) {
@@ -201,6 +218,13 @@ while [ ! -f grandchild ]; do :; done
 			t.Fatalf("%+v", result)
 		}
 	})
+}
+
+type failingTerminalWriter struct{ writes int }
+
+func (w *failingTerminalWriter) Write([]byte) (int, error) {
+	w.writes++
+	return 0, errors.New("terminal unavailable")
 }
 
 func awaitPID(t *testing.T, path string) int {

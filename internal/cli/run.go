@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/brettinternet/bump/internal/app"
 	"github.com/brettinternet/bump/internal/config"
 	"github.com/brettinternet/bump/internal/runner"
+	"github.com/brettinternet/bump/internal/store"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -75,6 +77,49 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	if !job.Enabled {
 		return &Error{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
 	}
+	now := time.Now()
+	ownerStart, err := runner.ProcessStartIdentity(os.Getpid())
+	if err != nil {
+		return &Error{Code: "error", Message: fmt.Sprintf("identify Bump process: %v", err)}
+	}
+	state, err := store.Open(cfg.StateDir)
+	if err != nil {
+		return stateError(err)
+	}
+	defer state.Close()
+	projectID, err := state.RegisterProject(cfg.Project, now)
+	if err != nil {
+		return stateError(err)
+	}
+	if err := state.Recover(now, 10*time.Second); err != nil {
+		return stateError(err)
+	}
+	lastSuccess, hasSuccess, err := state.LastSuccess(projectID, name)
+	if err != nil {
+		return stateError(err)
+	}
+	run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: name, Trigger: "manual", Digest: job.Digest, Now: now, OwnerPID: os.Getpid(), OwnerStart: ownerStart})
+	if err != nil {
+		return stateError(err)
+	}
+	log, err := state.RunLog(projectID, run.ID)
+	if err != nil {
+		code := 125
+		finishErr := state.FinishRun(run.ID, projectID, name, store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: err.Error()})
+		if finishErr != nil {
+			return stateError(errors.Join(err, finishErr))
+		}
+		return stateError(err)
+	}
+	if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+		logBytes, truncated, closeErr := log.Close()
+		code := 125
+		finishErr := state.FinishRun(run.ID, projectID, name, store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: errors.Join(err, closeErr).Error(), LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated})
+		if finishErr != nil {
+			return stateError(errors.Join(err, finishErr))
+		}
+		return stateError(err)
+	}
 	// Register before starting the child. Count OS signals separately from parent
 	// cancellation so NotifyContext delivery order cannot turn the first into KILL.
 	signals := make(chan os.Signal, 2)
@@ -105,7 +150,21 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		}
 	}()
 	spec, startErr := app.RunSpec(cfg.Project, job, os.Environ())
+	if startErr == nil {
+		spec.Env = setRunEnv(spec.Env, "BUMP_RUN_ID", strconv.FormatInt(run.ID, 10))
+		value := ""
+		if hasSuccess {
+			if at, err := time.Parse(store.TimestampLayout, lastSuccess); err == nil {
+				value = at.UTC().Format(time.RFC3339Nano)
+			}
+		}
+		spec.Env = setRunEnv(spec.Env, "BUMP_LAST_SUCCESS_AT", value)
+	}
 	spec.Stdout, spec.Stderr, spec.ForceKill = cmd.Writer, cmd.ErrWriter, force
+	spec.Log = log
+	spec.OnStart = func(_ int, pgid int, leaderStart string) error {
+		return state.SetProcessIdentity(run.ID, pgid, leaderStart)
+	}
 	if cmd.Bool("json") {
 		spec.Stdout = cmd.ErrWriter
 	}
@@ -147,6 +206,21 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		detail = fmt.Sprintf(" (%s)", strconv.Quote(result.StartError.Error()))
 	}
 	fmt.Fprintf(cmd.ErrWriter, "%s%s%s\n", summary, elapsed.Round(time.Millisecond), detail)
+	logBytes, logTruncated, logErr := log.Close()
+	outcomeError := ""
+	if result.StartError != nil {
+		outcomeError = result.StartError.Error()
+	}
+	if logErr != nil {
+		if outcomeError != "" {
+			outcomeError += "; "
+		}
+		outcomeError += "log write failed: " + logErr.Error()
+		fmt.Fprintf(cmd.ErrWriter, "run log failed: %v\n", logErr)
+	}
+	if err := state.FinishRun(run.ID, projectID, name, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: outcomeError, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: logTruncated}); err != nil {
+		return stateError(err)
+	}
 	if cmd.Bool("json") {
 		if err := emit(cmd, map[string]any{"run": map[string]any{
 			"job": name, "status": status, "exit_code": result.ExitCode, "signal": result.Signal,
@@ -156,6 +230,32 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		}
 	}
 	return runExit(result.ExitCode)
+}
+
+func setRunEnv(env []string, key, value string) []string {
+	filtered := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		name, _, ok := strings.Cut(entry, "=")
+		if !ok || name != key {
+			filtered = append(filtered, entry)
+		}
+	}
+	if value != "" {
+		filtered = append(filtered, key+"="+value)
+	}
+	return filtered
+}
+
+func stateError(err error) error {
+	var newer *store.StateTooNewError
+	if errors.As(err, &newer) {
+		return &Error{Code: "state_too_new", Message: newer.Error(), Hint: "Upgrade Bump before using this state database."}
+	}
+	var running *store.AlreadyRunningError
+	if errors.As(err, &running) {
+		return &Error{Code: "already_running", Message: fmt.Sprintf("job is already running as run %d, started at %s", running.RunID, running.StartedAt), Hint: "Wait for that run to finish before starting this job again."}
+	}
+	return &Error{Code: "error", Message: err.Error()}
 }
 
 func editDistance(a, b string) int {

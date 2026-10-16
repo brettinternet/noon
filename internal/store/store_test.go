@@ -1,0 +1,506 @@
+package store
+
+import (
+	"bytes"
+	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/brettinternet/bump/internal/runner"
+)
+
+func testStore(t *testing.T) (*Store, int64) {
+	t.Helper()
+	s, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	project, err := s.RegisterProject(t.TempDir(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, project
+}
+
+func deadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	return pid
+}
+
+func createTestRun(t *testing.T, s *Store, project int64, job string) Run {
+	t.Helper()
+	identity, err := runner.ProcessStartIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.CreateRun(NewRun{ProjectID: project, Job: job, Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: os.Getpid(), OwnerStart: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
+func TestStore(t *testing.T) {
+	t.Run("migrate and reopen; secure WAL store; absent open is read-only", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "state")
+		if _, err := OpenExisting(dir); !errors.Is(err, ErrNoDatabase) {
+			t.Fatalf("OpenExisting = %v, want ErrNoDatabase", err)
+		}
+		if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("OpenExisting created state: %v", err)
+		}
+		s, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var version int
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 1 {
+			t.Fatalf("user_version=%d err=%v", version, err)
+		}
+		var journal string
+		if err := s.db.QueryRow("PRAGMA journal_mode").Scan(&journal); err != nil || journal != "wal" {
+			t.Fatalf("journal_mode=%q err=%v", journal, err)
+		}
+		var foreignKeys int
+		if err := s.db.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys); err != nil || foreignKeys != 1 {
+			t.Fatalf("foreign_keys=%d err=%v", foreignKeys, err)
+		}
+		var busyTimeout int
+		if err := s.db.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil || busyTimeout != 5000 {
+			t.Fatalf("busy_timeout=%d err=%v", busyTimeout, err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		for path, want := range map[string]os.FileMode{dir: 0o700, filepath.Join(dir, databaseName): 0o600} {
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != want {
+				t.Fatalf("%s mode %o, want %o", path, info.Mode().Perm(), want)
+			}
+		}
+		reopened, err := OpenExisting(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := reopened.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("newer database is refused without modifying it", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, databaseName)
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec("PRAGMA user_version=2"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = Open(dir)
+		var newer *StateTooNewError
+		if !errors.As(err, &newer) || newer.Version != 2 {
+			t.Fatalf("Open error = %v, want StateTooNewError(2)", err)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Fatal("newer database file changed")
+		}
+	})
+
+	t.Run("one running run per project and job", func(t *testing.T) {
+		s, project := testStore(t)
+		_ = createTestRun(t, s, project, "tests")
+		_, err := s.CreateRun(NewRun{ProjectID: project, Job: "tests", Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: 1, OwnerStart: "old"})
+		var running *AlreadyRunningError
+		if !errors.As(err, &running) || running.RunID == 0 || running.StartedAt == "" {
+			t.Fatalf("second run error = %v", err)
+		}
+	})
+
+	t.Run("retains 50 terminal rows and 10 logs", func(t *testing.T) {
+		s, project := testStore(t)
+		identity, err := runner.ProcessStartIdentity(os.Getpid())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range 55 {
+			now := time.Now().Add(time.Duration(i) * time.Millisecond)
+			run, err := s.CreateRun(NewRun{ProjectID: project, Job: "tests", Trigger: "manual", Digest: "test", Now: now, OwnerPID: os.Getpid(), OwnerStart: identity})
+			if err != nil {
+				t.Fatal(err)
+			}
+			log, err := s.RunLog(project, run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := log.Write([]byte(fmt.Sprintf("run %d", i))); err != nil {
+				t.Fatal(err)
+			}
+			logBytes, truncated, err := log.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetRunLog(run.ID, log.Path()); err != nil {
+				t.Fatal(err)
+			}
+			exit := 0
+			if err := s.FinishRun(run.ID, project, "tests", Outcome{Status: "succeeded", FinishedAt: now, ExitCode: &exit, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		runs, err := s.RunsForJob(project, "tests")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(runs) != 50 {
+			t.Fatalf("kept %d runs, want 50", len(runs))
+		}
+		logs := 0
+		for _, run := range runs {
+			if run.LogPath.Valid {
+				logs++
+				if _, err := os.Stat(filepath.Join(s.dir, run.LogPath.String)); err != nil {
+					t.Fatalf("retained log %s: %v", run.LogPath.String, err)
+				}
+			}
+		}
+		if logs != 10 {
+			t.Fatalf("kept %d logs, want 10", logs)
+		}
+	})
+
+	t.Run("failed log cleanup preserves references and terminal outcome for retry", func(t *testing.T) {
+		s, project := testStore(t)
+		var oldest Run
+		for i := range 50 {
+			run := createTestRun(t, s, project, "cleanup")
+			if i == 0 {
+				oldest = run
+			}
+			exit := 0
+			if err := s.FinishRun(run.ID, project, "cleanup", Outcome{Status: "succeeded", FinishedAt: time.Now(), ExitCode: &exit}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		blockedPath := filepath.Join(s.dir, "logs", fmt.Sprint(project), "blocked.log")
+		if err := os.MkdirAll(filepath.Dir(blockedPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(blockedPath, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(blockedPath, "child"), []byte("blocks removal"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		relativePath := filepath.ToSlash(filepath.Join("logs", fmt.Sprint(project), "blocked.log"))
+		if _, err := s.db.Exec(`UPDATE runs SET log_path=? WHERE id=?`, relativePath, oldest.ID); err != nil {
+			t.Fatal(err)
+		}
+
+		finished := createTestRun(t, s, project, "cleanup")
+		exit := 0
+		if err := s.FinishRun(finished.ID, project, "cleanup", Outcome{Status: "succeeded", FinishedAt: time.Now(), ExitCode: &exit}); err == nil {
+			t.Fatal("FinishRun succeeded despite an unremovable old log")
+		}
+		persisted, err := s.RunByID(finished.ID)
+		if err != nil || persisted.Status != "succeeded" || !persisted.ExitCode.Valid || persisted.ExitCode.Int64 != 0 {
+			t.Fatalf("terminal outcome was not durable after cleanup failure: run=%+v err=%v", persisted, err)
+		}
+		retained, err := s.RunByID(oldest.ID)
+		if err != nil || !retained.LogPath.Valid || retained.LogPath.String != relativePath {
+			t.Fatalf("failed cleanup lost its reference: run=%+v err=%v", retained, err)
+		}
+
+		if err := os.Remove(filepath.Join(blockedPath, "child")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(blockedPath); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(blockedPath, []byte("old log"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		retry := createTestRun(t, s, project, "cleanup")
+		if err := s.FinishRun(retry.ID, project, "cleanup", Outcome{Status: "succeeded", FinishedAt: time.Now(), ExitCode: &exit}); err != nil {
+			t.Fatalf("retry retention after fixing unlink failure: %v", err)
+		}
+		if _, err := s.RunByID(oldest.ID); !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("old row survived successful cleanup retry: err=%v", err)
+		}
+		if _, err := os.Stat(blockedPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("old log survived successful cleanup retry: %v", err)
+		}
+	})
+
+	t.Run("running record and log are exempt from retention", func(t *testing.T) {
+		s, project := testStore(t)
+		active := createTestRun(t, s, project, "tests")
+		log, err := s.RunLog(project, active.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := log.Write([]byte("still running")); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetRunLog(active.ID, log.Path()); err != nil {
+			t.Fatal(err)
+		}
+		for i := range 55 {
+			path := filepath.Join(s.dir, "logs", fmt.Sprint(project), fmt.Sprintf("terminal-%d.log", i))
+			if err := os.WriteFile(path, []byte("terminal"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := s.db.Exec(`INSERT INTO runs(project_id,job,status,trigger,digest,created_at,started_at,finished_at,log_path,log_bytes) VALUES(?,?,'succeeded','manual','test',?,?,?, ?,8)`, project, "tests", FormatTime(time.Now().Add(time.Duration(i)*time.Millisecond)), FormatTime(time.Now()), FormatTime(time.Now()), fmt.Sprintf("logs/%d/terminal-%d.log", project, i))
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		tx, err := s.db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := pruneRuns(tx, s.dir, project, "tests"); err != nil {
+			_ = tx.Rollback()
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.RunByID(active.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != "running" || !got.LogPath.Valid {
+			t.Fatalf("active run pruned: %+v", got)
+		}
+		if _, err := os.Stat(filepath.Join(s.dir, got.LogPath.String)); err != nil {
+			t.Fatalf("active log removed: %v", err)
+		}
+		_, _, _ = log.Close()
+	})
+
+	t.Run("bounded output preserves first and last MiB", func(t *testing.T) {
+		s, project := testStore(t)
+		run := createTestRun(t, s, project, "output")
+		log, err := s.RunLog(project, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		const mib = 1 << 20
+		input := bytes.Join([][]byte{bytes.Repeat([]byte{'A'}, mib), bytes.Repeat([]byte{'B'}, mib), bytes.Repeat([]byte{'C'}, mib)}, nil)
+		if _, err := log.Write(input); err != nil {
+			t.Fatal(err)
+		}
+		logBytes, truncated, err := log.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !truncated {
+			t.Fatal("large output was not marked truncated")
+		}
+		if err := s.SetRunLog(run.ID, log.Path()); err != nil {
+			t.Fatal(err)
+		}
+		exit := 0
+		if err := s.FinishRun(run.ID, project, "output", Outcome{Status: "succeeded", FinishedAt: time.Now(), ExitCode: &exit, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(filepath.Join(s.dir, log.Path()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := bytes.Join([][]byte{input[:mib], []byte(fmt.Sprintf("\n[bump: %d bytes omitted]\n", mib)), input[2*mib:]}, nil)
+		if !bytes.Equal(got, want) {
+			t.Fatalf("bounded log differs: got %d bytes, want %d", len(got), len(want))
+		}
+		if logBytes != int64(len(want)) {
+			t.Fatalf("stored byte count=%d want=%d", logBytes, len(want))
+		}
+	})
+}
+
+func TestRecovery(t *testing.T) {
+	t.Run("dead owner is interrupted and never restarted", func(t *testing.T) {
+		s, project := testStore(t)
+		ownerPID := deadPID(t)
+		run, err := s.CreateRun(NewRun{ProjectID: project, Job: "dead", Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: ownerPID, OwnerStart: "dead-start"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Recover(time.Now(), 20*time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.RunsForJob(project, "dead")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].ID != run.ID || got[0].Status != "interrupted" {
+			t.Fatalf("recovery rows = %+v", got)
+		}
+	})
+
+	t.Run("zombie owner is interrupted while its start identity remains available", func(t *testing.T) {
+		s, project := testStore(t)
+		cmd := exec.Command("sleep", "0.05")
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer cmd.Wait()
+		ownerPID := cmd.Process.Pid
+		ownerStart, err := runner.ProcessStartIdentity(ownerPID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.NewTimer(3 * time.Second)
+		defer deadline.Stop()
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			identity, err := runner.ProcessStartIdentity(ownerPID)
+			if err != nil {
+				t.Fatalf("zombie owner lost its start identity: %v", err)
+			}
+			if identity != ownerStart {
+				t.Fatalf("owner identity changed from %q to %q", ownerStart, identity)
+			}
+			alive, err := runner.ProcessOwnerAlive(ownerPID, ownerStart)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !alive {
+				break
+			}
+			select {
+			case <-deadline.C:
+				t.Fatal("exited child did not become an owner zombie")
+			case <-ticker.C:
+			}
+		}
+		run, err := s.CreateRun(NewRun{ProjectID: project, Job: "zombie", Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: ownerPID, OwnerStart: ownerStart})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Recover(time.Now(), 20*time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.RunByID(run.ID)
+		if err != nil || got.Status != "interrupted" {
+			t.Fatalf("zombie owner recovery = run %+v, err=%v", got, err)
+		}
+		identity, err := runner.ProcessStartIdentity(ownerPID)
+		if err != nil || identity != ownerStart {
+			t.Fatalf("zombie leader identity unavailable for safe group checks: %q err=%v", identity, err)
+		}
+	})
+
+	t.Run("matching leader identity terminates an orphan group", func(t *testing.T) {
+		s, project := testStore(t)
+		cmd := exec.Command("/bin/sh", "-c", `trap '' TERM; exec sleep 30`)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		pid := cmd.Process.Pid
+		t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+		leaderStart, err := runner.ProcessStartIdentity(pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, err := s.CreateRun(NewRun{ProjectID: project, Job: "orphan", Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: deadPID(t), OwnerStart: "dead-owner"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetProcessIdentity(run.ID, pid, leaderStart); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Recover(time.Now(), 20*time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		if err := cmd.Wait(); err == nil {
+			t.Fatal("orphaned process group survived recovery")
+		}
+		got, err := s.RunByID(run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != "interrupted" {
+			t.Fatalf("stale row status=%q, want interrupted", got.Status)
+		}
+	})
+
+	t.Run("wrong leader identity is never signalled", func(t *testing.T) {
+		s, project := testStore(t)
+		cmd := exec.Command("sleep", "30")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+		actual, err := runner.ProcessStartIdentity(cmd.Process.Pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if actual == "wrong-start-identity" {
+			t.Fatal("impossible identity collision")
+		}
+		ownerPID := deadPID(t)
+		run, err := s.CreateRun(NewRun{ProjectID: project, Job: "wrong", Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: ownerPID, OwnerStart: "dead-owner"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetProcessIdentity(run.ID, cmd.Process.Pid, "wrong-start-identity"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Recover(time.Now(), 20*time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+			t.Fatalf("process was signalled or exited despite wrong identity %q: %v", actual, err)
+		}
+		got, err := s.RunByID(run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != "interrupted" {
+			t.Fatalf("stale row status=%q, want interrupted", got.Status)
+		}
+	})
+}
+
+func TestDatabaseTimeFormat(t *testing.T) {
+	got := FormatTime(time.Date(2026, 2, 3, 4, 5, 6, 789123000, time.FixedZone("offset", 3600)))
+	if got != "2026-02-03T03:05:06.789Z" || strings.Contains(got, "+") {
+		t.Fatalf("FormatTime = %q", got)
+	}
+}

@@ -57,6 +57,34 @@ func TestLoadLayersAndPathOrigins(t *testing.T) {
 	}
 }
 
+func TestStateDirectoryScopeAndOrigins(t *testing.T) {
+	t.Parallel()
+	root := canonical(t, t.TempDir())
+	project := filepath.Join(root, "repo")
+	userDir := filepath.Join(root, "user")
+	put(t, filepath.Join(project, "bump.yaml"), "state_dir: project-state\n")
+	_, err := config.Load(config.Input{CWD: project, UserConfigDir: userDir, StateDirDefault: filepath.Join(root, "state", "bump")})
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(userDir, "bump", "config.yaml")) {
+		t.Fatalf("project state_dir should name the allowed user config path: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(project, "project-state")); !os.IsNotExist(err) {
+		t.Fatalf("project state path was created: %v", err)
+	}
+	put(t, filepath.Join(project, "bump.yaml"), "timezone: UTC\n")
+	launch := filepath.Join(root, "launch")
+	if err := os.Mkdir(launch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	state := "relative-state"
+	cfg, err := config.Load(config.Input{CWD: launch, UserConfigDir: userDir, Project: &project, StateDir: &state, StateDirDefault: filepath.Join(root, "state", "bump")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StateDir != filepath.Join(launch, state) {
+		t.Fatalf("flag path must be invocation-relative: %s", cfg.StateDir)
+	}
+}
+
 func TestLoadDiscoveryStopsAtGitBoundary(t *testing.T) {
 	t.Parallel()
 	root := canonical(t, t.TempDir())

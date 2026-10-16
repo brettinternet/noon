@@ -12,7 +12,9 @@ docker run --rm --read-only \
   bump:dev config
 ```
 
-The image sets `BUMP_STATE_DIR=/state`; bootstrap inspection does not write there.
+The image sets `BUMP_STATE_DIR=/state`; configuration inspection does not create
+that directory. A foreground `bump run NAME` creates the SQLite store and bounded
+run logs there, so mount `/state` on persistent writable storage when keeping history.
 Init rejects this invocation override (rather than ignoring it). Initialize a repo
 on the host, or explicitly unset the variable inside the container if you really
 intend to create config there. Do not run init against a read-only mount.
@@ -20,7 +22,7 @@ intend to create config there. Do not run init against a read-only mount.
 Scheduling is not implemented. When delivered, the container will run
 `bump serve` in the foreground. Persistent state needs a volume writable by the
 container UID; repository access should be read-only unless a job explicitly needs
-to modify it. Multiple owners of the same project/state must be refused.
+to modify it. Concurrent runs of the same project job are refused by the state store.
 
 This image intentionally contains no agent CLI, Git toolchain, Docker socket,
 or host credentials. Extend the image for job tools; bind only required inputs.

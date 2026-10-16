@@ -14,9 +14,8 @@ CLAUDE.local.md
 GEMINI.local.md
 AGENTS.local.md
 
-# Bump machine-local configuration and state
+# Bump machine-local configuration
 /.bump.yaml
-/.bump/
 
 # Go outputs
 /bin/

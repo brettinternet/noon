@@ -25,12 +25,13 @@ type BuildOpts struct {
 // Nil means absent; an explicitly empty value is an error. Paths are not expanded
 // through a shell. UserConfigDir is the directory containing the bump directory.
 type Input struct {
-	CWD           string
-	UserConfigDir string
-	Project       *string
-	File          *string
-	Timezone      *string
-	StateDir      *string
+	CWD             string
+	UserConfigDir   string
+	Project         *string
+	File            *string
+	Timezone        *string
+	StateDir        *string
+	StateDirDefault string
 }
 
 // Config is a read-only snapshot. Sources are ordered from lowest to highest priority.
@@ -51,12 +52,26 @@ func Load(input Input) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cfg := Config{Project: project, Timezone: "Local", StateDir: filepath.Join(project, ".bump"), Sources: []string{}, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
+	stateDefault := input.StateDirDefault
+	if stateDefault == "" {
+		stateHome := os.Getenv("XDG_STATE_HOME")
+		if stateHome == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return Config{}, err
+			}
+			stateHome = filepath.Join(home, ".local", "state")
+		} else if !filepath.IsAbs(stateHome) {
+			return Config{}, errors.New("XDG_STATE_HOME must be absolute")
+		}
+		stateDefault = filepath.Join(stateHome, "bump")
+	}
+	cfg := Config{Project: project, Timezone: "Local", StateDir: stateDefault, Sources: []string{}, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
 	if input.File != nil {
 		if *input.File == "" {
 			return Config{}, errors.New("config path must not be empty")
 		}
-		if err := cfg.applyFile(resolvePath(input.CWD, *input.File), false, "explicit"); err != nil {
+		if err := cfg.applyFile(resolvePath(input.CWD, *input.File), false, "explicit", filepath.Join(input.UserConfigDir, "bump", "config.yaml")); err != nil {
 			return Config{}, err
 		}
 	} else {
@@ -72,7 +87,7 @@ func Load(input Input) (Config, error) {
 			} else if i == len(paths)-1 {
 				kind = "local"
 			}
-			if err := cfg.applyFile(path, true, kind); err != nil {
+			if err := cfg.applyFile(path, true, kind, filepath.Join(input.UserConfigDir, "bump", "config.yaml")); err != nil {
 				return Config{}, err
 			}
 		}
@@ -90,7 +105,7 @@ func Load(input Input) (Config, error) {
 		if strings.TrimSpace(*input.StateDir) == "" {
 			return Config{}, errors.New("state-dir must not be empty")
 		}
-		cfg.StateDir = resolvePath(project, *input.StateDir)
+		cfg.StateDir = resolvePath(input.CWD, *input.StateDir)
 	}
 	return cfg, nil
 }
@@ -139,7 +154,7 @@ func ProjectDir(input Input) (string, error) {
 	}
 }
 
-func (cfg *Config) applyFile(path string, optional bool, kind string) error {
+func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath string) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -175,6 +190,9 @@ func (cfg *Config) applyFile(path string, optional bool, kind string) error {
 		cfg.Timezone = value
 	}
 	if node, ok := values["state_dir"]; ok {
+		if kind != "user" && kind != "explicit" {
+			return fmt.Errorf("config %s: state_dir is allowed only in user config %s or an explicit --config file", path, userConfigPath)
+		}
 		value := node.Value
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("config %s: state_dir must not be empty", path)

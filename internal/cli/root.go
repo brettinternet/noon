@@ -31,7 +31,8 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			&urfave.StringFlag{Name: "project", Aliases: []string{"C"}, Usage: "Use this project directory instead of discovery", Sources: urfave.EnvVars("BUMP_PROJECT")},
 			&urfave.StringFlag{Name: "config", Usage: "Read only this configuration file (relative to invocation directory)", Sources: urfave.EnvVars("BUMP_CONFIG")},
 			&urfave.StringFlag{Name: "timezone", Usage: "Override timezone (default Local)", Sources: urfave.EnvVars("BUMP_TIMEZONE")},
-			&urfave.StringFlag{Name: "state-dir", Usage: "Override state directory (default PROJECT/.bump)", Sources: urfave.EnvVars("BUMP_STATE_DIR")},
+			&urfave.StringFlag{Name: "state-dir", Usage: "Override per-user state directory", Sources: urfave.EnvVars("BUMP_STATE_DIR")},
+
 			&urfave.BoolFlag{Name: "json", Usage: "Print structured JSON instead of human output"},
 		},
 		Action: status,
@@ -147,7 +148,17 @@ func input(cmd *urfave.Command) (config.Input, error) {
 	if !filepath.IsAbs(userDir) {
 		return config.Input{}, errors.New("XDG_CONFIG_HOME must be absolute")
 	}
-	return config.Input{CWD: cwd, UserConfigDir: userDir,
+	stateHome := os.Getenv("XDG_STATE_HOME")
+	if stateHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return config.Input{}, err
+		}
+		stateHome = filepath.Join(home, ".local", "state")
+	} else if !filepath.IsAbs(stateHome) {
+		return config.Input{}, errors.New("XDG_STATE_HOME must be absolute")
+	}
+	return config.Input{CWD: cwd, UserConfigDir: userDir, StateDirDefault: filepath.Join(stateHome, "bump"),
 		Project: setting(cmd, "project"), File: setting(cmd, "config"),
 		Timezone: setting(cmd, "timezone"), StateDir: setting(cmd, "state-dir")}, nil
 }
@@ -260,7 +271,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	} else if err != nil {
 		return err
 	} else {
-		_, writeErr := io.WriteString(file, "# Bump settings. Listing jobs does not execute them.\n# Ignore .bump.yaml and .bump/ in your repository.\nversion: 1\n# timezone: Local\n# jobs:\n#   tests:\n#     schedule: weekdays at 9am\n#     run: task test\n")
+		_, writeErr := io.WriteString(file, "# Bump settings. Listing jobs does not execute them.\n# Ignore .bump.yaml in your repository.\nversion: 1\n# timezone: Local\n# jobs:\n#   tests:\n#     schedule: weekdays at 9am\n#     run: task test\n")
 		closeErr := file.Close()
 		if err := errors.Join(writeErr, closeErr); err != nil {
 			return err
@@ -274,7 +285,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	} else {
 		fmt.Fprintf(cmd.Writer, "Kept existing %s (not overwritten)\n", path)
 	}
-	fmt.Fprintln(cmd.Writer, "Ignore .bump.yaml and .bump/ in Git. Next: bump config check")
+	fmt.Fprintln(cmd.Writer, "Ignore .bump.yaml in Git. Next: bump config check")
 	return nil
 }
 

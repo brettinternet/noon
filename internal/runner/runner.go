@@ -20,6 +20,8 @@ type Spec struct {
 	Env                []string
 	Stdin              io.Reader // nil is /dev/null
 	Stdout, Stderr     io.Writer
+	Log                io.Writer
+	OnStart            func(pid, pgid int, leaderStart string) error
 	Timeout, KillGrace time.Duration
 	// ForceKill requests immediate group termination after a second signal.
 	ForceKill <-chan struct{}
@@ -98,12 +100,20 @@ func Run(ctx context.Context, spec Spec) (result Result) {
 	result.PID, result.PGID = cmd.Process.Pid, cmd.Process.Pid
 	_ = outW.Close()
 	_ = errW.Close()
+	identity, _ := ProcessStartIdentity(result.PID)
+	if spec.OnStart != nil {
+		if err := spec.OnStart(result.PID, result.PGID, identity); err != nil {
+			_ = syscall.Kill(-result.PGID, syscall.SIGKILL)
+			_ = cmd.Wait()
+			return fail(err, 125)
+		}
+	}
 	var writes sync.Mutex
 	var copies sync.WaitGroup
 	for _, stream := range []struct {
 		r *os.File
 		w io.Writer
-	}{{outR, spec.Stdout}, {errR, spec.Stderr}} {
+	}{{outR, outputWriter(spec.Stdout, spec.Log)}, {errR, outputWriter(spec.Stderr, spec.Log)}} {
 		copies.Add(1)
 		go func(r *os.File, w io.Writer) {
 			defer copies.Done()
@@ -187,6 +197,25 @@ cleanup:
 		<-drained
 	}
 	return result
+}
+
+func outputWriter(stream, log io.Writer) io.Writer {
+	if log == nil {
+		return stream
+	}
+	return &teeWriter{stream: stream, log: log}
+}
+
+type teeWriter struct{ stream, log io.Writer }
+
+func (w *teeWriter) Write(p []byte) (int, error) {
+	if w.stream != nil {
+		n, err := w.stream.Write(p)
+		if err != nil || n != len(p) {
+			w.stream = nil
+		}
+	}
+	return w.log.Write(p)
 }
 
 type lockedWriter struct {

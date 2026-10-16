@@ -15,7 +15,7 @@ bump --version
 bump
 bump config check
 bump --json status
-test ! -e .bump
+test ! -e "$bump_smoke_dir/.local/state/bump"
 test ! -e bump.yaml
 bump init
 cp bump.yaml original.yaml

@@ -1,10 +1,9 @@
 # Configuration
 
 This documents implemented settings, command jobs, and agent-prompt jobs. Jobs can be
-validated, listed, and executed with `bump run NAME`. Hooks, cron import, and the scheduler
-are not implemented; see [design](design.md) for their proposed format.
-The default state directory will move from `PROJECT/.bump` to a per-user
-directory (decision-3); until then, nothing writes state.
+validated, listed, and executed with `bump run NAME`. Foreground run history and bounded logs
+are stored in the per-user state directory. Hooks, cron import, and the scheduler are not
+implemented; see [design](design.md) for their proposed format.
 
 ## Sources
 
@@ -47,13 +46,15 @@ only reads files; it neither trusts them for execution nor starts a scheduler.
 ```yaml
 version: 1
 timezone: Local
-# state_dir: .bump
 ```
+
+`state_dir` may be set in user config or an explicit `--config` file, but not in
+`bump.yaml` or `.bump.yaml`.
 
 | Setting | Default | Environment | Flag |
 | --- | --- | --- | --- |
 | Timezone | `Local` | `BUMP_TIMEZONE` | `--timezone` |
-| State directory | `PROJECT/.bump` | `BUMP_STATE_DIR` | `--state-dir` |
+| State directory | `$XDG_STATE_HOME/bump`, else `~/.local/state/bump` | `BUMP_STATE_DIR` | `--state-dir` |
 | Project selection | Discovery | `BUMP_PROJECT` | `--project`, `-C` |
 | Explicit config file | Automatic sources | `BUMP_CONFIG` | `--config` |
 
@@ -64,16 +65,18 @@ including empty `BUMP_*` environment variables, are errors: unset them instead.
 `XDG_CONFIG_HOME` must be absolute when set; empty means use the home default.
 
 Setting paths in a YAML file are relative to **that file's directory**.
-Job `cwd` is instead relative to the selected project root. State-directory
-flags/environment values are relative to the selected project; project/config
-path flags are relative to the invocation directory. No shell, tilde, or variable
-expansion happens inside YAML. A relative user-level `state_dir` therefore
-refers to the user config directory, not each repository; normally leave it unset.
+Job `cwd` is instead relative to the selected project root. `BUMP_STATE_DIR` and
+`--state-dir` are relative to the invocation directory; project/config path flags
+are also relative to the invocation directory. `$XDG_STATE_HOME` must be absolute
+when set. No shell, tilde, or variable expansion happens inside YAML. A relative
+user-level `state_dir` therefore refers to the user config directory, not each
+repository; normally leave it unset.
 
 `bump config` prints effective settings, loaded file paths, and available agent profiles.
 `bump config --json` includes `agents` as profile-name-to-command mappings and `default_agent`.
 `bump config check` validates the same snapshot. Neither creates state or checks job
-executability or whether an agent CLI is installed. Persistent run state is not implemented yet.
+executability or whether an agent CLI is installed. `bump run NAME` creates the per-user
+SQLite store before starting the job and records its status and bounded output log.
 
 ## Private configuration
 
@@ -83,11 +86,10 @@ Generated settings are commented out so init does not shadow inherited values.
 Init does not merge or repair existing YAML. Use `bump config check` afterward.
 Invocation setting overrides are rejected by init rather than silently ignored.
 
-Add both entries to your repository's `.gitignore`:
+Ignore the private override in your repository's `.gitignore`:
 
 ```gitignore
 .bump.yaml
-.bump/
 ```
 
 Init prints this reminder but never modifies an existing ignore file. Never commit
