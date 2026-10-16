@@ -1,10 +1,10 @@
 ---
 id: NOON-6
 title: Import crontabs with preview and faithful semantics
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 16:50'
 labels:
   - config
   - integration
@@ -64,16 +64,36 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestImportCrontab|TestImportWrite)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
-- [ ] #2 `mise exec go -- go test ./internal/cronimport -run '^$' -fuzz '^FuzzImportCrontab$' -fuzztime 30s` exits 0
-- [ ] #3 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf '# nightly\n0 2 * * * /usr/local/bin/backup.sh\n@reboot echo hi\n' | env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" import crontab -; echo "exit=$?"` names line 3 and `@reboot`, prints `exit=1`, and leaves `$noon_ac_project` empty
+- [x] #1 `task cli:test -- -run '^(TestImportCrontab|TestImportWrite)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
+- [x] #2 `mise exec go -- go test ./internal/cronimport -run '^$' -fuzz '^FuzzImportCrontab$' -fuzztime 30s` exits 0
+- [x] #3 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf '# nightly\n0 2 * * * /usr/local/bin/backup.sh\n@reboot echo hi\n' | env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" import crontab -; echo "exit=$?"` names line 3 and `@reboot`, prints `exit=1`, and leaves `$noon_ac_project` empty
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Reuse manifest editing and schedule validation for faithful crontab parsing, preview, and atomic import. 2. Add critical parser/CLI regressions, fuzz coverage, and documentation. 3. Run acceptance commands and CI, review once, commit, merge locally, and remove the owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Continuation: resumed the same loop claim and adopted feat/noon-6-crontab using the creation receipt and prior session transcript; executor and reviewer finished. Single review found two parser defects (assignment whitespace and numeric commands); both fixed with a regression. No tests removed or weakened; changes stay within the modified-file contract. AC#1: task cli:test -- -run '^(TestImportCrontab|TestImportWrite)$' -count=1 -v -> exit 0; both tests print PASS, including review regressions. AC#2: mise exec go -- go test ./internal/cronimport -run '^$' -fuzz '^FuzzImportCrontab$' -fuzztime 30s -> exit 0, 217397 executions. AC#3: task cli:build plus the specified stdin fixture under env -i and isolated HOME/project -> line 3: @reboot, exit=1, project empty. The shell guard rejects the dynamic-variable command form; equivalent literal mktemp paths /tmp/noon-ac-home.uN9bWC and /tmp/noon-ac-project.2voehf were used. Next: final CI, commit, local integration and cleanup.
+
+Delivery: c5e42905574092b7d5c60e0f413319b1e8e8c891 (feat: import crontabs with faithful defaults) passed task check:staged and task ci on the committed implementation, including security, static analysis, all tests, race tests and smoke. Fast-forward merged into main. Worktrunk removed the verified adopted worktree and branch; its idle-shell Herdr workspace was closed by the post-remove hook and absence verified. Single review complete; both concrete findings fixed and focused checks rerun. No remaining blocker or resumable implementation step.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented preview-first crontab import with faithful cron defaults, aggregated refusals, collision-safe naming, JSON output, and atomic comment-preserving writes. Acceptance tests, 30-second fuzzing, isolated refusal fixture and full CI pass. Committed as c5e4290, merged to main, and removed the worktree/branch and Herdr workspace.
+<!-- SECTION:FINAL_SUMMARY:END -->
