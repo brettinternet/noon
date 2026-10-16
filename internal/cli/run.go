@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/brettinternet/bump/internal/app"
-	"github.com/brettinternet/bump/internal/config"
-	"github.com/brettinternet/bump/internal/runner"
-	"github.com/brettinternet/bump/internal/store"
+	"github.com/brettinternet/noon/internal/app"
+	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/runner"
+	"github.com/brettinternet/noon/internal/store"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -26,7 +26,7 @@ func (e runExit) Error() string { return fmt.Sprintf("job exited %d", e) }
 
 func runJob(ctx context.Context, cmd *urfave.Command) error {
 	if cmd.Args().Len() > 1 {
-		return usageError("run accepts only one job name", "Run bump run to list jobs")
+		return usageError("run accepts only one job name", "Run noon run to list jobs")
 	}
 	values, err := input(cmd)
 	if err != nil {
@@ -53,23 +53,23 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 			return emit(cmd, map[string]any{"jobs": jobs})
 		}
 		if len(jobs) == 0 {
-			fmt.Fprintln(cmd.Writer, "No runnable jobs. Add a job to bump.yaml.")
+			fmt.Fprintln(cmd.Writer, "No runnable jobs. Add a job to noon.yaml.")
 		}
 		for _, job := range jobs {
 			fmt.Fprintf(cmd.Writer, "%s  %s\n", job["name"], cell(job["description"], 60))
 		}
 		if len(jobs) > 0 {
-			fmt.Fprintf(cmd.Writer, "Next: bump run %s\n", jobs[0]["name"])
+			fmt.Fprintf(cmd.Writer, "Next: noon run %s\n", jobs[0]["name"])
 		}
 		return nil
 	}
 	name := cmd.Args().First()
 	job, ok := cfg.Jobs[name]
 	if !ok {
-		hint, best := "Run bump run to list jobs", 3
+		hint, best := "Run noon run to list jobs", 3
 		for _, candidate := range names {
 			if distance := editDistance(name, candidate); distance < best {
-				hint, best = "Did you mean bump run "+candidate+"?", distance
+				hint, best = "Did you mean noon run "+candidate+"?", distance
 			}
 		}
 		return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: hint}
@@ -80,7 +80,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	now := time.Now()
 	ownerStart, err := runner.ProcessStartIdentity(os.Getpid())
 	if err != nil {
-		return &Error{Code: "error", Message: fmt.Sprintf("identify Bump process: %v", err)}
+		return &Error{Code: "error", Message: fmt.Sprintf("identify Noon process: %v", err)}
 	}
 	state, err := store.Open(cfg.StateDir)
 	if err != nil {
@@ -151,14 +151,14 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	}()
 	spec, startErr := app.RunSpec(cfg.Project, job, os.Environ())
 	if startErr == nil {
-		spec.Env = setRunEnv(spec.Env, "BUMP_RUN_ID", strconv.FormatInt(run.ID, 10))
+		spec.Env = setRunEnv(spec.Env, "NOON_RUN_ID", strconv.FormatInt(run.ID, 10))
 		value := ""
 		if hasSuccess {
 			if at, err := time.Parse(store.TimestampLayout, lastSuccess); err == nil {
 				value = at.UTC().Format(time.RFC3339Nano)
 			}
 		}
-		spec.Env = setRunEnv(spec.Env, "BUMP_LAST_SUCCESS_AT", value)
+		spec.Env = setRunEnv(spec.Env, "NOON_LAST_SUCCESS_AT", value)
 	}
 	spec.Stdout, spec.Stderr, spec.ForceKill = cmd.Writer, cmd.ErrWriter, force
 	spec.Log = log
@@ -250,11 +250,11 @@ func setRunEnv(env []string, key, value string) []string {
 func stateError(err error) error {
 	var newer *store.StateTooNewError
 	if errors.As(err, &newer) {
-		return &Error{Code: "state_too_new", Message: newer.Error(), Hint: "Upgrade Bump before using this state database."}
+		return &Error{Code: "state_too_new", Message: newer.Error(), Hint: "Upgrade Noon before using this state database."}
 	}
 	var running *store.AlreadyRunningError
 	if errors.As(err, &running) {
-		return &Error{Code: "already_running", Message: fmt.Sprintf("job is already running as run %d, started at %s", running.RunID, running.StartedAt), Hint: fmt.Sprintf("Follow it: bump logs %d --follow", running.RunID)}
+		return &Error{Code: "already_running", Message: fmt.Sprintf("job is already running as run %d, started at %s", running.RunID, running.StartedAt), Hint: fmt.Sprintf("Follow it: noon logs %d --follow", running.RunID)}
 	}
 	return &Error{Code: "error", Message: err.Error()}
 }

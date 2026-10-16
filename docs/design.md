@@ -1,4 +1,4 @@
-# Bump design
+# Noon design
 
 Status: contracts for work that is mostly **not implemented**. README.md lists what works today.
 Backlog.md owns delivery order; `backlog/decisions/` records why the major choices were made. When a
@@ -6,7 +6,7 @@ task's acceptance criteria and this document disagree, the task wins and updates
 
 ## Product
 
-Bump is cron for repositories and coding agents. Jobs live beside the code, run on your machine or
+Noon is cron for repositories and coding agents. Jobs live beside the code, run on your machine or
 in a container, leave inspectable history, and never run unattended without your say-so.
 
 Jobs to be done:
@@ -38,11 +38,11 @@ design; no source code was copied.
 
 The CLI is the product. Rules:
 
-- Bare `bump` is a dashboard for the current project, never a service start or a TUI.
+- Bare `noon` is a dashboard for the current project, never a service start or a TUI.
 - Every command is valid without arguments: it inspects, lists candidates, or shows copy-paste
   examples. A missing target never means "all", and never mutates.
 - Human output is compact, uses the project timezone with relative hints ("in 14h"), and ends with
-  at most one "Next:" line. An error is one `bump: MESSAGE` line on stderr, optionally followed by
+  at most one "Next:" line. An error is one `noon: MESSAGE` line on stderr, optionally followed by
   one `Hint: ...` line with the fix.
 - `--json` works on every command that finishes: exactly one object on stdout,
   `schema_version: 1`. Long-running commands (`serve`, `mcp`, `tui`, `logs --follow`) reject
@@ -50,47 +50,47 @@ The CLI is the product. Rules:
   `{"schema_version":1,"error":{"code":"…","message":"…","hint":"…"}}`. Job output never mixes into
   JSON stdout; in JSON mode a foreground run streams job output to stderr.
 - Exit codes: 0 success (including empty results and guidance), 1 operational error, 2 usage error.
-  A foreground `bump run` exits with the job's code instead: 124 timeout, 130 cancelled, 128+N
+  A foreground `noon run` exits with the job's code instead: 124 timeout, 130 cancelled, 128+N
   killed by signal N, and 125-127 when it could not start (see Execution).
-- No prompts. Noninteractive use never hangs; `bump mcp` on a TTY prints setup help and exits.
+- No prompts. Noninteractive use never hangs; `noon mcp` on a TTY prints setup help and exits.
 - No surprising inference: one job is not "the" job, and a schedule string is never guessed at.
 
 First run, the experience every task protects:
 
 ```console
-$ bump add review "weekdays at 9am" --agent claude --prompt "Review open PRs and list risks"
-Added review to .bump.yaml (private) · weekdays at 09:00 · next Fri 09:00 (in 14h)
+$ noon add review "weekdays at 9am" --agent claude --prompt "Review open PRs and list risks"
+Added review to .noon.yaml (private) · weekdays at 09:00 · next Fri 09:00 (in 14h)
 Scheduling enabled for ~/code/app. The scheduler isn't running, so nothing runs in the background.
-Next: bump service install   (once per machine)  ·  bump run review   (run it now)
+Next: noon service install   (once per machine)  ·  noon run review   (run it now)
 
-$ bump
+$ noon
 app · ~/code/app · scheduler running · America/Denver
 JOB      SCHEDULE            NEXT          LAST
 review   weekdays at 09:00   Fri 09:00     ✓ 2h ago (3m12s)
 tests    every day at 02:00  tomorrow      ✗ exit 1 · 22h ago
 deploy   manual              —             never
-1 shared job changed since you enabled this project. Next: bump enable
+1 shared job changed since you enabled this project. Next: noon enable
 ```
 
 | Command | Bare behavior | With arguments |
 | --- | --- | --- |
-| `bump`, `bump status` | Dashboard | — |
-| `bump list`, `ls` | All jobs, next runs, state | — |
-| `bump run` | Runnable jobs + examples | `NAME` foreground; `--detach`, `--in`, `--at` queue |
-| `bump add` | Examples | `NAME [SCHEDULE] -- CMD…`, `--sh`, `--prompt`, `--prompt-file` |
-| `bump remove`, `rm` | Candidates | Remove a job from the file that defines it |
-| `bump pause`, `resume` | Candidates | Pause or resume background runs of a job |
-| `bump cancel` | Active runs | Cancel a run, or a job's active and queued runs |
-| `bump logs` | Latest run in project | `NAME` or `RUN`; `--follow` |
-| `bump history` | Recent runs | `NAME`; `--limit` |
-| `bump enable`, `disable` | Acts on current project | — |
-| `bump serve` | Foreground scheduler for enabled projects | `--listen ADDR` for webhooks |
-| `bump service` | Service status | `install`, `uninstall` |
-| `bump doctor` | Diagnose setup | — |
-| `bump init`, `config` | Implemented today | — |
-| `bump import crontab` | Usage and example | `FILE` or `-`; `--write` |
-| `bump mcp` | stdio MCP server | — |
-| `bump tui` | Terminal UI | — |
+| `noon`, `noon status` | Dashboard | — |
+| `noon list`, `ls` | All jobs, next runs, state | — |
+| `noon run` | Runnable jobs + examples | `NAME` foreground; `--detach`, `--in`, `--at` queue |
+| `noon add` | Examples | `NAME [SCHEDULE] -- CMD…`, `--sh`, `--prompt`, `--prompt-file` |
+| `noon remove`, `rm` | Candidates | Remove a job from the file that defines it |
+| `noon pause`, `resume` | Candidates | Pause or resume background runs of a job |
+| `noon cancel` | Active runs | Cancel a run, or a job's active and queued runs |
+| `noon logs` | Latest run in project | `NAME` or `RUN`; `--follow` |
+| `noon history` | Recent runs | `NAME`; `--limit` |
+| `noon enable`, `disable` | Acts on current project | — |
+| `noon serve` | Foreground scheduler for enabled projects | `--listen ADDR` for webhooks |
+| `noon service` | Service status | `install`, `uninstall` |
+| `noon doctor` | Diagnose setup | — |
+| `noon init`, `config` | Implemented today | — |
+| `noon import crontab` | Usage and example | `FILE` or `-`; `--write` |
+| `noon mcp` | stdio MCP server | — |
+| `noon tui` | Terminal UI | — |
 
 Global flags work before or after subcommands: `-C/--project`, `--config`, `--timezone`,
 `--state-dir`, `--json`.
@@ -100,7 +100,7 @@ Global flags work before or after subcommands: `-C/--project`, `--config`, `--ti
 Semantics are decided in decision-5. Files merge by setting (see [configuration](configuration.md));
 jobs merge by name. Where keys are allowed:
 
-| Key | User config | `bump.yaml` | `.bump.yaml` |
+| Key | User config | `noon.yaml` | `.noon.yaml` |
 | --- | --- | --- | --- |
 | `version`, `timezone` | yes | yes | yes |
 | `state_dir` | yes | no | no |
@@ -111,7 +111,7 @@ jobs merge by name. Where keys are allowed:
 
 A key outside its allowed files is a validation error naming the file and the allowed location. An
 explicit `--config` file replaces all three and accepts every key, so one file can describe a
-container deployment; its jobs are shared jobs that need approval. `bump add`, `remove`, and
+container deployment; its jobs are shared jobs that need approval. `noon add`, `remove`, and
 `import --write` refuse to edit an explicit file; edit it directly.
 
 Job paths (`cwd`, `prompt_file`) are relative to the project root. Setting paths (`state_dir`) are
@@ -146,7 +146,7 @@ jobs:
 | `prompt_file` | path | — | Relative to project root; read at run time, ≤ 64 KiB |
 | `agent` | string | `default_agent` | Agent profile for prompt jobs; either this field or `default_agent` is required and must name a known profile |
 | `cwd` | path | project root | Relative to project root |
-| `env` | map | `{}` | Literal strings; names `[A-Za-z_][A-Za-z0-9_]*`; `BUMP_*` reserved; values never printed |
+| `env` | map | `{}` | Literal strings; names `[A-Za-z_][A-Za-z0-9_]*`; `NOON_*` reserved; values never printed |
 | `timeout` | duration or `none` | `1h` | Whole run, at least `1s`; then terminate |
 | `overlap` | `skip`, `queue` | `skip` | Queue holds at most one pending run |
 | `missed` | `run_once`, `skip` | `run_once` | Behavior after sleep or downtime |
@@ -159,21 +159,21 @@ Exactly one action field: `run`, `prompt`, or `prompt_file`. Durations use `s`, 
 (24h) units, combined as in `1h30m`. Job names match `^[a-z][a-z0-9_-]{0,63}$`; because they
 start with a letter, a bare number on the command line always means a run ID. Unknown fields,
 duplicate keys, and wrong types fail with file, YAML path, and line. Validation never executes
-anything or checks that commands exist; `bump doctor` does.
+anything or checks that commands exist; `noon doctor` does.
 
-Local overrides replace a whole named job: `.bump.yaml` may redefine `tests` completely, or
+Local overrides replace a whole named job: `.noon.yaml` may redefine `tests` completely, or
 disable it with only `tests: {enabled: false}`. There is no field-level merge of execution settings.
 List output records each job's source file and whether it overrides a shared definition.
 
 ### Agent prompts
 
-Foreground prompt jobs are implemented: `bump run NAME` supports inline and file prompts through
+Foreground prompt jobs are implemented: `noon run NAME` supports inline and file prompts through
 configured agent profiles. Scheduled prompt runs remain unavailable until the scheduler exists.
-Bump runs existing agent CLIs; it has no model SDK and stores no provider credentials. Profiles
+Noon runs existing agent CLIs; it has no model SDK and stores no provider credentials. Profiles
 live in user config because they are machine choices:
 
 ```yaml
-# ~/.config/bump/config.yaml
+# ~/.config/noon/config.yaml
 default_agent: claude
 agents:
   claude:
@@ -189,7 +189,7 @@ Built-in profiles, overridable by name: `claude` → `claude -p --permission-pro
 permission prompts. In stdin mode the prompt bytes are sent unchanged; argument mode appends those
 bytes as the final argv entry. No expansion, templating, or trimming occurs. Prompt files are read
 when the run starts and are limited to 64 KiB. Context comes from environment variables (below), so a prompt can say "summarize commits since
-`$BUMP_LAST_SUCCESS_AT`" or "read the event in `$BUMP_EVENT_FILE`".
+`$NOON_LAST_SUCCESS_AT`" or "read the event in `$NOON_EVENT_FILE`".
 
 ### Schedules
 
@@ -215,8 +215,8 @@ can never match, such as `0 0 30 2 *`, are rejected. Ambiguous phrases are rejec
 suggestion rather than guessed: `every day` and `every hour` (clock-aligned or elapsed?), and a
 bare `at 9` (`9am` or `9:00`?). For example: "`every day` needs a time: try `every day at 9am`,
 `daily` (midnight), or `every 24h`". `every minute` suggests `* * * * *` or `every 1m`;
-`every 30s` suggests `every 1m`. Six-field cron is rejected because Bump has no seconds field;
-`@every 5m` suggests `every 5m`, and `@reboot` explains that Bump has no boot trigger.
+`every 30s` suggests `every 1m`. Six-field cron is rejected because Noon has no seconds field;
+`@every 5m` suggests `every 5m`, and `@reboot` explains that Noon has no boot trigger.
 
 Display keeps five cron fields lowercase and macro names prefixed with `@`. Calendar times
 use `HH:MM`; day lists use three-letter names in Monday-to-Sunday order, with a single day
@@ -254,19 +254,19 @@ Wall-clock rules in the project timezone:
 
 ## Scheduler lifetime
 
-Decided in decision-1. Bump needs a long-running scheduler for overlap, catch-up, queues, events,
+Decided in decision-1. Noon needs a long-running scheduler for overlap, catch-up, queues, events,
 webhooks, and live status. It does **not** self-daemonize, and it is **not** one process per repo.
 
-- `bump serve` is one foreground scheduler for every enabled project in its state directory. A
+- `noon serve` is one foreground scheduler for every enabled project in its state directory. A
   second scheduler on the same state refuses, naming the owner's PID and start time.
-- `bump service install` (once per machine) registers a launchd agent or systemd user unit that
-  runs `bump serve`. It records the installer's `PATH` and resolved state directory explicitly,
+- `noon service install` (once per machine) registers a launchd agent or systemd user unit that
+  runs `noon serve`. It records the installer's `PATH` and resolved state directory explicitly,
   because service managers otherwise run jobs with a minimal `PATH` and a different working
   directory. Nothing else installs or starts services.
-- Docker runs the same `bump serve` as the container's foreground process.
-- `bump run NAME` executes in the foreground without any scheduler, like `task NAME`.
+- Docker runs the same `noon serve` as the container's foreground process.
+- `noon run NAME` executes in the foreground without any scheduler, like `task NAME`.
 - The scheduler loads each enabled project with the configuration selection recorded by
-  `bump enable` (automatic files, or the explicit `--config` file) plus user config. It rejects
+  `noon enable` (automatic files, or the explicit `--config` file) plus user config. It rejects
   `--config`, `--timezone`, `--project`, and their environment variables as usage errors.
 - An invalid config edit keeps the project's last valid jobs running and records the error, which
   status and doctor show until the file is fixed.
@@ -282,20 +282,20 @@ webhooks, and live status. It does **not** self-daemonize, and it is **not** one
 Decided in decision-2. Scheduling unattended commands from repository content is a supply-chain
 risk, especially when `git pull` changes it.
 
-- `bump enable` registers this checkout (canonical path) and its configuration selection, and
+- `noon enable` registers this checkout (canonical path) and its configuration selection, and
   approves the current definition of every job that needs approval. It is idempotent, so a
-  container entrypoint can run `bump enable && exec bump serve` to trust what it deploys.
-  Worktrees and clones are separate checkouts; none is enabled implicitly. `bump disable` stops
+  container entrypoint can run `noon enable && exec noon serve` to trust what it deploys.
+  Worktrees and clones are separate checkouts; none is enabled implicitly. `noon disable` stops
   background runs, cancels queued runs, and keeps history.
-- Jobs defined in `.bump.yaml` and user config are yours and need no approval. Jobs from
-  `bump.yaml` or an explicit `--config` file run unattended only while their definition digest
+- Jobs defined in `.noon.yaml` and user config are yours and need no approval. Jobs from
+  `noon.yaml` or an explicit `--config` file run unattended only while their definition digest
   matches the approved digest; a changed job waits with state `needs approval`.
 - A digest covers every field that affects what runs or when (schedule, action, agent, cwd, env,
   timeout, overlap, missed, cooldown, hooks, webhook), not description, and not the contents
   of scripts or prompt files it references. Say so in docs: enable only repositories whose contents
   you would also run by hand.
-- `bump add` enables the project when the new job has a schedule or a queued run, and approves only
-  the job it writes. Foreground `bump run NAME` is an explicit act and needs no approval; anything
+- `noon add` enables the project when the new job has a schedule or a queued run, and approves only
+  the job it writes. Foreground `noon run NAME` is an explicit act and needs no approval; anything
   the scheduler executes (scheduled, catch-up, queued, webhook) does.
 
 ## Execution
@@ -304,30 +304,30 @@ risk, especially when `git pull` changes it.
   SIGKILL. When the main process exits, remaining group members are terminated the same way.
 - `argv[0]` resolves against the job environment's `PATH`, relative to `cwd` when it contains `/`.
 - stdin is `/dev/null`, except a stdin-mode prompt. Argument-mode prompts are the final argv entry.
-  Prompt jobs receive `BUMP_AGENT=NAME`. Jobs never get a TTY, so manual and scheduled runs behave
+  Prompt jobs receive `NOON_AGENT=NAME`. Jobs never get a TTY, so manual and scheduled runs behave
 the same.
 - The log combines stdout and stderr in arrival order. The first 1 MiB is written live; output past
   that is kept in memory as the last 1 MiB and appended after an omission marker when the run ends.
   `logs --follow` therefore streams the first 1 MiB live and the tail at the end.
 - A foreground run streams the job's stdout to stdout and stderr to stderr, so
-  `bump run report > report.md` works; Bump's own status lines go to stderr. SIGINT, SIGTERM, or
-  SIGHUP to `bump run` cancels the job as above; a second signal kills the group immediately.
+  `noon run report > report.md` works; Noon's own status lines go to stderr. SIGINT, SIGTERM, or
+  SIGHUP to `noon run` cancels the job as above; a second signal kills the group immediately.
 - A run that cannot start records a `failed` run and a message, using `env`-style exit codes: 127
   command not found, 126 not executable, 125 any other start failure (missing `cwd`, unreadable or
   oversized prompt file).
 - Environment: inherited (the scheduler's for background runs, your shell's for manual runs), then
-  job `env`, then `BUMP_PROJECT`, `BUMP_JOB`, `BUMP_RUN_ID`, `BUMP_TRIGGER`, `BUMP_SCHEDULED_AT`,
-  `BUMP_LAST_SUCCESS_AT` (start of the last successful run), and `BUMP_EVENT_FILE` when a run has a
-  payload. Bump never sources shell rc files, creates worktrees, or changes branches.
+  job `env`, then `NOON_PROJECT`, `NOON_JOB`, `NOON_RUN_ID`, `NOON_TRIGGER`, `NOON_SCHEDULED_AT`,
+  `NOON_LAST_SUCCESS_AT` (start of the last successful run), and `NOON_EVENT_FILE` when a run has a
+  payload. Noon never sources shell rc files, creates worktrees, or changes branches.
 
 ## State
 
 Decided in decision-3. State is per user, not per repository: it survives `git clean -fdx`, never
 pollutes worktrees, and lets one scheduler see every enabled project.
 
-- Location: `$XDG_STATE_HOME/bump`, else `~/.local/state/bump`; override with `BUMP_STATE_DIR`,
+- Location: `$XDG_STATE_HOME/noon`, else `~/.local/state/noon`; override with `NOON_STATE_DIR`,
   `--state-dir`, or user-config `state_dir`. Directories are 0700, files 0600.
-- `bump.db` is SQLite (WAL, busy timeout) via `modernc.org/sqlite`. `logs/PROJECT_ID/RUN_ID.log`,
+- `noon.db` is SQLite (WAL, busy timeout) via `modernc.org/sqlite`. `logs/PROJECT_ID/RUN_ID.log`,
   `events/RUN_ID.json`, `locks/`, `scheduler.lock`, and the service's `scheduler.log` sit beside it.
 - Migrations are an append-only list keyed by `PRAGMA user_version`, applied in one transaction. A
   database newer than the binary is refused with an upgrade hint; the scheduler exits 75 so its
@@ -350,19 +350,19 @@ pollutes worktrees, and lets one scheduler see every enabled project.
 Decided in decision-4: no plugin system. Commands are the integration boundary.
 
 - **Hooks**: `on_success` and `on_failure` commands get a versioned JSON run summary on
-  stdin plus `BUMP_*` variables. 30s timeout, 64 KiB captured output, recorded on the run, no hooks
+  stdin plus `NOON_*` variables. 30s timeout, 64 KiB captured output, recorded on the run, no hooks
   for hook failures. Desktop notifications and chat posts are examples, not built-ins.
-- **Triggers**: Git hooks and agent hooks call `bump run NAME --detach --key ID [--data JSON]`.
+- **Triggers**: Git hooks and agent hooks call `noon run NAME --detach --key ID [--data JSON]`.
   Payloads are files, never interpolated. Cooldowns, deduplication, coalescing, and a recursion
   guard (depth carried through queued runs) bound noisy sources. Nothing installs hooks for you.
-- **Webhooks**: `bump serve --listen ADDR` opt-in, loopback by default, per-job `webhook:` opt-in,
+- **Webhooks**: `noon serve --listen ADDR` opt-in, loopback by default, per-job `webhook:` opt-in,
   HMAC signatures, delivery deduplication, body limits. Payloads choose data, never commands.
 - **Event files**: one JSON object for every payload with keys `schema_version` (1), `source`
   (`cli` or `webhook`), `received_at`, `data`, and, for webhooks only, `headers`. `data` is the
   JSON payload, or a string when a webhook body is not JSON.
-- **MCP**: `bump mcp` over stdio with the official Go SDK. Inspect, queue approved jobs, read logs,
+- **MCP**: `noon mcp` over stdio with the official Go SDK. Inspect, queue approved jobs, read logs,
   cancel. Agents cannot approve, add, or edit unattended commands.
-- **Crontab import**: preview YAML from a user crontab; `--write` adds the jobs to `.bump.yaml`.
+- **Crontab import**: preview YAML from a user crontab; `--write` adds the jobs to `.noon.yaml`.
   Unsupported cron features fail with line numbers.
 - Outbound HTTP calls are commands (`run: [curl, -fsS, ...]`), not a built-in action.
 - Drafts, not commitments: a bearer-token remote API and MCP over Streamable HTTP on the same
@@ -370,15 +370,15 @@ Decided in decision-4: no plugin system. Commands are the integration boundary.
   runs for agents.
 
 Revisit the plugin decision only when two real integrations need something commands, hooks, and
-agent profiles cannot express. Even then, prefer `bump-NAME` subprocess executables speaking
+agent profiles cannot express. Even then, prefer `noon-NAME` subprocess executables speaking
 versioned JSON over Go plugins.
 
 ## Security model
 
 | Input | Trust | Consequence |
 | --- | --- | --- |
-| User config, `.bump.yaml` | Yours | Runs unattended once the project is enabled |
-| `bump.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
+| User config, `.noon.yaml` | Yours | Runs unattended once the project is enabled |
+| `noon.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
 | Scripts and prompt files | Not pinned | Approval covers what and when, not file contents |
 | MCP clients | Inspect and queue approved jobs | Cannot approve, add, or edit commands; identity is metadata |
 | Webhooks | Authenticated data | Never select or build commands; payload is a file |
@@ -391,7 +391,7 @@ container's or OS's job.
 ## Architecture
 
 ```text
-cmd/bump ─▶ internal/cli ─┐
+cmd/noon ─▶ internal/cli ─┐
 internal/mcp ─────────────┼─▶ internal/app ─▶ internal/config     (files, jobs, digests; no I/O beyond reads)
 internal/httpapi ─────────┤                 ├▶ internal/schedule   (pure grammar and next-time math)
 internal/tui ─────────────┘                 ├▶ internal/store      (SQLite, logs, locks, recovery)
@@ -413,6 +413,6 @@ internal/service (launchd/systemd), internal/cronimport (crontab → jobs)
 
 The same binary and foreground model. The image is non-root with CA roots, a shell, and embedded
 timezone data; it is not an agent sandbox. Mount the repository read-only and state on a volume,
-enable the project explicitly, and run `bump serve` with an init process (`init: true`) so orphaned
+enable the project explicitly, and run `noon serve` with an init process (`init: true`) so orphaned
 grandchildren are reaped. No Docker socket and no host agent credentials by default. Extend the image
 with the tools your jobs need. See [Docker](docker.md).

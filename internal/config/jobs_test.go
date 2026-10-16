@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brettinternet/bump/internal/config"
+	"github.com/brettinternet/noon/internal/config"
 )
 
 func TestLoadJobs(t *testing.T) {
@@ -36,30 +36,30 @@ func TestLoadJobs(t *testing.T) {
 		}},
 		{name: "whole override", shared: "jobs: {tests: {run: original, env: {TOKEN: secret}, schedule: daily, timeout: 5m}}", local: "jobs: {tests: {run: replacement}}", check: func(t *testing.T, c config.Config) {
 			j := c.Jobs["tests"]
-			if j.Run != "replacement" || len(j.Env) != 0 || j.Schedule != nil || j.Timeout != "1h" || j.Shared || !j.Overrides || filepath.Base(j.Source) != ".bump.yaml" {
+			if j.Run != "replacement" || len(j.Env) != 0 || j.Schedule != nil || j.Timeout != "1h" || j.Shared || !j.Overrides || filepath.Base(j.Source) != ".noon.yaml" {
 				t.Fatalf("override merged fields: %+v", j)
 			}
 		}},
 		{name: "toggle", shared: "jobs: {tests: {run: original, env: {TOKEN: secret}}}", local: "jobs: {tests: {enabled: false}}", check: func(t *testing.T, c config.Config) {
 			j := c.Jobs["tests"]
-			if j.Enabled || j.Run != "original" || j.Env["TOKEN"] != "secret" || !j.Shared || !j.Overrides || filepath.Base(j.Source) != ".bump.yaml" {
+			if j.Enabled || j.Run != "original" || j.Env["TOKEN"] != "secret" || !j.Shared || !j.Overrides || filepath.Base(j.Source) != ".noon.yaml" {
 				t.Fatalf("toggle lost execution provenance: %+v", j)
 			}
 		}},
 		{name: "orphan toggle", local: "jobs: {tests: {enabled: false}}", want: "enabled-only override requires a shared job"},
-		{name: "user jobs", user: "jobs: {}", want: "allowed only in bump.yaml, .bump.yaml, or --config"},
-		{name: "name", shared: "jobs:\n  1tests: {run: hi}", want: "bump.yaml:2: jobs.1tests:"},
-		{name: "unknown field", shared: "jobs:\n  tests:\n    run: hi\n    typo: nope", want: "bump.yaml:4: jobs.tests.typo: unknown field"},
+		{name: "user jobs", user: "jobs: {}", want: "allowed only in noon.yaml, .noon.yaml, or --config"},
+		{name: "name", shared: "jobs:\n  1tests: {run: hi}", want: "noon.yaml:2: jobs.1tests:"},
+		{name: "unknown field", shared: "jobs:\n  tests:\n    run: hi\n    typo: nope", want: "noon.yaml:4: jobs.tests.typo: unknown field"},
 		{name: "two actions", shared: "jobs: {tests: {run: hi, prompt: nope}}", want: "exactly one of run, prompt, or prompt_file is required"},
 		{name: "agent on run", shared: "jobs: {tests: {run: hi, agent: claude}}", want: "valid only for prompt or prompt_file jobs"},
 		{name: "unknown agent", shared: "jobs: {tests: {prompt: hi, agent: missing}}", want: `unknown agent "missing"; known agents: claude, codex`},
 		{name: "prompt needs agent", shared: "jobs: {tests: {prompt: hi}}", want: "requires agent or default_agent; set agent on the job or default_agent"},
 		{name: "agents outside user config", shared: "agents: {team: {command: [agent]}}", want: "agents: allowed only in user config or --config files"},
-		{name: "default agent outside allowed file", shared: "default_agent: claude", want: "default_agent: allowed only in user config, .bump.yaml, or --config files"},
+		{name: "default agent outside allowed file", shared: "default_agent: claude", want: "default_agent: allowed only in user config, .noon.yaml, or --config files"},
 		{name: "invalid profile prompt mode", user: "agents: {team: {command: [agent], prompt: terminal}}", want: "must be stdin or argument"},
-		{name: "schedule suggestion", shared: "jobs:\n  tests:\n    schedule: every day\n    run: hi", want: "bump.yaml:3: jobs.tests.schedule: every day needs a time: try every day at 9am"},
+		{name: "schedule suggestion", shared: "jobs:\n  tests:\n    schedule: every day\n    run: hi", want: "noon.yaml:3: jobs.tests.schedule: every day needs a time: try every day at 9am"},
 		{name: "numeric env", shared: "jobs: {tests: {run: hi, env: {COUNT: 1}}}", want: "jobs.tests.env.COUNT: must be a string (quote numbers)"},
-		{name: "reserved env", shared: "jobs: {tests: {run: hi, env: {BUMP_JOB: secret}}}", want: "BUMP_ is reserved"},
+		{name: "reserved env", shared: "jobs: {tests: {run: hi, env: {NOON_JOB: secret}}}", want: "NOON_ is reserved"},
 		{name: "bad env name", shared: "jobs: {tests: {run: hi, env: {bad-name: secret}}}", want: "invalid or reserved environment name"},
 		{name: "null", shared: "jobs: {tests: {run: null}}", want: "jobs.tests.run: must be a string"},
 		{name: "alias", shared: "jobs: {tests: {run: &run hi}, other: {run: *run}}", want: "jobs.other.run: must be a string"},
@@ -83,13 +83,13 @@ func TestLoadJobs(t *testing.T) {
 			root := canonical(t, t.TempDir())
 			user := filepath.Join(root, "user")
 			if tc.shared != "" {
-				put(t, filepath.Join(root, "bump.yaml"), tc.shared)
+				put(t, filepath.Join(root, "noon.yaml"), tc.shared)
 			}
 			if tc.local != "" {
-				put(t, filepath.Join(root, ".bump.yaml"), tc.local)
+				put(t, filepath.Join(root, ".noon.yaml"), tc.local)
 			}
 			if tc.user != "" {
-				put(t, filepath.Join(user, "bump/config.yaml"), tc.user)
+				put(t, filepath.Join(user, "noon/config.yaml"), tc.user)
 			}
 			cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: user})
 			if tc.want != "" {
@@ -112,7 +112,7 @@ func TestLoadJobs(t *testing.T) {
 	t.Run("prompt size", func(t *testing.T) {
 		root := canonical(t, t.TempDir())
 		data := "jobs:\n  tests:\n    prompt: " + strings.Repeat("x", config.MaxPromptBytes+1) + "\n    agent: claude\n"
-		put(t, filepath.Join(root, "bump.yaml"), data)
+		put(t, filepath.Join(root, "noon.yaml"), data)
 		if _, err := config.Load(config.Input{CWD: root}); err == nil || !strings.Contains(err.Error(), "must be at most 64 KiB") {
 			t.Fatalf("oversized prompt accepted: %v", err)
 		}
@@ -120,8 +120,8 @@ func TestLoadJobs(t *testing.T) {
 	t.Run("user profiles and default agent", func(t *testing.T) {
 		root := canonical(t, t.TempDir())
 		user := filepath.Join(root, "user")
-		put(t, filepath.Join(user, "bump/config.yaml"), "default_agent: team\nagents:\n  team:\n    command: [fake-agent, --quiet]\n    prompt: argument\n  claude:\n    command: [claude-wrapper]\n")
-		put(t, filepath.Join(root, "bump.yaml"), "jobs: {review: {prompt: review}}")
+		put(t, filepath.Join(user, "noon/config.yaml"), "default_agent: team\nagents:\n  team:\n    command: [fake-agent, --quiet]\n    prompt: argument\n  claude:\n    command: [claude-wrapper]\n")
+		put(t, filepath.Join(root, "noon.yaml"), "jobs: {review: {prompt: review}}")
 		cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: user})
 		if err != nil {
 			t.Fatal(err)
@@ -153,8 +153,8 @@ func TestJobDigest(t *testing.T) {
 	root := t.TempDir()
 	load := func(body, local string) string {
 		t.Helper()
-		put(t, filepath.Join(root, "bump.yaml"), "jobs:\n  tests:\n"+body)
-		put(t, filepath.Join(root, ".bump.yaml"), local)
+		put(t, filepath.Join(root, "noon.yaml"), "jobs:\n  tests:\n"+body)
+		put(t, filepath.Join(root, ".noon.yaml"), local)
 		cfg, err := config.Load(config.Input{CWD: root})
 		if err != nil {
 			t.Fatal(err)
@@ -182,11 +182,11 @@ func TestJobDigest(t *testing.T) {
 	t.Run("prompt definition and agent name", func(t *testing.T) {
 		root := canonical(t, t.TempDir())
 		user := filepath.Join(root, "user")
-		userConfig := filepath.Join(user, "bump", "config.yaml")
+		userConfig := filepath.Join(user, "noon", "config.yaml")
 		put(t, userConfig, "agents: {team: {command: [agent-one]}}")
 		loadPrompt := func(body string) string {
 			t.Helper()
-			put(t, filepath.Join(root, "bump.yaml"), "jobs:\n  review:\n"+body)
+			put(t, filepath.Join(root, "noon.yaml"), "jobs:\n  review:\n"+body)
 			cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: user})
 			if err != nil {
 				t.Fatal(err)

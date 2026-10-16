@@ -2,11 +2,11 @@
 header = """
 # Changelog
 
-Notable changes to bump are documented here. This file is generated from conventional commits by [git-cliff](https://git-cliff.org/).
+Notable changes to noon are documented here. This file is generated from conventional commits by [git-cliff](https://git-cliff.org/).
 """
 body = """
 {% if version %}\
-## [{{ version }}](https://github.com/brettinternet/bump/{% if previous.version %}compare/{{ previous.version }}...{{ version }}{% else %}commits/{{ version }}{% endif %}) - {{ timestamp | date(format="%Y-%m-%d") }}
+## [{{ version }}](https://github.com/brettinternet/noon/{% if previous.version %}compare/{{ previous.version }}...{{ version }}{% else %}commits/{{ version }}{% endif %}) - {{ timestamp | date(format="%Y-%m-%d") }}
 {% else %}\
 ## Unreleased
 {% endif %}\

@@ -1,5 +1,5 @@
 ---
-id: BUMP-6
+id: NOON-6
 title: Import crontabs with preview and faithful semantics
 status: To Do
 assignee: []
@@ -9,7 +9,7 @@ labels:
   - config
   - integration
 dependencies:
-  - BUMP-20
+  - NOON-20
 documentation:
   - docs/design.md
   - docs/development.md
@@ -31,7 +31,7 @@ ordinal: 1900
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: users move existing crontab entries into Bump, preview first, with cron's meaning preserved and clear refusals for anything that would change it.
+Outcome: users move existing crontab entries into Noon, preview first, with cron's meaning preserved and clear refusals for anything that would change it.
 
 Read first: docs/design.md#schedules and #integrations (Crontab import), decision-5.
 
@@ -44,12 +44,12 @@ Scope:
   - non-empty `MAILTO` (`MAILTO=""` is accepted and ignored);
   - `SHELL` other than `/bin/sh`;
   - `CRON_TZ` and `TZ` (hint: set the project timezone);
-  - `BUMP_*` names;
+  - `NOON_*` names;
   - schedules `schedule.Parse` rejects.
-- Faithful defaults: every imported job sets `missed: skip` (cron never catches up) and `timeout: none` (cron has no timeout), each with a YAML comment saying so. Document that Bump never overlaps the same job.
+- Faithful defaults: every imported job sets `missed: skip` (cron never catches up) and `timeout: none` (cron has no timeout), each with a YAML comment saying so. Document that Noon never overlaps the same job.
 - Names, which must pass the job-name rule `^[a-z][a-z0-9_-]{0,63}$`: take the basename of the command's first word, lowercase it, replace runs of characters outside `[a-z0-9_-]` with `-`, and trim leading and trailing `-` and `_`. Use `cron-LINE` when the result is empty, and prefix `cron-` when it starts with a digit. Duplicates within the import and collisions with existing project jobs get `-2`, `-3`, and so on. Truncate the stem so the whole name, suffix included, fits 64 characters.
-- `bump import crontab FILE|-`: print a preview of the `jobs:` YAML with a `# crontab line N` comment per job, and write nothing. `--write` adds all jobs to `.bump.yaml` using the YAML editing functions from the add task, or writes nothing if any line failed. Like `bump add`, it is refused when an explicit config file is selected. JSON: `{"schema_version":1,"jobs":[{"name","schedule","run","env_keys","line"}],"written":bool}`.
-- Bare `bump import` lists importers; bare `bump import crontab` prints usage with `crontab -l | bump import crontab -` and exits 0.
+- `noon import crontab FILE|-`: print a preview of the `jobs:` YAML with a `# crontab line N` comment per job, and write nothing. `--write` adds all jobs to `.noon.yaml` using the YAML editing functions from the add task, or writes nothing if any line failed. Like `noon add`, it is refused when an explicit config file is selected. JSON: `{"schema_version":1,"jobs":[{"name","schedule","run","env_keys","line"}],"written":bool}`.
+- Bare `noon import` lists importers; bare `noon import crontab` prints usage with `crontab -l | noon import crontab -` and exits 0.
 - Add docs/crontab.md with the supported and refused features.
 
 Non-goals: reading system crontabs or `/etc/cron.d`, user columns, anacron, live crontab sync, an overlap-allowing mode.
@@ -57,7 +57,7 @@ Non-goals: reading system crontabs or `/etc/cron.d`, user columns, anacron, live
 Tests:
 - internal/cronimport `TestImportCrontab` (table): macros, env lines with quotes, each refusal with its line number, all errors reported together, naming and dedupe (including `_backup` becoming `backup`, `7z` becoming `cron-7z`, and two different commands whose names normalize to the same 64-character stem), and the preview loading with `config.Load`.
 - internal/cronimport `FuzzImportCrontab`: never panics; successful output always loads with `config.Load`.
-- internal/cli `TestImportWrite`: `--write` adds every job or none, and preserves existing `.bump.yaml` comments.
+- internal/cli `TestImportWrite`: `--write` adds every job or none, and preserves existing `.noon.yaml` comments.
 
 Modified-file contract: the modified_files list plus this task's Backlog record. Justify any other path in Implementation Notes before changing it.
 <!-- SECTION:DESCRIPTION:END -->
@@ -66,7 +66,7 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 <!-- AC:BEGIN -->
 - [ ] #1 `task cli:test -- -run '^(TestImportCrontab|TestImportWrite)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
 - [ ] #2 `mise exec go -- go test ./internal/cronimport -run '^$' -fuzz '^FuzzImportCrontab$' -fuzztime 30s` exits 0
-- [ ] #3 `task cli:build && bump_ac_home=$(mktemp -d) && bump_ac_project=$(mktemp -d) && printf '# nightly\n0 2 * * * /usr/local/bin/backup.sh\n@reboot echo hi\n' | env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump -C "$bump_ac_project" import crontab -; echo "exit=$?"` names line 3 and `@reboot`, prints `exit=1`, and leaves `$bump_ac_project` empty
+- [ ] #3 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf '# nightly\n0 2 * * * /usr/local/bin/backup.sh\n@reboot echo hi\n' | env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" import crontab -; echo "exit=$?"` names line 3 and `@reboot`, prints `exit=1`, and leaves `$noon_ac_project` empty
 <!-- AC:END -->
 
 ## Definition of Done

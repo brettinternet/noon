@@ -33,8 +33,8 @@ func Parse(text string) (Schedule, error) {
 	case "every minute":
 		return Schedule{}, fmt.Errorf("every minute is ambiguous: try * * * * * or every 1m")
 	case "@reboot":
-		//lint:ignore ST1005 Bump is a proper noun in the specified user-facing diagnostic.
-		return Schedule{}, fmt.Errorf("Bump has no boot trigger")
+		//lint:ignore ST1005 Noon is a proper noun in the specified user-facing diagnostic.
+		return Schedule{}, fmt.Errorf("Noon has no boot trigger")
 	}
 	if strings.HasPrefix(text, "@every ") {
 		return Schedule{}, fmt.Errorf("use %s instead", strings.TrimPrefix(text, "@"))
@@ -61,8 +61,8 @@ var dayNames = strings.Fields("sunday monday tuesday wednesday thursday friday s
 func parseCron(text string) (Schedule, error) {
 	parts := strings.Fields(text)
 	if len(parts) == 6 {
-		//lint:ignore ST1005 Bump is a proper noun in the specified user-facing diagnostic.
-		return Schedule{}, fmt.Errorf("Bump uses five-field cron, without seconds")
+		//lint:ignore ST1005 Noon is a proper noun in the specified user-facing diagnostic.
+		return Schedule{}, fmt.Errorf("Noon uses five-field cron, without seconds")
 	}
 	if len(parts) != 5 {
 		return Schedule{}, fmt.Errorf("expected five-field cron or a schedule such as weekdays at 9am")

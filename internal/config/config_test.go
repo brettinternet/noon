@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brettinternet/bump/internal/config"
+	"github.com/brettinternet/noon/internal/config"
 )
 
 func put(t *testing.T, path, data string) {
@@ -32,15 +32,15 @@ func TestLoadLayersAndPathOrigins(t *testing.T) {
 	t.Parallel()
 	root := canonical(t, t.TempDir())
 	user, project := filepath.Join(root, "user"), filepath.Join(root, "repo")
-	put(t, filepath.Join(user, "bump/config.yaml"), "timezone: UTC\nstate_dir: runs\n")
-	put(t, filepath.Join(project, "bump.yaml"), "timezone: America/Chicago\n")
-	put(t, filepath.Join(project, ".bump.yaml"), "timezone: Europe/London\n")
+	put(t, filepath.Join(user, "noon/config.yaml"), "timezone: UTC\nstate_dir: runs\n")
+	put(t, filepath.Join(project, "noon.yaml"), "timezone: America/Chicago\n")
+	put(t, filepath.Join(project, ".noon.yaml"), "timezone: Europe/London\n")
 	input := config.Input{CWD: project, UserConfigDir: user}
 	cfg, err := config.Load(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Timezone != "Europe/London" || cfg.StateDir != filepath.Join(user, "bump/runs") || len(cfg.Sources) != 3 {
+	if cfg.Timezone != "Europe/London" || cfg.StateDir != filepath.Join(user, "noon/runs") || len(cfg.Sources) != 3 {
 		t.Fatalf("unexpected layer resolution: %+v", cfg)
 	}
 	zone, state := "UTC", "private-runs"
@@ -62,21 +62,21 @@ func TestStateDirectoryScopeAndOrigins(t *testing.T) {
 	root := canonical(t, t.TempDir())
 	project := filepath.Join(root, "repo")
 	userDir := filepath.Join(root, "user")
-	put(t, filepath.Join(project, "bump.yaml"), "state_dir: project-state\n")
-	_, err := config.Load(config.Input{CWD: project, UserConfigDir: userDir, StateDirDefault: filepath.Join(root, "state", "bump")})
-	if err == nil || !strings.Contains(err.Error(), filepath.Join(userDir, "bump", "config.yaml")) {
+	put(t, filepath.Join(project, "noon.yaml"), "state_dir: project-state\n")
+	_, err := config.Load(config.Input{CWD: project, UserConfigDir: userDir, StateDirDefault: filepath.Join(root, "state", "noon")})
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(userDir, "noon", "config.yaml")) {
 		t.Fatalf("project state_dir should name the allowed user config path: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(project, "project-state")); !os.IsNotExist(err) {
 		t.Fatalf("project state path was created: %v", err)
 	}
-	put(t, filepath.Join(project, "bump.yaml"), "timezone: UTC\n")
+	put(t, filepath.Join(project, "noon.yaml"), "timezone: UTC\n")
 	launch := filepath.Join(root, "launch")
 	if err := os.Mkdir(launch, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	state := "relative-state"
-	cfg, err := config.Load(config.Input{CWD: launch, UserConfigDir: userDir, Project: &project, StateDir: &state, StateDirDefault: filepath.Join(root, "state", "bump")})
+	cfg, err := config.Load(config.Input{CWD: launch, UserConfigDir: userDir, Project: &project, StateDir: &state, StateDirDefault: filepath.Join(root, "state", "noon")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestStateDirectoryScopeAndOrigins(t *testing.T) {
 func TestLoadDiscoveryStopsAtGitBoundary(t *testing.T) {
 	t.Parallel()
 	root := canonical(t, t.TempDir())
-	put(t, filepath.Join(root, "bump.yaml"), "timezone: Not/AZone\n")
+	put(t, filepath.Join(root, "noon.yaml"), "timezone: Not/AZone\n")
 	project := filepath.Join(root, "worktree")
 	put(t, filepath.Join(project, ".git"), "gitdir: elsewhere\n")
 	child := filepath.Join(project, "nested")
@@ -102,7 +102,7 @@ func TestLoadDiscoveryStopsAtGitBoundary(t *testing.T) {
 	if cfg.Project != project || len(cfg.Sources) != 0 {
 		t.Fatalf("escaped Git boundary: %+v", cfg)
 	}
-	put(t, filepath.Join(child, ".bump.yaml"), "timezone: UTC\n")
+	put(t, filepath.Join(child, ".noon.yaml"), "timezone: UTC\n")
 	cfg, err = config.Load(config.Input{CWD: child})
 	if err != nil {
 		t.Fatal(err)
@@ -115,9 +115,9 @@ func TestLoadDiscoveryStopsAtGitBoundary(t *testing.T) {
 func TestLoadExplicitFileReplacesDiscovery(t *testing.T) {
 	t.Parallel()
 	root := canonical(t, t.TempDir())
-	put(t, filepath.Join(root, "bump.yaml"), "invalid: configuration\n")
-	put(t, filepath.Join(root, ".bump.yaml"), "also: invalid\n")
-	put(t, filepath.Join(root, "user/bump/config.yaml"), "invalid: user\n")
+	put(t, filepath.Join(root, "noon.yaml"), "invalid: configuration\n")
+	put(t, filepath.Join(root, ".noon.yaml"), "also: invalid\n")
+	put(t, filepath.Join(root, "user/noon/config.yaml"), "invalid: user\n")
 	put(t, filepath.Join(root, "settings/custom.yaml"), "state_dir: runs\n")
 	path := "settings/custom.yaml"
 	input := config.Input{CWD: root, UserConfigDir: filepath.Join(root, "user"), File: &path}
@@ -144,10 +144,10 @@ func TestLoadRejectsAmbiguousOrInvalidYAML(t *testing.T) {
 	} {
 		t.Run(data, func(t *testing.T) {
 			root := t.TempDir()
-			path := filepath.Join(root, "bump.yaml")
+			path := filepath.Join(root, "noon.yaml")
 			put(t, path, data)
 			_, err := config.Load(config.Input{CWD: root})
-			if err == nil || !strings.Contains(err.Error(), "bump.yaml") {
+			if err == nil || !strings.Contains(err.Error(), "noon.yaml") {
 				t.Fatalf("wanted source-specific error; got %v", err)
 			}
 		})
@@ -157,7 +157,7 @@ func TestLoadRejectsAmbiguousOrInvalidYAML(t *testing.T) {
 func TestLoadDoesNotIgnoreBrokenConfigLink(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, "bump.yaml")); err != nil {
+	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, "noon.yaml")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := config.Load(config.Input{CWD: root}); err == nil {

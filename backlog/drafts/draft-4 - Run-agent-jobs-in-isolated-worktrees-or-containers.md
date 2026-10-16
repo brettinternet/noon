@@ -18,7 +18,7 @@ Draft, not ready work. Promote when agent jobs that edit files collide with the 
 
 Idea: an opt-in job setting that runs a job in a fresh Git worktree (created from a named base, removed afterwards unless it produced commits) or inside a container image, so unattended agents never touch the user's working tree.
 
-Why deferred: Bump deliberately never creates worktrees or changes branches today, and the scheduler already starts at most one run per project at a time. Foreground `bump run` can still overlap a background job in the same checkout, which this draft would address. Worktree lifecycle (cleanup, retention, branch naming) and container execution (image pulls, credentials, mounts) are each a product of their own; existing tools such as Worktrunk may be better composed as a job command than built in.
+Why deferred: Noon deliberately never creates worktrees or changes branches today, and the scheduler already starts at most one run per project at a time. Foreground `noon run` can still overlap a background job in the same checkout, which this draft would address. Worktree lifecycle (cleanup, retention, branch naming) and container execution (image pulls, credentials, mounts) are each a product of their own; existing tools such as Worktrunk may be better composed as a job command than built in.
 
 Open questions: compose with `wt switch --create` inside a job's command vs. a native field; where results go (branch, PR, patch file); cleanup and retention; container runtime choice and credentials.
 <!-- SECTION:DESCRIPTION:END -->

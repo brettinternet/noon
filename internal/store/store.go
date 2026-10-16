@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brettinternet/bump/internal/runner"
+	"github.com/brettinternet/noon/internal/runner"
 	_ "modernc.org/sqlite"
 )
 
 const (
-	databaseName    = "bump.db"
+	databaseName    = "noon.db"
 	TimestampLayout = "2006-01-02T15:04:05.000Z"
 	maxRunLogBytes  = 1 << 20
 )
@@ -51,7 +51,7 @@ type Store struct {
 type StateTooNewError struct{ Version int }
 
 func (e *StateTooNewError) Error() string {
-	return fmt.Sprintf("state database version %d is newer than this Bump binary supports", e.Version)
+	return fmt.Sprintf("state database version %d is newer than this Noon binary supports", e.Version)
 }
 
 type AlreadyRunningError struct {

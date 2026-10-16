@@ -1,6 +1,6 @@
 # Agents
 
-Read README.md and docs/development.md before changing Bump. Read AGENTS.local.md if present.
+Read README.md and docs/development.md before changing Noon. Read AGENTS.local.md if present.
 
 ## Tooling
 - Use `task init` for pinned mise tools, modules, and hooks.

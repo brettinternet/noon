@@ -7,14 +7,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/brettinternet/bump/internal/app"
-	"github.com/brettinternet/bump/internal/config"
+	"github.com/brettinternet/noon/internal/app"
+	"github.com/brettinternet/noon/internal/config"
 	urfave "github.com/urfave/cli/v3"
 )
 
 func historyRuns(_ context.Context, cmd *urfave.Command) error {
 	if cmd.Args().Len() > 1 {
-		return usageError("history accepts at most one job name", "Run bump history [NAME]")
+		return usageError("history accepts at most one job name", "Run noon history [NAME]")
 	}
 	limit := cmd.Int("limit")
 	if limit < 1 || limit > 50 {
@@ -44,7 +44,7 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 	}
 	if len(runs) == 0 {
 		if job != "" {
-			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: bump run %s\n", job, job)
+			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: noon run %s\n", job, job)
 		} else {
 			fmt.Fprintln(cmd.Writer, "No runs yet.")
 		}
@@ -87,11 +87,11 @@ func printHistory(out io.Writer, runs []app.Run, now time.Time) {
 
 func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	if cmd.Args().Len() > 1 {
-		return usageError("logs accepts at most one job name or run ID", "Run bump logs [NAME|RUN]")
+		return usageError("logs accepts at most one job name or run ID", "Run noon logs [NAME|RUN]")
 	}
 	follow := cmd.Bool("follow")
 	if follow && cmd.Bool("json") {
-		return usageError("logs --follow cannot be used with --json", "Run bump logs without --follow to get JSON")
+		return usageError("logs --follow cannot be used with --json", "Run noon logs without --follow to get JSON")
 	}
 	values, err := input(cmd)
 	if err != nil {
@@ -113,7 +113,7 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 				return noRuns(cmd, "")
 			}
 			if app.IsMissingRun(err) {
-				return &Error{Code: "not_found", Message: fmt.Sprintf("run %d not found", id), Hint: "Run bump history to list recent runs."}
+				return &Error{Code: "not_found", Message: fmt.Sprintf("run %d not found", id), Hint: "Run noon history to list recent runs."}
 			}
 			if err != nil {
 				return stateError(err)
@@ -166,7 +166,7 @@ func noRuns(cmd *urfave.Command, job string) error {
 		return emit(cmd, map[string]any{"run": nil, "log": ""})
 	}
 	if job != "" {
-		fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: bump run %s\n", job, job)
+		fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: noon run %s\n", job, job)
 	} else {
 		fmt.Fprintln(cmd.Writer, "No runs yet.")
 	}
@@ -185,10 +185,10 @@ func prunedLogError(id int64) error {
 }
 
 func missingJobError(name, command string, jobs map[string]config.Job) error {
-	hint, best := "Run bump list to see available jobs.", 3
+	hint, best := "Run noon list to see available jobs.", 3
 	for candidate := range jobs {
 		if distance := editDistance(name, candidate); distance < best {
-			hint, best = fmt.Sprintf("Did you mean bump %s %s?", command, candidate), distance
+			hint, best = fmt.Sprintf("Did you mean noon %s %s?", command, candidate), distance
 		}
 	}
 	return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: hint}

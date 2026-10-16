@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/brettinternet/bump/internal/cli"
-	"github.com/brettinternet/bump/internal/config"
+	"github.com/brettinternet/noon/internal/cli"
+	"github.com/brettinternet/noon/internal/config"
 )
 
 var (

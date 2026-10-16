@@ -4,13 +4,13 @@ tasks:
   init:
     cmd: mise exec go -- go mod download
   build:
-    desc: Build bin/bump
+    desc: Build bin/noon
     cmds:
       - mkdir -p bin
-      - mise exec go -- go build -o bin/bump ./cmd/bump
+      - mise exec go -- go build -o bin/noon ./cmd/noon
   run:
-    desc: Run bump from source
-    cmd: mise exec go -- go run ./cmd/bump {{.CLI_ARGS}}
+    desc: Run noon from source
+    cmd: mise exec go -- go run ./cmd/noon {{.CLI_ARGS}}
   fix:
     cmd: find cmd internal -type f -name '*.go' -exec mise exec go -- gofmt -w {} +
   check:

@@ -81,7 +81,7 @@ func (l *RunLog) Close() (bytes int64, truncated bool, err error) {
 	if l.writeErr == nil {
 		omitted := l.tailBytes - int64(len(l.tail))
 		if omitted > 0 {
-			if _, err = fmt.Fprintf(l.file, "\n[bump: %d bytes omitted]\n", omitted); err != nil {
+			if _, err = fmt.Fprintf(l.file, "\n[noon: %d bytes omitted]\n", omitted); err != nil {
 				l.writeErr = err
 			}
 		}

@@ -62,11 +62,11 @@ tasks:
     desc: Show the next ready, unclaimed task
     cmd: mise exec -- backlog task list --ready --status "To Do" --sort ordinal --limit 1 --plain
   docker:build:
-    desc: Build the local bump development image
-    cmd: docker build -t bump:dev .
+    desc: Build the local noon development image
+    cmd: docker build -t noon:dev .
   docker:smoke:
     desc: Check the container bootstrap without running jobs
     cmds:
       - task: docker:build
-      - docker run --rm bump:dev --version
-      - docker run --rm --read-only bump:dev --json config check
+      - docker run --rm noon:dev --version
+      - docker run --rm --read-only noon:dev --json config check

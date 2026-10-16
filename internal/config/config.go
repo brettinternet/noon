@@ -23,7 +23,7 @@ type BuildOpts struct {
 
 // Input contains invocation context and already-resolved flag/environment values.
 // Nil means absent; an explicitly empty value is an error. Paths are not expanded
-// through a shell. UserConfigDir is the directory containing the bump directory.
+// through a shell. UserConfigDir is the directory containing the noon directory.
 type Input struct {
 	CWD             string
 	UserConfigDir   string
@@ -64,22 +64,22 @@ func Load(input Input) (Config, error) {
 		} else if !filepath.IsAbs(stateHome) {
 			return Config{}, errors.New("XDG_STATE_HOME must be absolute")
 		}
-		stateDefault = filepath.Join(stateHome, "bump")
+		stateDefault = filepath.Join(stateHome, "noon")
 	}
 	cfg := Config{Project: project, Timezone: "Local", StateDir: stateDefault, Sources: []string{}, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
 	if input.File != nil {
 		if *input.File == "" {
 			return Config{}, errors.New("config path must not be empty")
 		}
-		if err := cfg.applyFile(resolvePath(input.CWD, *input.File), false, "explicit", filepath.Join(input.UserConfigDir, "bump", "config.yaml")); err != nil {
+		if err := cfg.applyFile(resolvePath(input.CWD, *input.File), false, "explicit", filepath.Join(input.UserConfigDir, "noon", "config.yaml")); err != nil {
 			return Config{}, err
 		}
 	} else {
 		var paths []string
 		if input.UserConfigDir != "" {
-			paths = append(paths, filepath.Join(input.UserConfigDir, "bump", "config.yaml"))
+			paths = append(paths, filepath.Join(input.UserConfigDir, "noon", "config.yaml"))
 		}
-		paths = append(paths, filepath.Join(project, "bump.yaml"), filepath.Join(project, ".bump.yaml"))
+		paths = append(paths, filepath.Join(project, "noon.yaml"), filepath.Join(project, ".noon.yaml"))
 		for i, path := range paths {
 			kind := "shared"
 			if input.UserConfigDir != "" && i == 0 {
@@ -87,7 +87,7 @@ func Load(input Input) (Config, error) {
 			} else if i == len(paths)-1 {
 				kind = "local"
 			}
-			if err := cfg.applyFile(path, true, kind, filepath.Join(input.UserConfigDir, "bump", "config.yaml")); err != nil {
+			if err := cfg.applyFile(path, true, kind, filepath.Join(input.UserConfigDir, "noon", "config.yaml")); err != nil {
 				return Config{}, err
 			}
 		}
@@ -139,7 +139,7 @@ func ProjectDir(input Input) (string, error) {
 		return start, nil
 	}
 	for dir := start; ; dir = filepath.Dir(dir) {
-		for _, name := range []string{"bump.yaml", ".bump.yaml", ".git"} {
+		for _, name := range []string{"noon.yaml", ".noon.yaml", ".git"} {
 			_, err := os.Lstat(filepath.Join(dir, name))
 			if err == nil {
 				return dir, nil
@@ -201,7 +201,7 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 	}
 	if node, ok := values["default_agent"]; ok {
 		if kind != "user" && kind != "local" && kind != "explicit" {
-			return jobError(path, node, "default_agent", "allowed only in user config, .bump.yaml, or --config files")
+			return jobError(path, node, "default_agent", "allowed only in user config, .noon.yaml, or --config files")
 		}
 		value := node.Value
 		if strings.TrimSpace(value) == "" {
@@ -219,7 +219,7 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 	}
 	if jobs, ok := values["jobs"]; ok {
 		if kind == "user" {
-			return jobError(path, jobs, "jobs", "allowed only in bump.yaml, .bump.yaml, or --config files")
+			return jobError(path, jobs, "jobs", "allowed only in noon.yaml, .noon.yaml, or --config files")
 		}
 		if err := cfg.applyJobs(path, kind, jobs); err != nil {
 			return err

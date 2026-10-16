@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brettinternet/bump/internal/cli"
-	"github.com/brettinternet/bump/internal/config"
-	"github.com/brettinternet/bump/internal/store"
+	"github.com/brettinternet/noon/internal/cli"
+	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/store"
 )
 
 func TestHistoryAndLogs(t *testing.T) {
 	t.Run("history, target selection, retention and shared JSON", func(t *testing.T) {
 		project := sandbox(t)
 		stateDir := filepath.Join(t.TempDir(), "state")
-		t.Setenv("BUMP_STATE_DIR", stateDir)
+		t.Setenv("NOON_STATE_DIR", stateDir)
 		manifest := `jobs:
   tests:
     run: "printf 'tests-log\\377'"
@@ -29,13 +29,13 @@ func TestHistoryAndLogs(t *testing.T) {
   prune:
     run: "printf old-log"
 `
-		if err := os.WriteFile(filepath.Join(project, "bump.yaml"), []byte(manifest), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(project, "noon.yaml"), []byte(manifest), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		runJSON := func(name string, wantExit int) int64 {
 			t.Helper()
 			var out, stderr bytes.Buffer
-			code := cli.Run(context.Background(), []string{"bump", "run", name, "--json"}, config.BuildOpts{}, &out, &stderr)
+			code := cli.Run(context.Background(), []string{"noon", "run", name, "--json"}, config.BuildOpts{}, &out, &stderr)
 			if code != wantExit {
 				t.Fatalf("run %s: exit=%d want=%d stdout=%s stderr=%s", name, code, wantExit, out.String(), stderr.String())
 			}
@@ -95,7 +95,7 @@ func TestHistoryAndLogs(t *testing.T) {
 		}
 		for _, args := range [][]string{{"list"}, {}} {
 			var out, stderr bytes.Buffer
-			if code := cli.Run(context.Background(), append([]string{"bump"}, args...), config.BuildOpts{}, &out, &stderr); code != 0 || !strings.Contains(out.String(), "LAST") || !strings.Contains(out.String(), "✗ exit 7") {
+			if code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr); code != 0 || !strings.Contains(out.String(), "LAST") || !strings.Contains(out.String(), "✗ exit 7") {
 				t.Fatalf("LAST column missing for %v: code=%d stdout=%s stderr=%s", args, code, out.String(), stderr.String())
 			}
 		}
@@ -126,7 +126,7 @@ func TestHistoryAndLogs(t *testing.T) {
 			t.Fatalf("run ID logs selection: %d %+v", code, runLog)
 		}
 		var rawOut, rawErr bytes.Buffer
-		if code := cli.Run(context.Background(), []string{"bump", "logs", "tests"}, config.BuildOpts{}, &rawOut, &rawErr); code != 0 || !bytes.Equal(rawOut.Bytes(), []byte{'t', 'e', 's', 't', 's', '-', 'l', 'o', 'g', 0xff}) {
+		if code := cli.Run(context.Background(), []string{"noon", "logs", "tests"}, config.BuildOpts{}, &rawOut, &rawErr); code != 0 || !bytes.Equal(rawOut.Bytes(), []byte{'t', 'e', 's', 't', 's', '-', 'l', 'o', 'g', 0xff}) {
 			t.Fatalf("plain logs did not preserve stored bytes: %d %v %q", code, rawOut.Bytes(), rawErr.String())
 		}
 
@@ -175,7 +175,7 @@ func TestHistoryAndLogs(t *testing.T) {
 			t.Fatal(err)
 		}
 		var missingOut, missingErr bytes.Buffer
-		code = cli.Run(context.Background(), []string{"bump", "logs", fmt.Sprint(testsID), "--follow"}, config.BuildOpts{}, &missingOut, &missingErr)
+		code = cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(testsID), "--follow"}, config.BuildOpts{}, &missingOut, &missingErr)
 		if code != 1 || !strings.Contains(missingErr.String(), "Logs are kept for the newest 10 runs per job") {
 			t.Fatalf("missing terminal log follow did not explain retention: exit=%d stdout=%s stderr=%s", code, missingOut.String(), missingErr.String())
 		}
@@ -188,7 +188,7 @@ func TestHistoryAndLogs(t *testing.T) {
 			t.Fatalf("maximum history limit: %d %+v", code, maximumHistory)
 		}
 		var out, stderr bytes.Buffer
-		code = cli.Run(context.Background(), []string{"bump", "logs", fmt.Sprint(oldRun)}, config.BuildOpts{}, &out, &stderr)
+		code = cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(oldRun)}, config.BuildOpts{}, &out, &stderr)
 		if code != 1 || !strings.Contains(stderr.String(), "Logs are kept for the newest 10 runs per job") {
 			t.Fatalf("pruned log explanation: exit=%d stdout=%s stderr=%s", code, out.String(), stderr.String())
 		}
@@ -197,12 +197,12 @@ func TestHistoryAndLogs(t *testing.T) {
 	t.Run("read-only inspection with no state", func(t *testing.T) {
 		root := sandbox(t)
 		manifest := "jobs:\n  tests:\n    run: 'printf not-run'\n"
-		if err := os.WriteFile(filepath.Join(root, "bump.yaml"), []byte(manifest), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		for _, args := range [][]string{{"history"}, {"logs"}, {"list"}} {
 			var out, stderr bytes.Buffer
-			code := cli.Run(context.Background(), append([]string{"bump"}, args...), config.BuildOpts{}, &out, &stderr)
+			code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)
 			if code != 0 || stderr.Len() != 0 {
 				t.Fatalf("%v: exit=%d stdout=%s stderr=%s", args, code, out.String(), stderr.String())
 			}
@@ -210,11 +210,11 @@ func TestHistoryAndLogs(t *testing.T) {
 				t.Fatalf("%v did not report no runs: %q", args, out.String())
 			}
 		}
-		if _, err := os.Stat(filepath.Join(root, "state", "bump")); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(root, "state", "noon")); !os.IsNotExist(err) {
 			t.Fatalf("inspection created state: %v", err)
 		}
 		entries, err := os.ReadDir(root)
-		if err != nil || len(entries) != 1 || entries[0].Name() != "bump.yaml" {
+		if err != nil || len(entries) != 1 || entries[0].Name() != "noon.yaml" {
 			t.Fatalf("inspection changed project files: %v err=%v", entries, err)
 		}
 	})
@@ -223,14 +223,14 @@ func TestHistoryAndLogs(t *testing.T) {
 func TestLogsFollow(t *testing.T) {
 	project := sandbox(t)
 	stateDir := filepath.Join(t.TempDir(), "state")
-	t.Setenv("BUMP_STATE_DIR", stateDir)
+	t.Setenv("NOON_STATE_DIR", stateDir)
 	manifest := `jobs:
   tests:
     run: 'printf "first\\n"; sleep 0.5; printf "later\\n"'
   large:
     run: "head -c 1048576 /dev/zero | tr '\\000' x; sleep 0.3; head -c 100000 /dev/zero | tr '\\000' y; printf 'TAIL-MARKER\\n'"
 `
-	if err := os.WriteFile(filepath.Join(project, "bump.yaml"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(project, "noon.yaml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	state, err := store.Open(stateDir)
@@ -254,7 +254,7 @@ func TestLogsFollow(t *testing.T) {
 		runDone := make(chan result, 1)
 		go func() {
 			var out, stderr bytes.Buffer
-			code := cli.Run(context.Background(), []string{"bump", "run", name}, config.BuildOpts{}, &out, &stderr)
+			code := cli.Run(context.Background(), []string{"noon", "run", name}, config.BuildOpts{}, &out, &stderr)
 			runDone <- result{code: code, out: out.String(), err: stderr.String(), at: time.Now()}
 		}()
 		runID, deadline := int64(0), time.Now().Add(3*time.Second)
@@ -276,7 +276,7 @@ func TestLogsFollow(t *testing.T) {
 		followDone := make(chan result, 1)
 		go func() {
 			var out, stderr bytes.Buffer
-			code := cli.Run(context.Background(), []string{"bump", "logs", fmt.Sprint(runID), "--follow"}, config.BuildOpts{}, &out, &stderr)
+			code := cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(runID), "--follow"}, config.BuildOpts{}, &out, &stderr)
 			followDone <- result{code: code, out: out.String(), err: stderr.String(), at: time.Now()}
 		}()
 		var runResult result
@@ -308,13 +308,13 @@ func TestLogsFollow(t *testing.T) {
 		t.Fatalf("follow omitted output written after it began: %q", followed)
 	}
 	followed, _ = runAndFollow("large")
-	notice := "[bump: output past 1 MiB is shown when the run ends]"
+	notice := "[noon: output past 1 MiB is shown when the run ends]"
 	noticeAt := strings.Index(followed, notice)
 	if noticeAt < 0 || noticeAt > (1<<20)+1 || !strings.Contains(followed, "TAIL-MARKER") || strings.Index(followed, "TAIL-MARKER") < noticeAt {
 		t.Fatalf("follow exposed overflow tail before notice or omitted terminal tail: notice=%d len=%d tail=%q", noticeAt, len(followed), followed[len(followed)-min(len(followed), 100):])
 	}
 	var out, stderr bytes.Buffer
-	code := cli.Run(context.Background(), []string{"bump", "logs", "--follow", "--json"}, config.BuildOpts{}, &out, &stderr)
+	code := cli.Run(context.Background(), []string{"noon", "logs", "--follow", "--json"}, config.BuildOpts{}, &out, &stderr)
 	if code != 2 || !strings.Contains(out.String(), `"code":"usage"`) || !strings.Contains(out.String(), "cannot be used with --json") || stderr.Len() != 0 {
 		t.Fatalf("follow JSON exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
 	}

@@ -8,7 +8,7 @@ or application service starts. No Python or Node runtime is required.
 
 Tooling follows ../hum (Go CLI) and ../project (Task, mise, worktree preparation,
 staged checks). Web app/container-stack machinery is deliberately not copied.
-Go 1.27.2 and urfave/cli v3 match hum. The module path matches the Bump origin.
+Go 1.27.2 and urfave/cli v3 match hum. The module path matches the Noon origin.
 MIT licensing follows hum.
 
 ## Commands
@@ -17,7 +17,7 @@ MIT licensing follows hum.
 | --- | --- |
 | `task` | List development commands |
 | `task cli:run -- --help` | Run from source |
-| `task cli:build` | Build bin/bump |
+| `task cli:build` | Build bin/noon |
 | `task test` | Unit and CLI tests |
 | `task cli:test -- -run TestLoad` | Focused tests |
 | `task cli:check` | gofmt, vet, Staticcheck |
@@ -38,7 +38,7 @@ container smoke runs on Linux. Release publication is not wired up yet.
 
 ## Structure
 
-- `cmd/bump/main.go`: process boundary, signals, linker-injected build metadata.
+- `cmd/noon/main.go`: process boundary, signals, linker-injected build metadata.
 - `internal/cli`: urfave commands, flag/env sources, human/JSON rendering.
 - `internal/config`: filesystem discovery, strict YAML, precedence and validation;
   no dependency on CLI framework and no job execution.
@@ -76,7 +76,7 @@ Test each rule once, at the package that computes it:
 
 - Never read the real clock, home, config, or state in tests: pass time as an
   argument and set `HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and
-  `BUMP_STATE_DIR` to temp dirs.
+  `NOON_STATE_DIR` to temp dirs.
 - Poll for conditions with a deadline; never sleep a fixed time unless elapsed
   time is the behavior. Shorten grace periods and poll intervals through options,
   not by weakening assertions.
@@ -109,9 +109,9 @@ locally executable acceptance commands, and expected results. Future acceptance
 commands are targets to implement, not assertions that today's bootstrap passes.
 No second TODO queue in docs. Drafts are ideas, not work: never implement one.
 
-Acceptance commands that run `bin/bump` against a fixture use
-`env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump ...` with `bump_ac_home=$(mktemp -d)`,
-so real user config, state, and `BUMP_*` variables cannot change the result. Write
+Acceptance commands that run `bin/noon` against a fixture use
+`env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon ...` with `noon_ac_home=$(mktemp -d)`,
+so real user config, state, and `NOON_*` variables cannot change the result. Write
 new ones the same way.
 
 One task, start to finish:

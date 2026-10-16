@@ -1,0 +1,70 @@
+---
+id: NOON-18
+title: Enable projects and approve shared jobs
+status: To Do
+assignee: []
+created_date: '2026-10-16 01:41'
+updated_date: '2026-10-16 02:03'
+labels:
+  - security
+  - store
+  - cli
+dependencies:
+  - NOON-3
+documentation:
+  - docs/design.md
+  - docs/development.md
+  - >-
+    backlog/decisions/decision-2 -
+    Repository-defined-jobs-run-unattended-only-after-approval-of-their-current-definition.md
+modified_files:
+  - internal/store/**
+  - internal/app/**
+  - internal/cli/**
+  - internal/config/**
+  - README.md
+  - docs/configuration.md
+priority: high
+type: feature
+ordinal: 800
+---
+
+## Description
+
+<!-- SECTION:DESCRIPTION:BEGIN -->
+Outcome: background scheduling has an explicit opt-in per checkout. Shared jobs run unattended only while their approved definition is unchanged, and every view says which jobs need approval.
+
+Read first: decision-2, docs/design.md#enable-and-approve and #security-model.
+
+Scope:
+- Migration 2: on `projects`, add `enabled INTEGER NOT NULL DEFAULT 0`, `enabled_at TEXT`, and `config_file TEXT` (absolute path of an explicit `--config` file; NULL means automatic files). Add `approvals(project_id INTEGER NOT NULL REFERENCES projects(id), job TEXT NOT NULL, digest TEXT NOT NULL, approved_at TEXT NOT NULL, PRIMARY KEY(project_id, job))`.
+- `noon enable` (current project; no arguments): load config (invalid config fails with nothing changed); register or update the project with its config selection; set enabled; replace its approvals with the current digest of every job that needs approval. Idempotent: `enabled_at` changes only when a disabled project becomes enabled, and `approved_at` only when a job's approved digest changes. Output: `Enabled ~/code/app · 3 jobs · approved 2 shared jobs`, then a line saying nothing runs in the background until a scheduler serves the project. Name only commands that exist; the serve task adds its own hint. JSON: `{"schema_version":1,"project":{...},"approved":["deps","tests"]}`.
+- `noon disable`: clear enabled and the project's approvals, keep history, and exit 0 when already disabled.
+- A job needs approval when its effective definition comes from `noon.yaml` or an explicit `--config` file. Jobs from `.noon.yaml`, including whole-job local overrides, do not. An `enabled`-only local toggle does not change the shared digest.
+- `approval` per job in list JSON and the app job struct: `not_required`, `approved`, or `needs_approval` (never approved, or digest differs). The project object gains `enabled`. Read-only commands read approvals without creating state.
+- Human list and bare `noon`: NEXT shows `needs approval` for those jobs. When any shared job needs approval in an enabled project, add one notice `N shared jobs changed since you enabled this project. Next: noon enable`. For a project that is not enabled and has scheduled jobs, add `Not enabled for background runs. Next: noon enable`.
+- Foreground `noon run` stays allowed without approval.
+- README gains a short Safety section: what enable does, what digests cover (definitions, not script or prompt-file contents), why `.noon.yaml` must stay ignored, and that approval is not a sandbox.
+
+Non-goals: the scheduler, pause, queued runs, `noon add`, per-job approve commands, approval via MCP, notifications.
+
+Tests:
+- internal/cli `TestEnableApproval` (security boundary): enable approves shared jobs; changing a shared job's `run`, `schedule`, or `env` makes only that job `needs_approval`; changing `description` does not; `.noon.yaml` jobs and local overrides report `not_required`; disable then list shows the project not enabled; enable with invalid config changes nothing; enabling with `--config FILE` records the file and treats its jobs as shared.
+
+Modified-file contract: the modified_files list plus this task's Backlog record. Justify any other path in Implementation Notes before changing it.
+<!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 `task cli:test -- -run '^TestEnableApproval$' -count=1 -v` exits 0 and prints `--- PASS: TestEnableApproval`, covering every case listed under Tests
+- [ ] #2 In one shell: `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    schedule: daily\n    run: "true"\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" enable && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" --json list` exits 0 with job `t` reporting `"approval":"approved"`; then `printf '    timeout: 5m\n' >> "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" --json list` reports `"approval":"needs_approval"`, and `env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project"` prints `Next: noon enable`
+<!-- AC:END -->
+
+## Definition of Done
+<!-- DOD:BEGIN -->
+- [ ] #1 task ci passes on the final commit
+- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [ ] #4 No test was deleted, skipped, or weakened
+- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+<!-- DOD:END -->

@@ -1,5 +1,5 @@
 ---
-id: BUMP-12
+id: NOON-12
 title: Run the scheduler in production containers
 status: To Do
 assignee: []
@@ -8,8 +8,8 @@ updated_date: '2026-10-16 02:03'
 labels:
   - ops
 dependencies:
-  - BUMP-5
-  - BUMP-17
+  - NOON-5
+  - NOON-17
 documentation:
   - docs/design.md
   - docs/development.md
@@ -34,21 +34,21 @@ ordinal: 1800
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: the image runs `bump serve` as a well-behaved production container: correct signals, reaped children, state persisted on a volume, a read-only repository mount, and a documented Compose setup.
+Outcome: the image runs `noon serve` as a well-behaved production container: correct signals, reaped children, state persisted on a volume, a read-only repository mount, and a documented Compose setup.
 
 Read first: docs/design.md#docker and #scheduler-lifetime, decision-1, docs/docker.md, Dockerfile, and the `docker:*` targets in Taskfile.dist.yaml.
 
 Scope:
-- Dockerfile: keep the non-root UID 10001, `BUMP_STATE_DIR=/state`, `ENTRYPOINT ["bump"]`, and the static build. Keep the default `CMD` empty, so a bare `docker run` shows the dashboard and starts nothing. Keep `/state` owned by UID 10001 in the image, so a new named volume inherits writable ownership. Pin the base images by digest.
-- examples/compose.yaml: one service with `image: ${BUMP_IMAGE:-bump:dev}` (no image is published yet; a comment points to `task docker:build`), `init: true`, `read_only: true`, `tmpfs: [/tmp]`, the project directory (`.`) bind-mounted read-only at `/workspace`, a named volume at `/state`, `working_dir: /workspace`, and `entrypoint: ["/bin/sh", "-c", "bump enable && exec bump serve"]`. It must override the entrypoint: a `command:` would be appended to `ENTRYPOINT ["bump"]` and run `bump sh -c ...`. Comments explain that `bump enable` trusts the deployed config at each start.
+- Dockerfile: keep the non-root UID 10001, `NOON_STATE_DIR=/state`, `ENTRYPOINT ["noon"]`, and the static build. Keep the default `CMD` empty, so a bare `docker run` shows the dashboard and starts nothing. Keep `/state` owned by UID 10001 in the image, so a new named volume inherits writable ownership. Pin the base images by digest.
+- examples/compose.yaml: one service with `image: ${NOON_IMAGE:-noon:dev}` (no image is published yet; a comment points to `task docker:build`), `init: true`, `read_only: true`, `tmpfs: [/tmp]`, the project directory (`.`) bind-mounted read-only at `/workspace`, a named volume at `/state`, `working_dir: /workspace`, and `entrypoint: ["/bin/sh", "-c", "noon enable && exec noon serve"]`. It must override the entrypoint: a `command:` would be appended to `ENTRYPOINT ["noon"]` and run `noon sh -c ...`. Comments explain that `noon enable` trusts the deployed config at each start.
 - Add `task docker:integration` and run it in Linux CI after `docker:smoke`. Use a disposable project fixture and named resources with a unique prefix, removed at the end. Scenarios after the first may use `docker run` with equivalent options. It must:
-  - start the scheduler from examples/compose.yaml itself (`docker compose --project-directory FIXTURE -f examples/compose.yaml -p PREFIX up -d` with `BUMP_IMAGE=bump:dev`) and confirm `bump serve` is running in the container;
-  - in the served project, queue a job with `docker exec ... bump run NAME --detach`, and observe `succeeded` in `bump history --json`;
+  - start the scheduler from examples/compose.yaml itself (`docker compose --project-directory FIXTURE -f examples/compose.yaml -p PREFIX up -d` with `NOON_IMAGE=noon:dev`) and confirm `noon serve` is running in the container;
+  - in the served project, queue a job with `docker exec ... noon run NAME --detach`, and observe `succeeded` in `noon history --json`;
   - run with `--network none`, and have a schedule in a non-UTC timezone report the expected next time;
   - check that a job leaving a background grandchild produces no zombie (`ps` shows no `Z` state);
   - `docker stop` while a job is running: the container exits within 15s, and after restarting it, history shows the run `interrupted`, never `succeeded`;
   - recreate the container on the same volume and confirm history persists.
-- docs/docker.md: production Compose usage, volume ownership for UID 10001, extending the image with job tools (a `FROM` example adding git), keeping agent credentials and the Docker socket out by default, and the approval semantics of `bump enable` in containers.
+- docs/docker.md: production Compose usage, volume ownership for UID 10001, extending the image with job tools (a `FROM` example adding git), keeping agent credentials and the Docker socket out by default, and the approval semantics of `noon enable` in containers.
 
 Non-goals: Kubernetes, multi-arch publishing changes, bundling agent CLIs, launching a container per job, health-check endpoints (the webhook task adds `/healthz`).
 

@@ -1,4 +1,4 @@
-project_name: "bump"
+project_name: "noon"
 default_status: "To Do"
 statuses: ["To Do", "In Progress", "Done"]
 labels: ["config", "schedule", "runner", "store", "scheduler", "cli", "integration", "mcp", "http", "ops", "tui", "security"]
@@ -14,4 +14,4 @@ filesystem_only: false
 bypass_git_hooks: false
 check_active_branches: true
 active_branch_days: 30
-task_prefix: "BUMP"
+task_prefix: "NOON"

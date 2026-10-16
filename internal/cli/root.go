@@ -1,4 +1,4 @@
-// Package cli adapts Bump's core operations to a human and machine CLI.
+// Package cli adapts Noon's core operations to a human and machine CLI.
 package cli
 
 import (
@@ -13,14 +13,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/brettinternet/bump/internal/config"
+	"github.com/brettinternet/noon/internal/config"
 	urfave "github.com/urfave/cli/v3"
 )
 
 // NewRootCommand returns a fresh command tree; no settings are read until an action runs.
 func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Command {
 	root := &urfave.Command{
-		Name:        "bump",
+		Name:        "noon",
 		Usage:       "Repo-local scheduling, without a platform",
 		Description: "Validate, list, and run project jobs in the foreground, inspect configuration, and initialize a project. Background scheduling is not implemented yet.",
 		Version:     fmt.Sprintf("%s (commit %s, built %s)", build.Version, build.Commit, build.BuildTime),
@@ -28,10 +28,10 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		EnableShellCompletion: true,
 		ExitErrHandler:        func(context.Context, *urfave.Command, error) {},
 		Flags: []urfave.Flag{
-			&urfave.StringFlag{Name: "project", Aliases: []string{"C"}, Usage: "Use this project directory instead of discovery", Sources: urfave.EnvVars("BUMP_PROJECT")},
-			&urfave.StringFlag{Name: "config", Usage: "Read only this configuration file (relative to invocation directory)", Sources: urfave.EnvVars("BUMP_CONFIG")},
-			&urfave.StringFlag{Name: "timezone", Usage: "Override timezone (default Local)", Sources: urfave.EnvVars("BUMP_TIMEZONE")},
-			&urfave.StringFlag{Name: "state-dir", Usage: "Override per-user state directory", Sources: urfave.EnvVars("BUMP_STATE_DIR")},
+			&urfave.StringFlag{Name: "project", Aliases: []string{"C"}, Usage: "Use this project directory instead of discovery", Sources: urfave.EnvVars("NOON_PROJECT")},
+			&urfave.StringFlag{Name: "config", Usage: "Read only this configuration file (relative to invocation directory)", Sources: urfave.EnvVars("NOON_CONFIG")},
+			&urfave.StringFlag{Name: "timezone", Usage: "Override timezone (default Local)", Sources: urfave.EnvVars("NOON_TIMEZONE")},
+			&urfave.StringFlag{Name: "state-dir", Usage: "Override per-user state directory", Sources: urfave.EnvVars("NOON_STATE_DIR")},
 
 			&urfave.BoolFlag{Name: "json", Usage: "Print structured JSON instead of human output"},
 		},
@@ -46,8 +46,8 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			}, Action: runLogs},
 			{Name: "status", Usage: "Show project jobs and next scheduled times without running them", Action: status},
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
-			{Name: "init", Usage: "Create bump.yaml without overwriting existing files", Flags: []urfave.Flag{
-				&urfave.BoolFlag{Name: "local", Usage: "Create private .bump.yaml instead; add it to .gitignore"},
+			{Name: "init", Usage: "Create noon.yaml without overwriting existing files", Flags: []urfave.Flag{
+				&urfave.BoolFlag{Name: "local", Usage: "Create private .noon.yaml instead; add it to .gitignore"},
 			}, Action: initialize},
 			{Name: "config", Usage: "Show effective configuration (default) or validate it", Action: showConfig, Commands: []*urfave.Command{
 				{Name: "show", Usage: "Show effective settings and loaded file paths", Action: showConfig},
@@ -57,7 +57,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 	}
 	_ = root.Walk(func(cmd *urfave.Command) error {
 		cmd.OnUsageError = func(_ context.Context, _ *urfave.Command, err error, _ bool) error {
-			return usageError(err.Error(), "Run bump --help")
+			return usageError(err.Error(), "Run noon --help")
 		}
 		return nil
 	})
@@ -80,7 +80,7 @@ func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut
 		if jsonRequested(root, args) {
 			_ = json.NewEncoder(out).Encode(map[string]any{"schema_version": 1, "error": failure})
 		} else {
-			fmt.Fprintf(errOut, "bump: %s\n", failure.Message)
+			fmt.Fprintf(errOut, "noon: %s\n", failure.Message)
 			if failure.Hint != "" {
 				fmt.Fprintf(errOut, "Hint: %s\n", failure.Hint)
 			}
@@ -164,7 +164,7 @@ func input(cmd *urfave.Command) (config.Input, error) {
 	} else if !filepath.IsAbs(stateHome) {
 		return config.Input{}, errors.New("XDG_STATE_HOME must be absolute")
 	}
-	return config.Input{CWD: cwd, UserConfigDir: userDir, StateDirDefault: filepath.Join(stateHome, "bump"),
+	return config.Input{CWD: cwd, UserConfigDir: userDir, StateDirDefault: filepath.Join(stateHome, "noon"),
 		Project: setting(cmd, "project"), File: setting(cmd, "config"),
 		Timezone: setting(cmd, "timezone"), StateDir: setting(cmd, "state-dir")}, nil
 }
@@ -191,7 +191,7 @@ func load(cmd *urfave.Command) (config.Config, error) {
 
 func noArgs(cmd *urfave.Command) error {
 	if cmd.Args().Len() != 0 {
-		return usageError(fmt.Sprintf("unexpected argument %q", cmd.Args().First()), "Run bump --help")
+		return usageError(fmt.Sprintf("unexpected argument %q", cmd.Args().First()), "Run noon --help")
 	}
 	return nil
 }
@@ -264,10 +264,10 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return configError(err)
 	}
-	name := "bump.yaml"
+	name := "noon.yaml"
 	mode := os.FileMode(0o644)
 	if cmd.Bool("local") {
-		name, mode = ".bump.yaml", 0o600
+		name, mode = ".noon.yaml", 0o600
 	}
 	path := filepath.Join(project, name)
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
@@ -277,7 +277,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	} else if err != nil {
 		return err
 	} else {
-		_, writeErr := io.WriteString(file, "# Bump settings. Listing jobs does not execute them.\n# Ignore .bump.yaml in your repository.\nversion: 1\n# timezone: Local\n# jobs:\n#   tests:\n#     schedule: weekdays at 9am\n#     run: task test\n")
+		_, writeErr := io.WriteString(file, "# Noon settings. Listing jobs does not execute them.\n# Ignore .noon.yaml in your repository.\nversion: 1\n# timezone: Local\n# jobs:\n#   tests:\n#     schedule: weekdays at 9am\n#     run: task test\n")
 		closeErr := file.Close()
 		if err := errors.Join(writeErr, closeErr); err != nil {
 			return err
@@ -291,7 +291,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	} else {
 		fmt.Fprintf(cmd.Writer, "Kept existing %s (not overwritten)\n", path)
 	}
-	fmt.Fprintln(cmd.Writer, "Ignore .bump.yaml in Git. Next: bump config check")
+	fmt.Fprintln(cmd.Writer, "Ignore .noon.yaml in Git. Next: noon config check")
 	return nil
 }
 

@@ -1,4 +1,4 @@
-module github.com/brettinternet/bump
+module github.com/brettinternet/noon
 
 go 1.27
 

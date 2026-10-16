@@ -1,5 +1,5 @@
 ---
-id: BUMP-8
+id: NOON-8
 title: Accept signed webhooks
 status: To Do
 assignee: []
@@ -9,7 +9,7 @@ labels:
   - http
   - security
 dependencies:
-  - BUMP-7
+  - NOON-7
 documentation:
   - docs/design.md
   - docs/development.md
@@ -38,17 +38,17 @@ Outcome: external services (GitHub, CI, monitors) can trigger opted-in jobs over
 Read first: docs/design.md#integrations (Webhooks, Event files) and #security-model, decision-4. Use only `net/http`.
 
 Scope:
-- `bump serve --listen ADDR` (for example `127.0.0.1:8787`); there is no listener without the flag. A non-loopback address logs a warning that requests still require signatures. The listener shuts down gracefully (5s) with serve.
+- `noon serve --listen ADDR` (for example `127.0.0.1:8787`); there is no listener without the flag. A non-loopback address logs a warning that requests still require signatures. The listener shuts down gracefully (5s) with serve.
 - Job field `webhook: {secret_env: NAME}`, in the digest. The secret is read from the scheduler's environment at startup. A missing or empty secret disables that endpoint and records a project config error that status and doctor show.
 - Route `POST /hooks/{project_id}/{job}`; `project_id` is the integer project ID. List JSON adds `webhook_path` for webhook jobs.
 - Request handling, in order:
   1. Unknown project or job, or a job without `webhook`: 404 with no detail.
   2. Body over 1 MiB (`http.MaxBytesReader`): 413.
-  3. Missing or wrong signature: 401. The signature header is `X-Hub-Signature-256` or `X-Bump-Signature-256`, formatted `sha256=HEX` over the raw body, compared in constant time.
+  3. Missing or wrong signature: 401. The signature header is `X-Hub-Signature-256` or `X-Noon-Signature-256`, formatted `sha256=HEX` over the raw body, compared in constant time.
   4. Inactive (project disabled, job disabled, paused, or needs approval): 409 with a short reason.
   5. Otherwise queue a run with trigger `webhook` and `requested_by` `webhook:REMOTE_ADDR`. Use the shared queued-request operation, so keys, cooldowns, and coalescing behave exactly as on the CLI. Respond 202 `{"run_id":N,"created":true}`, or 200 `{"run_id":N,"created":false,"reason":...}` for a duplicate delivery, a cooldown, or a coalesced request.
-- Deduplication: `X-GitHub-Delivery` or `X-Bump-Delivery` becomes the run's idempotency key; a value that is not a valid key gets 400. Document that senders without a delivery ID get no replay protection, and that deduplication only covers deliveries whose run is still retained (newest 50 terminal runs per job).
-- Payload: an event file with `source: "webhook"` and `data` as parsed JSON (or a string when the body is not JSON). `headers` keeps only `content-type`, `user-agent`, `x-github-event`, `x-github-delivery`, and `x-bump-delivery`; never signature or authorization headers.
+- Deduplication: `X-GitHub-Delivery` or `X-Noon-Delivery` becomes the run's idempotency key; a value that is not a valid key gets 400. Document that senders without a delivery ID get no replay protection, and that deduplication only covers deliveries whose run is still retained (newest 50 terminal runs per job).
+- Payload: an event file with `source: "webhook"` and `data` as parsed JSON (or a string when the body is not JSON). `headers` keeps only `content-type`, `user-agent`, `x-github-event`, `x-github-delivery`, and `x-noon-delivery`; never signature or authorization headers.
 - `GET /healthz` returns 200 `{"status":"ok"}` while the scheduler loop is healthy. Other methods and paths return 404 or 405.
 - Server limits: ReadHeaderTimeout 5s, ReadTimeout 10s, WriteTimeout 10s, MaxHeaderBytes 16 KiB.
 - Add docs/webhooks.md: GitHub setup (secret, content type, events), a `curl` example computing the signature with `openssl dgst`, TLS via a reverse proxy, and Docker port publishing.
@@ -57,7 +57,7 @@ Non-goals: TLS termination, tunnels, unauthenticated endpoints, request-chosen c
 
 Tests:
 - internal/httpapi `TestWebhooks` (httptest against the handler with a real store): a valid signature queues one run with the event file; bad or missing signatures get 401 and no run; an unknown job and a job without `webhook` get 404; an oversized body gets 413; a duplicate delivery returns the same run; an inactive job gets 409; signature headers are never stored; a non-JSON body is stored as a string.
-- integration `TestServeListen`: with the real binary, `bump serve --listen 127.0.0.1:0` binds a free port and logs the bound address on stderr; the test reads it and gets 200 from `/healthz`. Without the flag, serve logs no listener and opens no port.
+- integration `TestServeListen`: with the real binary, `noon serve --listen 127.0.0.1:0` binds a free port and logs the bound address on stderr; the test reads it and gets 200 from `/healthz`. Without the flag, serve logs no listener and opens no port.
 
 Modified-file contract: the modified_files list plus this task's Backlog record. Justify any other path in Implementation Notes before changing it.
 <!-- SECTION:DESCRIPTION:END -->

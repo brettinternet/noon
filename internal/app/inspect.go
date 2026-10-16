@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/brettinternet/bump/internal/config"
+	"github.com/brettinternet/noon/internal/config"
 )
 
 type Project struct {

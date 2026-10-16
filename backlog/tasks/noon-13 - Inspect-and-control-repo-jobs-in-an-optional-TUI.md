@@ -1,5 +1,5 @@
 ---
-id: BUMP-13
+id: NOON-13
 title: Inspect and control jobs in a terminal UI
 status: To Do
 assignee: []
@@ -8,7 +8,7 @@ updated_date: '2026-10-16 01:41'
 labels:
   - tui
 dependencies:
-  - BUMP-21
+  - NOON-21
 references:
   - 'https://github.com/charmbracelet/bubbletea'
 documentation:
@@ -29,7 +29,7 @@ ordinal: 2100
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: `bump tui` gives a live, keyboard-driven view of the current project's jobs and runs, built only on the app operations the CLI and MCP already use.
+Outcome: `noon tui` gives a live, keyboard-driven view of the current project's jobs and runs, built only on the app operations the CLI and MCP already use.
 
 Read first: docs/design.md#experience and #architecture. Use `charm.land/bubbletea/v2` (confirm the current module path and release in its README before adding it) and lipgloss only if layout needs it.
 
@@ -38,16 +38,16 @@ Scope:
   - Jobs: JOB, SCHEDULE, NEXT, LAST, and state; refreshed every second from the store; header shows scheduler state.
   - Runs: history of the selected job.
   - Log: tail of the selected run, following while it runs, with the 1 MiB follow behavior from the history task.
-- Keys: `j`/`k` or arrows move; `enter` opens runs; `l` opens the log; `r` queues the selected job now (same rules and errors as `bump run --detach`); `c` cancels the selected run after a `y`/`n` confirmation; `p` toggles pause; `esc` goes back; `q` quits; `?` shows help.
+- Keys: `j`/`k` or arrows move; `enter` opens runs; `l` opens the log; `r` queues the selected job now (same rules and errors as `noon run --detach`); `c` cancels the selected run after a `y`/`n` confirmation; `p` toggles pause; `esc` goes back; `q` quits; `?` shows help.
 - Errors and notices (needs approval, not enabled, scheduler offline) render in a status line with the CLI command that fixes them. The TUI never adds, edits, enables, or approves jobs.
-- When stdin or stdout is not a terminal: usage error `bump tui needs a terminal; use bump status`, exit 2. `--json` is a usage error.
+- When stdin or stdout is not a terminal: usage error `noon tui needs a terminal; use noon status`, exit 2. `--json` is a usage error.
 - The terminal is restored on exit, panic, and SIGTERM.
 
 Non-goals: a web UI, editing config, multiple projects in one view, mouse support, themes, embedding the scheduler.
 
 Tests:
 - internal/tui `TestTUIModel`: drive the model's Update with key messages against a temp project and real store. `r` creates a queued run, `p` pauses and unpauses, `c` then `n` cancels nothing while `c` then `y` cancels, and View contains job names and the needs-approval notice. Selection and rendering never write to the store.
-- internal/cli `TestTUINonInteractive`: `bump tui` with non-terminal stdio exits 2 without hanging.
+- internal/cli `TestTUINonInteractive`: `noon tui` with non-terminal stdio exits 2 without hanging.
 
 Modified-file contract: the modified_files list plus this task's Backlog record. Justify any other path in Implementation Notes before changing it.
 <!-- SECTION:DESCRIPTION:END -->
@@ -55,8 +55,8 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 `task cli:test -- -run '^(TestTUIModel|TestTUINonInteractive)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
-- [ ] #2 `task cli:build && bin/bump tui < /dev/null; echo "exit=$?"` prints the terminal-required error immediately and `exit=2`
-- [ ] #3 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/bump` exits 0
+- [ ] #2 `task cli:build && bin/noon tui < /dev/null; echo "exit=$?"` prints the terminal-required error immediately and `exit=2`
+- [ ] #3 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon` exits 0
 <!-- AC:END -->
 
 ## Definition of Done

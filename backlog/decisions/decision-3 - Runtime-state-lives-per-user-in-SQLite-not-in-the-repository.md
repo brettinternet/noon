@@ -6,15 +6,15 @@ status: accepted
 ---
 ## Context
 
-The bootstrap defaulted `state_dir` to `PROJECT/.bump`. Repo-local state is deleted by
+The bootstrap defaulted `state_dir` to `PROJECT/.noon`. Repo-local state is deleted by
 `git clean -fdx`, multiplies across worktrees, needs ignore rules, cannot serve a cross-project
 scheduler or registry, and fails on read-only repository mounts. Run history, queues, approvals,
 and occurrence watermarks need transactions and concurrent readers while the scheduler writes.
 
 ## Decision
 
-1. Default state is `$XDG_STATE_HOME/bump`, else `~/.local/state/bump`. Overrides are
-   `BUMP_STATE_DIR`, `--state-dir`, and user-config `state_dir`; project files may not set it.
+1. Default state is `$XDG_STATE_HOME/noon`, else `~/.local/state/noon`. Overrides are
+   `NOON_STATE_DIR`, `--state-dir`, and user-config `state_dir`; project files may not set it.
 2. One SQLite database (`modernc.org/sqlite`, pure Go, WAL, busy timeout) holds projects,
    approvals, job state, pauses, runs, and scheduler heartbeat. Logs and event payloads are files
    beside it. Directories are 0700 and files 0600.

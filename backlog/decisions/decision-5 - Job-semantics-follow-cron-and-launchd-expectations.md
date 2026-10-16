@@ -24,7 +24,7 @@ users write commands as shell strings. Cron syntax is a common source of mistake
    (`weekdays at 9am`), and elapsed intervals (`every 6h`). No free text, no LLM parsing.
    Ambiguous phrases (`every day`, `every hour`, `at 9`) are rejected with suggestions. Intervals
    keep the phase they started with; clock alignment is what cron forms are for.
-5. Bump owns cron evaluation. Wall-clock rules: a repeated local time runs once at its first
+5. Noon owns cron evaluation. Wall-clock rules: a repeated local time runs once at its first
    occurrence; a skipped local time runs once right after the gap; intervals ignore DST.
 6. Crontabs are imported into YAML, not read live as a second format.
 

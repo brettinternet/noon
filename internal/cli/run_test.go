@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brettinternet/bump/internal/cli"
-	"github.com/brettinternet/bump/internal/config"
-	"github.com/brettinternet/bump/internal/store"
+	"github.com/brettinternet/noon/internal/cli"
+	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/store"
 )
 
 func TestPromptJobs(t *testing.T) {
@@ -24,7 +24,7 @@ func TestPromptJobs(t *testing.T) {
 	if err := os.Mkdir(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\nprintf 'started\\n' >> \"$AGENT_STARTS_FILE\"\nprintf '%s\\0' \"$@\" > \"$AGENT_ARGV_FILE\"\nprintf '%s' \"$BUMP_AGENT\" > \"$AGENT_NAME_FILE\"\ncat > \"$AGENT_STDIN_FILE\"\n"
+	script := "#!/bin/sh\nprintf 'started\\n' >> \"$AGENT_STARTS_FILE\"\nprintf '%s\\0' \"$@\" > \"$AGENT_ARGV_FILE\"\nprintf '%s' \"$NOON_AGENT\" > \"$AGENT_NAME_FILE\"\ncat > \"$AGENT_STDIN_FILE\"\n"
 	for _, name := range []string{"record-agent", "codex"} {
 		if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
@@ -45,10 +45,10 @@ agents:
     command: [record-agent, argument-mode]
     prompt: argument
 `
-	if err := os.MkdirAll(filepath.Join(root, "user", "bump"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "user", "noon"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "user", "bump", "config.yaml"), []byte(userConfig), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "user", "noon", "config.yaml"), []byte(userConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(root, "prompts"), 0o700); err != nil {
@@ -92,7 +92,7 @@ agents:
     prompt_file: prompts/fifo
     agent: argument
 `
-	if err := os.WriteFile(filepath.Join(root, "bump.yaml"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -111,7 +111,7 @@ agents:
 				t.Fatal(err)
 			}
 			var out, stderr bytes.Buffer
-			code := cli.Run(context.Background(), []string{"bump", "run", tc.name}, config.BuildOpts{}, &out, &stderr)
+			code := cli.Run(context.Background(), []string{"noon", "run", tc.name}, config.BuildOpts{}, &out, &stderr)
 			if code != 0 {
 				t.Fatalf("code=%d stdout=%s stderr=%s", code, &out, &stderr)
 			}
@@ -144,7 +144,7 @@ agents:
 				t.Fatal(err)
 			}
 			var out, stderr bytes.Buffer
-			code := cli.Run(context.Background(), []string{"bump", "run", name}, config.BuildOpts{}, &out, &stderr)
+			code := cli.Run(context.Background(), []string{"noon", "run", name}, config.BuildOpts{}, &out, &stderr)
 			starts := mustRead(t, filepath.Join(root, "starts"))
 			if code != 125 || starts != "" || !strings.Contains(stderr.String(), "failed: exit 125") {
 				t.Fatalf("code=%d stderr=%q starts=%q", code, stderr.String(), starts)
@@ -172,7 +172,7 @@ agents:
 		}
 	}
 	var listOut, listErr bytes.Buffer
-	if code := cli.Run(context.Background(), []string{"bump", "list"}, config.BuildOpts{}, &listOut, &listErr); code != 0 || !strings.Contains(listOut.String(), "claude: inline stdin first…") || !strings.Contains(listOut.String(), "codex: prompts/stdin.md") {
+	if code := cli.Run(context.Background(), []string{"noon", "list"}, config.BuildOpts{}, &listOut, &listErr); code != 0 || !strings.Contains(listOut.String(), "claude: inline stdin first…") || !strings.Contains(listOut.String(), "codex: prompts/stdin.md") {
 		t.Fatalf("human prompt list: code=%d stdout=%s stderr=%s", code, &listOut, &listErr)
 	}
 }
@@ -180,16 +180,16 @@ agents:
 func TestRunRecordsHistory(t *testing.T) {
 	project := sandbox(t)
 	stateDir := filepath.Join(t.TempDir(), "state")
-	t.Setenv("BUMP_STATE_DIR", stateDir)
+	t.Setenv("NOON_STATE_DIR", stateDir)
 	manifest := `jobs:
   tests:
-    run: 'printf "run=%s last=%s\\n" "$BUMP_RUN_ID" "$BUMP_LAST_SUCCESS_AT"; sleep 0.3'
+    run: 'printf "run=%s last=%s\\n" "$NOON_RUN_ID" "$NOON_LAST_SUCCESS_AT"; sleep 0.3'
 `
-	if err := os.WriteFile(filepath.Join(project, "bump.yaml"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(project, "noon.yaml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var firstOut, firstErr bytes.Buffer
-	if code := cli.Run(context.Background(), []string{"bump", "run", "tests"}, config.BuildOpts{}, &firstOut, &firstErr); code != 0 {
+	if code := cli.Run(context.Background(), []string{"noon", "run", "tests"}, config.BuildOpts{}, &firstOut, &firstErr); code != 0 {
 		t.Fatalf("first run exit=%d stdout=%s stderr=%s", code, firstOut.String(), firstErr.String())
 	}
 	state, err := store.Open(stateDir)
@@ -222,7 +222,7 @@ func TestRunRecordsHistory(t *testing.T) {
 	}, 1)
 	go func() {
 		var out, stderr bytes.Buffer
-		code := cli.Run(context.Background(), []string{"bump", "run", "tests"}, config.BuildOpts{}, &out, &stderr)
+		code := cli.Run(context.Background(), []string{"noon", "run", "tests"}, config.BuildOpts{}, &out, &stderr)
 		secondDone <- struct {
 			code     int
 			out, err string
@@ -247,13 +247,13 @@ func TestRunRecordsHistory(t *testing.T) {
 		t.Fatal("second run did not become running before the deadline")
 	}
 	var duplicateOut, duplicateErr bytes.Buffer
-	code := cli.Run(context.Background(), []string{"bump", "--json", "run", "tests"}, config.BuildOpts{}, &duplicateOut, &duplicateErr)
+	code := cli.Run(context.Background(), []string{"noon", "--json", "run", "tests"}, config.BuildOpts{}, &duplicateOut, &duplicateErr)
 	var duplicateResult map[string]any
 	if err := json.Unmarshal(duplicateOut.Bytes(), &duplicateResult); err != nil {
 		t.Fatal(err)
 	}
 	duplicateError := duplicateResult["error"].(map[string]any)
-	if code != 1 || duplicateError["code"] != "already_running" || duplicateError["hint"] != fmt.Sprintf("Follow it: bump logs %d --follow", activeRunID) {
+	if code != 1 || duplicateError["code"] != "already_running" || duplicateError["hint"] != fmt.Sprintf("Follow it: noon logs %d --follow", activeRunID) {
 		t.Fatalf("concurrent duplicate exit=%d stdout=%s stderr=%s", code, duplicateOut.String(), duplicateErr.String())
 	}
 	select {
@@ -295,7 +295,7 @@ func TestRunRecordsHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "bump.yaml" {
+	if len(entries) != 1 || entries[0].Name() != "noon.yaml" {
 		t.Fatalf("run added files to project: %v", entries)
 	}
 }
@@ -321,7 +321,7 @@ func TestRunCommand(t *testing.T) {
     enabled: false
     run: 'touch SHOULD_NOT_EXIST'
 `
-	if err := os.WriteFile(filepath.Join(root, "bump.yaml"), []byte(manifest), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0600); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -331,7 +331,7 @@ func TestRunCommand(t *testing.T) {
 		stdout, stderr string
 		json           bool
 	}{
-		{"bare", []string{"run"}, 0, "Next: bump run safe", "", false},
+		{"bare", []string{"run"}, 0, "Next: noon run safe", "", false},
 		{"bare json", []string{"run", "--json"}, 0, "description", "", true},
 		{"suggestion", []string{"--json", "run", "tset"}, 1, `"code":"not_found"`, "", true},
 		{"disabled", []string{"run", "disabled", "--json"}, 1, `"code":"disabled"`, "", true},
@@ -343,7 +343,7 @@ func TestRunCommand(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out, stderr bytes.Buffer
-			code := cli.Run(context.Background(), append([]string{"bump"}, tc.args...), config.BuildOpts{}, &out, &stderr)
+			code := cli.Run(context.Background(), append([]string{"noon"}, tc.args...), config.BuildOpts{}, &out, &stderr)
 			if code != tc.code || !strings.Contains(out.String(), tc.stdout) || !strings.Contains(stderr.String(), tc.stderr) {
 				t.Fatalf("code=%d stdout=%s stderr=%s", code, &out, &stderr)
 			}
@@ -358,7 +358,7 @@ func TestRunCommand(t *testing.T) {
 				if tc.name == "suggestion" && !strings.Contains(result["error"].(map[string]any)["hint"].(string), "tests") {
 					t.Fatalf("%v", result)
 				}
-				if tc.name == "disabled" && !strings.Contains(result["error"].(map[string]any)["hint"].(string), "bump.yaml") {
+				if tc.name == "disabled" && !strings.Contains(result["error"].(map[string]any)["hint"].(string), "noon.yaml") {
 					t.Fatalf("%v", result)
 				}
 				if strings.HasPrefix(tc.name, "json ") {

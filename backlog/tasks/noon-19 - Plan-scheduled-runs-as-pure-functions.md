@@ -1,5 +1,5 @@
 ---
-id: BUMP-19
+id: NOON-19
 title: Plan scheduled runs as pure functions
 status: To Do
 assignee: []
@@ -8,7 +8,7 @@ updated_date: '2026-10-16 02:03'
 labels:
   - scheduler
 dependencies:
-  - BUMP-1
+  - NOON-1
 documentation:
   - docs/design.md
   - docs/development.md

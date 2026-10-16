@@ -10,16 +10,16 @@ ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w -X main.buildVersion=${VERSION} -X main.buildCommit=${COMMIT} -X main.buildTime=${BUILD_TIME}" \
-    -o /out/bump ./cmd/bump
+    -o /out/noon ./cmd/noon
 
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates \
-    && adduser -D -u 10001 bump \
+    && adduser -D -u 10001 noon \
     && mkdir -p /workspace /state \
-    && chown bump:bump /workspace /state
-COPY --from=build /out/bump /usr/local/bin/bump
-ENV BUMP_STATE_DIR=/state
-USER bump
+    && chown noon:noon /workspace /state
+COPY --from=build /out/noon /usr/local/bin/noon
+ENV NOON_STATE_DIR=/state
+USER noon
 WORKDIR /workspace
-ENTRYPOINT ["bump"]
+ENTRYPOINT ["noon"]
 CMD []

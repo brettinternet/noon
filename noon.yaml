@@ -1,0 +1,4 @@
+# Noon bootstrap settings. Jobs will be added in a later release.
+# Ignore .noon.yaml and .noon/ in your repository.
+version: 1
+# timezone: Local

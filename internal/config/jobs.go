@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brettinternet/bump/internal/schedule"
+	"github.com/brettinternet/noon/internal/schedule"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -212,7 +212,7 @@ func (cfg *Config) resolveAgents() error {
 			job.Agent = cfg.DefaultAgent
 		}
 		if job.Agent == "" {
-			return fmt.Errorf("job %q: prompt job requires agent or default_agent; set agent on the job or default_agent in user config or .bump.yaml", name)
+			return fmt.Errorf("job %q: prompt job requires agent or default_agent; set agent on the job or default_agent in user config or .noon.yaml", name)
 		}
 		profile, ok := cfg.Agents[job.Agent]
 		if !ok {
@@ -326,8 +326,8 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 			slices.Sort(keys)
 			for _, key := range keys {
 				v := env[key]
-				if !envName.MatchString(key) || strings.HasPrefix(key, "BUMP_") {
-					return Job{}, jobError(file, v, field+"."+key, "invalid or reserved environment name; BUMP_ is reserved")
+				if !envName.MatchString(key) || strings.HasPrefix(key, "NOON_") {
+					return Job{}, jobError(file, v, field+"."+key, "invalid or reserved environment name; NOON_ is reserved")
 				}
 				text, err := jobString(file, field+"."+key, v)
 				if err != nil {

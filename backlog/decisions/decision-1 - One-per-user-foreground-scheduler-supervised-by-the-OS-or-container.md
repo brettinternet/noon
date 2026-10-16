@@ -7,7 +7,7 @@ status: accepted
 ## Context
 
 Recurring jobs need something alive at the scheduled time. The seeded design proposed one foreground
-`bump serve` per project with optional per-project launchd/systemd units. Options considered:
+`noon serve` per project with optional per-project launchd/systemd units. Options considered:
 
 - OS timer per job or a per-minute dispatcher tick (schedx). No resident process, but minute
   granularity, no live status, no webhooks or MCP queue, and per-OS reconciliation of units.
@@ -19,13 +19,13 @@ Recurring jobs need something alive at the scheduled time. The seeded design pro
 
 ## Decision
 
-1. `bump serve` is a foreground scheduler for every enabled project in its state directory. One owner
+1. `noon serve` is a foreground scheduler for every enabled project in its state directory. One owner
    per state directory, enforced with a lock; a second refuses with the owner's PID and start time.
-2. Persistence across logout and reboot comes from `bump service install`, run once per machine,
-   which registers a launchd agent or systemd user unit running `bump serve` with the installer's
-   `PATH` captured explicitly. Docker runs the same foreground process. Bump never forks itself into
+2. Persistence across logout and reboot comes from `noon service install`, run once per machine,
+   which registers a launchd agent or systemd user unit running `noon serve` with the installer's
+   `PATH` captured explicitly. Docker runs the same foreground process. Noon never forks itself into
    the background, and no command other than `service install` registers or starts a service.
-3. `bump run NAME` runs in the foreground without a scheduler.
+3. `noon run NAME` runs in the foreground without a scheduler.
 4. There is no IPC socket. Clients coordinate through the SQLite store; the scheduler polls it every
    second and polls config files every two seconds. Commands needing a scheduler record durable
    intent and state clearly when none is running.

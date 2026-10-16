@@ -1,5 +1,5 @@
 ---
-id: BUMP-14
+id: NOON-14
 title: Adopt one CLI error and exit-code contract
 status: Done
 assignee: []
@@ -23,7 +23,7 @@ ordinal: 100
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: every failure renders through one typed error, so all later commands inherit the documented contract: human `bump: MESSAGE` plus an optional `Hint: ...` line on stderr; JSON `{"schema_version":1,"error":{"code":"...","message":"...","hint":"..."}}` as the only stdout; exit 2 for usage errors and 1 for everything else.
+Outcome: every failure renders through one typed error, so all later commands inherit the documented contract: human `noon: MESSAGE` plus an optional `Hint: ...` line on stderr; JSON `{"schema_version":1,"error":{"code":"...","message":"...","hint":"..."}}` as the only stdout; exit 2 for usage errors and 1 for everything else.
 
 Read first: docs/design.md#experience. Current code: internal/cli/root.go (`Run`, `jsonRequested`, `emit`) and internal/cli/root_test.go.
 
@@ -48,7 +48,7 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 <!-- AC:BEGIN -->
 - [x] #1 `task cli:test -- -run '^TestJSONFailuresAreSingleObjects$' -count=1 -v` exits 0 and prints `--- PASS: TestJSONFailuresAreSingleObjects`; the test asserts every case returns exactly one JSON object with non-empty `error.code` and `error.message`, exit 2 for the unknown-flag, unexpected-argument, and empty-value cases, and exit 1 with code `config` for the missing explicit config file
 - [x] #2 `task cli:test -- -run '^TestValueFlagsAreNotMistakenForJSON$' -count=1 -v` exits 0: an invocation whose string flag value is literally `--json` (for example `--timezone --json`) is not treated as a JSON request
-- [x] #3 `task cli:build && bin/bump --bogus; echo "exit=$?"` prints a `bump: ` line on stderr and `exit=2`; `bin/bump --json --config missing.yaml config check; echo "exit=$?"` prints one JSON object whose `error.code` is `config`, then `exit=1`
+- [x] #3 `task cli:build && bin/noon --bogus; echo "exit=$?"` prints a `noon: ` line on stderr and `exit=2`; `bin/noon --json --config missing.yaml config check; echo "exit=$?"` prints one JSON object whose `error.code` is `config`, then `exit=1`
 - [x] #4 `task smoke` exits 0
 <!-- AC:END -->
 
@@ -72,7 +72,7 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 <!-- SECTION:NOTES:BEGIN -->
 AC#1: task cli:test -- -run '^TestJSONFailuresAreSingleObjects$' -count=1 -v -> exit 0, PASS; single-object envelope, usage/config exit codes, empty environment values verified.
 AC#2: task cli:test -- -run '^TestValueFlagsAreNotMistakenForJSON$' -count=1 -v -> exit 0, PASS for all current value flags including -C.
-AC#3: task cli:build && bin/bump --bogus; echo "exit=$?" -> bump: diagnostic, exit=2. bin/bump --json --config missing.yaml config check; echo "exit=$?" -> one config error object, exit=1.
+AC#3: task cli:build && bin/noon --bogus; echo "exit=$?" -> noon: diagnostic, exit=2. bin/noon --json --config missing.yaml config check; echo "exit=$?" -> one config error object, exit=1.
 AC#4: task smoke -> exit 0, config and usage error objects and exit codes verified.
 Pre-commit task ci passed (vet, Staticcheck, tests, race, secrets, vulnerabilities, smoke). LSP root.go clean. One scoped diff review found no concrete defects. All changes within contract; no tests removed, skipped, or weakened. README documents implemented behavior; existing design Experience contract remains consistent.
 

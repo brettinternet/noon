@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/brettinternet/bump/internal/config"
-	"github.com/brettinternet/bump/internal/runner"
+	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/runner"
 )
 
 // RunSpec adapts a validated command job. Reserved metadata wins over all
@@ -72,11 +72,11 @@ func RunSpec(project string, job config.Job, inherited []string) (runner.Spec, e
 	for key, value := range job.Env {
 		env[key] = value
 	}
-	env["BUMP_PROJECT"], env["BUMP_JOB"], env["BUMP_TRIGGER"] = project, job.Name, "manual"
-	delete(env, "BUMP_RUN_ID")
-	delete(env, "BUMP_LAST_SUCCESS_AT")
+	env["NOON_PROJECT"], env["NOON_JOB"], env["NOON_TRIGGER"] = project, job.Name, "manual"
+	delete(env, "NOON_RUN_ID")
+	delete(env, "NOON_LAST_SUCCESS_AT")
 	if job.Prompt != nil || job.PromptFile != nil {
-		env["BUMP_AGENT"] = job.Agent
+		env["NOON_AGENT"] = job.Agent
 	}
 	keys := make([]string, 0, len(env))
 	for key := range env {

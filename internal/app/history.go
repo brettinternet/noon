@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brettinternet/bump/internal/store"
+	"github.com/brettinternet/noon/internal/store"
 )
 
 const maxFollowLogBytes = 1 << 20
@@ -196,7 +196,7 @@ func FollowLog(ctx context.Context, stateDir string, id int64, out io.Writer) er
 							return err
 						}
 					}
-					if _, err := fmt.Fprintln(out, "[bump: output past 1 MiB is shown when the run ends]"); err != nil {
+					if _, err := fmt.Fprintln(out, "[noon: output past 1 MiB is shown when the run ends]"); err != nil {
 						return err
 					}
 					markerShown = true

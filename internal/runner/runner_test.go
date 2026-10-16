@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brettinternet/bump/internal/app"
-	"github.com/brettinternet/bump/internal/config"
-	"github.com/brettinternet/bump/internal/runner"
+	"github.com/brettinternet/noon/internal/app"
+	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/runner"
 )
 
 func TestRunner(t *testing.T) {
 	root := t.TempDir()
-	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "BUMP_STATE_DIR"} {
+	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "NOON_STATE_DIR"} {
 		t.Setenv(key, root)
 	}
 	base := func(argv ...string) runner.Spec {
@@ -47,8 +47,8 @@ func TestRunner(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		job := config.Job{Name: "tests", Run: `printf '%s\n' "$VALUE" "$BASE" "$BUMP_PROJECT" "$BUMP_JOB" "$BUMP_TRIGGER"; pwd`, CWD: project, Env: map[string]string{"VALUE": "job"}, Timeout: "none"}
-		spec, err := app.RunSpec(project, job, []string{"PATH=/bin:/usr/bin", "VALUE=inherited", "BASE=kept", "BUMP_PROJECT=bad", "BUMP_JOB=bad", "BUMP_TRIGGER=bad"})
+		job := config.Job{Name: "tests", Run: `printf '%s\n' "$VALUE" "$BASE" "$NOON_PROJECT" "$NOON_JOB" "$NOON_TRIGGER"; pwd`, CWD: project, Env: map[string]string{"VALUE": "job"}, Timeout: "none"}
+		spec, err := app.RunSpec(project, job, []string{"PATH=/bin:/usr/bin", "VALUE=inherited", "BASE=kept", "NOON_PROJECT=bad", "NOON_JOB=bad", "NOON_TRIGGER=bad"})
 		if err != nil {
 			t.Fatal(err)
 		}

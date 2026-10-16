@@ -6,21 +6,21 @@ scheduler, or agent starts automatically.
 
 ```sh
 task docker:build
-docker run --rm --read-only bump:dev --json config check
+docker run --rm --read-only noon:dev --json config check
 docker run --rm --read-only \
   --mount type=bind,src="$(pwd)",dst=/workspace,readonly \
-  bump:dev config
+  noon:dev config
 ```
 
-The image sets `BUMP_STATE_DIR=/state`; configuration inspection does not create
-that directory. A foreground `bump run NAME` creates the SQLite store and bounded
+The image sets `NOON_STATE_DIR=/state`; configuration inspection does not create
+that directory. A foreground `noon run NAME` creates the SQLite store and bounded
 run logs there, so mount `/state` on persistent writable storage when keeping history.
 Init rejects this invocation override (rather than ignoring it). Initialize a repo
 on the host, or explicitly unset the variable inside the container if you really
 intend to create config there. Do not run init against a read-only mount.
 
 Scheduling is not implemented. When delivered, the container will run
-`bump serve` in the foreground. Persistent state needs a volume writable by the
+`noon serve` in the foreground. Persistent state needs a volume writable by the
 container UID; repository access should be read-only unless a job explicitly needs
 to modify it. Concurrent runs of the same project job are refused by the state store.
 

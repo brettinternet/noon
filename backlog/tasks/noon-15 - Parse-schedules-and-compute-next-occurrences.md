@@ -1,5 +1,5 @@
 ---
-id: BUMP-15
+id: NOON-15
 title: Parse schedules and compute next occurrences
 status: Done
 assignee: []
@@ -38,9 +38,9 @@ func (s Schedule) Interval() (time.Duration, bool)       // true only for interv
 func ParseDuration(text string) (time.Duration, error)   // s, m, h, d units; "90s", "1h30m", "1d12h"
 ```
 - Interval `Next(after)` returns `after + d`; keeping phase is the planner's job.
-- Cron: five fields; `*`, `a`, `a-b`, `*/n`, `a-b/n`, `a/n` (= `a-max/n`), comma lists; `jan`-`dec` and `sun`-`sat` names, case-insensitive; day-of-week `0` and `7` are Sunday. Reject wrap-around ranges, steps of 0, out-of-range values, six fields ("Bump uses five-field cron, without seconds"), and expressions that can never match. Vixie day rule: if day-of-month and day-of-week are both restricted, either may match; a field that starts with `*` counts as unrestricted.
+- Cron: five fields; `*`, `a`, `a-b`, `*/n`, `a-b/n`, `a/n` (= `a-max/n`), comma lists; `jan`-`dec` and `sun`-`sat` names, case-insensitive; day-of-week `0` and `7` are Sunday. Reject wrap-around ranges, steps of 0, out-of-range values, six fields ("Noon uses five-field cron, without seconds"), and expressions that can never match. Vixie day rule: if day-of-month and day-of-week are both restricted, either may match; a field that starts with `*` counts as unrestricted.
 - Never-matching check: under Vixie OR semantics any expression with a valid month matches. Otherwise it matches only if some allowed month has an allowed day-of-month that fits it (February has 29 days).
-- Macros: `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`, and bare `hourly`, `daily`, `weekly`, `monthly`, `yearly`. Reject `@reboot` (hint: Bump has no boot trigger) and `@every 5m` (hint: `every 5m`).
+- Macros: `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`, and bare `hourly`, `daily`, `weekly`, `monthly`, `yearly`. Reject `@reboot` (hint: Noon has no boot trigger) and `@every 5m` (hint: `every 5m`).
 - Calendar: `every day at T`, `daily at T`, `weekdays at T`, `weekends at T`, `every DAY at T`, `DAY[,DAY...] at T`. Days are full or three-letter names. T is `9am`, `9:30pm`, `12am` (00:00), `12pm` (12:00), 24-hour `H:MM` or `HH:MM`, `noon`, or `midnight`. One time only. Reject a bare `at 9` (suggest `9am` or `9:00`).
 - Interval: `every 15m`, `every 1d12h`, `every 90 minutes`, `every 2 hours`, `every 3 days`. Units m/min/mins/minute/minutes, h/hr/hrs/hour/hours, d/day/days. Whole minutes from 1m to 365d.
 - Ambiguity is an error with a suggestion: `every day`, `every hour`, `every minute`, `every 30s`.
@@ -54,7 +54,7 @@ Tests (one table each, plus a fuzz target):
 - `TestScheduleNext`: cron lists, ranges, steps, names, the Vixie day rule, `0 0 29 2 *`, macros, calendar forms, intervals, and these DST fixtures, asserting exact instants (for example, `30 2 * * *` fires at 03:00 MDT on 2026-03-08): America/Denver 2026-03-08 (02:00 to 03:00) and 2026-11-01 (02:00 MDT back to 01:00 MST); Australia/Lord_Howe 2026-10-04 (02:00 to 02:30) and 2026-04-05 (02:00 back to 01:30); America/Santiago 2026-09-06, where `daily at midnight` fires at 01:00.
 - `FuzzScheduleParse`: never panics; when Parse succeeds, parsing `String()` succeeds and yields the same `String()`, and `Next(t, time.UTC)` is after `t` for a fixed `t`.
 
-Non-goals: persistence, planning, CLI wiring, `bump list`, seconds fields, free text, LLM parsing, any cron library.
+Non-goals: persistence, planning, CLI wiring, `noon list`, seconds fields, free text, LLM parsing, any cron library.
 
 Modified-file contract: the modified_files list plus this task's Backlog record. Justify any other path in Implementation Notes before changing it.
 <!-- SECTION:DESCRIPTION:END -->
@@ -88,7 +88,7 @@ Fuzzing found that the suggested 8-year Next search bound violates the required 
 
 AC#1: task cli:test -- -run '^(TestScheduleParse|TestScheduleNext)$' -count=1 -v -> exit 0, both named tests PASS, including Denver spring/fall, Lord Howe spring/fall, Santiago midnight gap and repeated-hour suppression. AC#2: mise exec go -- go test ./internal/schedule -run '^$' -fuzz '^FuzzScheduleParse$' -fuzztime 30s -> exit 0, 26,331,707 executions after fixing the discovered search-bound regression. AC#3: rg -n 'time\.Now\(' internal/schedule -> no output (exit 1, expected no matches). Full task ci passed before commit: security, formatting, vet, Staticcheck, unit tests, race, smoke. LSP diagnostics clean. Diff confined to internal/schedule/** and docs/design.md plus this task record; no existing tests removed or weakened. CLI remains unchanged and design explicitly distinguishes the implemented library from future CLI scheduling. Independent scoped review pending; final-commit CI and delivery remain.
 
-Delivery: dd260cd feat(schedule): parse schedules and compute occurrences fast-forward merged into main. task ci passed on this final implementation commit. The single independent reviewer found no validated defects (static review; execution was performed by the parent). Worktrunk removed the verified session-owned feat/bump-15-schedules worktree and branch; its Herdr workspace wBK was removed. All acceptance and delivery requirements satisfied; no blocker or resumable implementation work remains.
+Delivery: dd260cd feat(schedule): parse schedules and compute occurrences fast-forward merged into main. task ci passed on this final implementation commit. The single independent reviewer found no validated defects (static review; execution was performed by the parent). Worktrunk removed the verified session-owned feat/noon-15-schedules worktree and branch; its Herdr workspace wBK was removed. All acceptance and delivery requirements satisfied; no blocker or resumable implementation work remains.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

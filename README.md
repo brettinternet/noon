@@ -1,4 +1,4 @@
-# bump
+# noon
 
 **Repo-local scheduling, without a platform.**
 
@@ -20,27 +20,27 @@ mise trust
 mise exec -- task init
 task cli:build
 
-bin/bump                 # useful repo summary; starts nothing
-bin/bump init            # create bump.yaml; preserve it if it exists
-bin/bump list            # validated jobs and next-run previews; executes nothing
-bin/bump run             # list runnable jobs; starts nothing
-bin/bump run tests       # execute this job now, in the foreground
-bin/bump history         # inspect recent runs
-bin/bump logs            # print the latest run log
-bin/bump logs tests      # print this job's latest log
-bin/bump logs 12 --follow # follow a running run
-bin/bump config          # effective settings and source files
-bin/bump config check    # validate without writing anything
-bin/bump --json status
-bin/bump --help
+bin/noon                 # useful repo summary; starts nothing
+bin/noon init            # create noon.yaml; preserve it if it exists
+bin/noon list            # validated jobs and next-run previews; executes nothing
+bin/noon run             # list runnable jobs; starts nothing
+bin/noon run tests       # execute this job now, in the foreground
+bin/noon history         # inspect recent runs
+bin/noon logs            # print the latest run log
+bin/noon logs tests      # print this job's latest log
+bin/noon logs 12 --follow # follow a running run
+bin/noon config          # effective settings and source files
+bin/noon config check    # validate without writing anything
+bin/noon --json status
+bin/noon --help
 ```
 
-`bump init --local` creates a private `.bump.yaml` override instead. Ignore
-`.bump.yaml` in Git. Run state is stored per user under `$XDG_STATE_HOME/bump`,
-or `~/.local/state/bump` when XDG is unset; `BUMP_STATE_DIR` and `--state-dir`
+`noon init --local` creates a private `.noon.yaml` override instead. Ignore
+`.noon.yaml` in Git. Run state is stored per user under `$XDG_STATE_HOME/noon`,
+or `~/.local/state/noon` when XDG is unset; `NOON_STATE_DIR` and `--state-dir`
 can override it. `state_dir` belongs only in user config or an explicit `--config`
 file, never a project file. Configuration layers are:
-defaults → user config → `bump.yaml` → `.bump.yaml` → environment → CLI flags.
+defaults → user config → `noon.yaml` → `.noon.yaml` → environment → CLI flags.
 
 ```yaml
 version: 1
@@ -52,9 +52,9 @@ jobs:
 ```
 
 ```sh
-BUMP_TIMEZONE=UTC bin/bump config
-bin/bump -C ../another-repo config
-bin/bump --config ./custom.yaml config check
+NOON_TIMEZONE=UTC bin/noon config
+bin/noon -C ../another-repo config
+bin/noon --config ./custom.yaml config check
 ```
 
 `--config` replaces automatic config files. No config is required for inspection.
@@ -66,25 +66,27 @@ when empty). Human errors go to stderr. Exit codes are 0 for success, 2 for usag
 errors, and 1 for other failures. Foreground runs instead return the child’s exit
 code: 124 on timeout, 130 on cancellation, 128+N for signal N, and 125–127 on
 start failure. Job output streams directly; status lines go to stderr.
-`bump run NAME --json` sends both job streams to stderr and one run summary to
+`noon run NAME --json` sends both job streams to stderr and one run summary to
 stdout. Each foreground run is recorded in the per-user SQLite database with a bounded log;
 only one run of a given job can be active per project. SIGINT, SIGTERM, or SIGHUP cancels
 the process group (TERM, then KILL after 10s); a second signal kills it immediately.
-`bump history` shows the newest 20 runs (up to 50); `bump logs` prints stored bytes, and
-`bump logs --follow` waits for a running job. Logs are retained for the newest 10 runs per job.
-`bump list` and bare `bump` show each job's latest run in the LAST column. Read-only commands
+`noon history` shows the newest 20 runs (up to 50); `noon logs` prints stored bytes, and
+`noon logs --follow` waits for a running job. Logs are retained for the newest 10 runs per job.
+`noon list` and bare `noon` show each job's latest run in the LAST column. Read-only commands
 do not create the state directory.
+
+Existing local users: stop all old/new processes and back up your data; move `~/.local/state/bump` to `~/.local/state/noon` and `~/.config/bump` to `~/.config/noon` only if the destinations do not exist, then rename `bump.db` to `noon.db` inside the moved state directory, along with any `bump.db-wal`/`bump.db-shm` sidecars to `noon.db-wal`/`noon.db-shm`; never overwrite existing destinations, and keep the `logs/` tree intact.
 
 ## Direction
 
 Designed, not built yet ([design](docs/design.md), [decisions](backlog/decisions)):
 
-- Command and agent-prompt jobs, schedule parsing, and foreground `bump run NAME` already work;
+- Command and agent-prompt jobs, schedule parsing, and foreground `noon run NAME` already work;
   background scheduling is still planned.
-- One per-user `bump serve` runs every enabled repo's schedules;
-  `bump service install` keeps it alive across reboots. Docker runs the same
-  foreground process. Bump never backgrounds itself.
-- Nothing from a repository runs unattended until you `bump enable` that
+- One per-user `noon serve` runs every enabled repo's schedules;
+  `noon service install` keeps it alive across reboots. Docker runs the same
+  foreground process. Noon never backgrounds itself.
+- Nothing from a repository runs unattended until you `noon enable` that
   checkout, and changed shared jobs wait for re-approval.
 - After sleep, a missed job runs once, never in a burst.
 - Hooks, Git and agent triggers, webhooks, MCP, and a TUI build on the store. Commands are the
@@ -94,7 +96,7 @@ Designed, not built yet ([design](docs/design.md), [decisions](backlog/decisions
 
 ```sh
 task docker:smoke
-docker run --rm bump:dev --help
+docker run --rm noon:dev --help
 ```
 
 The image currently supports the same inspection/config and foreground run commands as the host

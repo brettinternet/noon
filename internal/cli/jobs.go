@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/brettinternet/bump/internal/app"
+	"github.com/brettinternet/noon/internal/app"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -42,14 +42,14 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 	}
 	printJobs(cmd.Writer, view.Jobs, now)
 	if dashboard {
-		fmt.Fprintln(cmd.Writer, "Next: bump run (list runnable jobs)")
+		fmt.Fprintln(cmd.Writer, "Next: noon run (list runnable jobs)")
 	}
 	return nil
 }
 
 func printJobs(out io.Writer, jobs []app.Job, now time.Time) {
 	if len(jobs) == 0 {
-		fmt.Fprintln(out, "No jobs. Add this to bump.yaml:\njobs:\n  tests:\n    schedule: weekdays at 9am\n    run: task test")
+		fmt.Fprintln(out, "No jobs. Add this to noon.yaml:\njobs:\n  tests:\n    schedule: weekdays at 9am\n    run: task test")
 		return
 	}
 	rows := [][5]string{{"JOB", "SCHEDULE", "NEXT", "LAST", "COMMAND"}}

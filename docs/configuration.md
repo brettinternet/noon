@@ -1,7 +1,7 @@
 # Configuration
 
 This documents implemented settings, command jobs, and agent-prompt jobs. Jobs can be
-validated, listed, and executed with `bump run NAME`. Foreground run history and bounded logs
+validated, listed, and executed with `noon run NAME`. Foreground run history and bounded logs
 are stored in the per-user state directory. Hooks, cron import, and the scheduler are not
 implemented; see [design](design.md) for their proposed format.
 
@@ -10,9 +10,9 @@ implemented; see [design](design.md) for their proposed format.
 Lowest to highest priority:
 
 1. Built-in defaults.
-2. `$XDG_CONFIG_HOME/bump/config.yaml`, or `~/.config/bump/config.yaml` when XDG is unset.
-3. `bump.yaml` in the selected project.
-4. `.bump.yaml` in that same directory (machine-local overrides).
+2. `$XDG_CONFIG_HOME/noon/config.yaml`, or `~/.config/noon/config.yaml` when XDG is unset.
+3. `noon.yaml` in the selected project.
+4. `.noon.yaml` in that same directory (machine-local overrides).
 5. Environment variables.
 6. Explicit CLI flags.
 
@@ -20,7 +20,7 @@ Files merge by setting, not by selecting one entire file. This is a deliberate
 difference from hum's local-manifest selection. A malformed lower-priority file
 is still an error; overriding a setting does not hide a broken source.
 
-`--config FILE` / `BUMP_CONFIG` replaces **all three automatic file sources**.
+`--config FILE` / `NOON_CONFIG` replaces **all three automatic file sources**.
 It must exist. This makes CI/container invocations reproducible. Defaults and
 environment/flag overrides still apply. Its location does not change project
 selection: use `--project` to change the project.
@@ -32,9 +32,9 @@ A file may be an empty mapping (`{}`), but not an empty document.
 
 ## Project selection
 
-`--project DIR` / `-C DIR` / `BUMP_PROJECT` selects exactly that existing directory.
+`--project DIR` / `-C DIR` / `NOON_PROJECT` selects exactly that existing directory.
 Otherwise start in the current directory and walk upward to the nearest directory
-containing `bump.yaml`, `.bump.yaml`, or `.git`. Stop there, including when `.git`
+containing `noon.yaml`, `.noon.yaml`, or `.git`. Stop there, including when `.git`
 is a worktree file. Never inherit config above a Git boundary. With no marker,
 use the invocation directory. Symlinks in the selected project path are resolved.
 
@@ -49,55 +49,55 @@ timezone: Local
 ```
 
 `state_dir` may be set in user config or an explicit `--config` file, but not in
-`bump.yaml` or `.bump.yaml`.
+`noon.yaml` or `.noon.yaml`.
 
 | Setting | Default | Environment | Flag |
 | --- | --- | --- | --- |
-| Timezone | `Local` | `BUMP_TIMEZONE` | `--timezone` |
-| State directory | `$XDG_STATE_HOME/bump`, else `~/.local/state/bump` | `BUMP_STATE_DIR` | `--state-dir` |
-| Project selection | Discovery | `BUMP_PROJECT` | `--project`, `-C` |
-| Explicit config file | Automatic sources | `BUMP_CONFIG` | `--config` |
+| Timezone | `Local` | `NOON_TIMEZONE` | `--timezone` |
+| State directory | `$XDG_STATE_HOME/noon`, else `~/.local/state/noon` | `NOON_STATE_DIR` | `--state-dir` |
+| Project selection | Discovery | `NOON_PROJECT` | `--project`, `-C` |
+| Explicit config file | Automatic sources | `NOON_CONFIG` | `--config` |
 
 `version` is optional in the bootstrap and defaults to 1. Timezones accept
 `Local`, `UTC`, and IANA names such as `America/Chicago`; timezone data is
 embedded for minimal container environments. Empty explicitly supplied settings,
-including empty `BUMP_*` environment variables, are errors: unset them instead.
+including empty `NOON_*` environment variables, are errors: unset them instead.
 `XDG_CONFIG_HOME` must be absolute when set; empty means use the home default.
 
 Setting paths in a YAML file are relative to **that file's directory**.
-Job `cwd` is instead relative to the selected project root. `BUMP_STATE_DIR` and
+Job `cwd` is instead relative to the selected project root. `NOON_STATE_DIR` and
 `--state-dir` are relative to the invocation directory; project/config path flags
 are also relative to the invocation directory. `$XDG_STATE_HOME` must be absolute
 when set. No shell, tilde, or variable expansion happens inside YAML. A relative
 user-level `state_dir` therefore refers to the user config directory, not each
 repository; normally leave it unset.
 
-`bump config` prints effective settings, loaded file paths, and available agent profiles.
-`bump config --json` includes `agents` as profile-name-to-command mappings and `default_agent`.
-`bump config check` validates the same snapshot. Neither creates state or checks job
-executability or whether an agent CLI is installed. `bump run NAME` creates the per-user
+`noon config` prints effective settings, loaded file paths, and available agent profiles.
+`noon config --json` includes `agents` as profile-name-to-command mappings and `default_agent`.
+`noon config check` validates the same snapshot. Neither creates state or checks job
+executability or whether an agent CLI is installed. `noon run NAME` creates the per-user
 SQLite store before starting the job and records its status and bounded output log.
 
 ## Private configuration
 
-`bump init` exclusively creates `bump.yaml`; `bump init --local` exclusively
-creates `.bump.yaml` with mode 0600. Existing paths are preserved, never replaced.
+`noon init` exclusively creates `noon.yaml`; `noon init --local` exclusively
+creates `.noon.yaml` with mode 0600. Existing paths are preserved, never replaced.
 Generated settings are commented out so init does not shadow inherited values.
-Init does not merge or repair existing YAML. Use `bump config check` afterward.
+Init does not merge or repair existing YAML. Use `noon config check` afterward.
 Invocation setting overrides are rejected by init rather than silently ignored.
 
 Ignore the private override in your repository's `.gitignore`:
 
 ```gitignore
-.bump.yaml
+.noon.yaml
 ```
 
 Init prints this reminder but never modifies an existing ignore file. Never commit
-credentials or `.bump.yaml`: local job definitions are private.
+credentials or `.noon.yaml`: local job definitions are private.
 
 ## Jobs
 
-Jobs are allowed in `bump.yaml`, `.bump.yaml`, and an explicit `--config` file,
+Jobs are allowed in `noon.yaml`, `.noon.yaml`, and an explicit `--config` file,
 not in user config. Names match `^[a-z][a-z0-9_-]{0,63}$`. Exactly one of `run`, `prompt`, or
 `prompt_file` defines the action.
 
@@ -123,7 +123,7 @@ See [the complete example](../examples/jobs.yaml).
 | `prompt_file` | — | Path relative to project root; read when run starts, at most 64 KiB |
 | `agent` | `default_agent` | Profile name; required on a prompt job if no default is set |
 | `cwd` | project root | Absolute path or path relative to project root; existence is not checked |
-| `env` | empty | String values only; quote numbers. Names match `[A-Za-z_][A-Za-z0-9_]*`; `BUMP_` is reserved |
+| `env` | empty | String values only; quote numbers. Names match `[A-Za-z_][A-Za-z0-9_]*`; `NOON_` is reserved |
 | `timeout` | `1h` | Integer `s`, `m`, `h`, `d` components, at least `1s`, or `none` |
 | `overlap` | `skip` | `skip` or `queue` |
 | `missed` | `run_once` | `run_once` or `skip` |
@@ -135,10 +135,10 @@ Unknown fields, aliases, nulls, duplicate keys, and wrong types are errors with 
 
 ### Agent prompts
 
-Profiles are machine-specific and belong in user config (`$XDG_CONFIG_HOME/bump/config.yaml`,
-or `~/.config/bump/config.yaml`). `agents` is allowed only there or in an explicit `--config`
-file. `default_agent` is allowed in user config, `.bump.yaml`, or an explicit config file.
-Project `bump.yaml` cannot define either setting. Built-in `claude` and `codex` profiles can be
+Profiles are machine-specific and belong in user config (`$XDG_CONFIG_HOME/noon/config.yaml`,
+or `~/.config/noon/config.yaml`). `agents` is allowed only there or in an explicit `--config`
+file. `default_agent` is allowed in user config, `.noon.yaml`, or an explicit config file.
+Project `noon.yaml` cannot define either setting. Built-in `claude` and `codex` profiles can be
 replaced by defining the same name in user config:
 
 ```yaml
@@ -162,8 +162,8 @@ permission prompts. A custom profile's `prompt` defaults to `stdin`; `argument` 
 byte-for-byte as the final argument. In stdin mode the exact prompt bytes are the child's stdin.
 There is no templating, variable expansion, or trimming. A missing, unreadable, or oversized prompt
 file fails before the agent starts with exit code 125. Prompt files must be regular files;
-FIFOs, devices, and directories are rejected. Prompt runs receive `BUMP_AGENT=NAME`.
-Bump does not check whether the configured agent executable is installed.
+FIFOs, devices, and directories are rejected. Prompt runs receive `NOON_AGENT=NAME`.
+Noon does not check whether the configured agent executable is installed.
 
 A local job replaces the entire shared job with the same name; fields do not
 merge. The exception is `jobs: {tests: {enabled: false}}`, which toggles an
@@ -171,14 +171,14 @@ existing shared job. An enabled-only entry without a shared job is an error.
 A toggle retains shared execution provenance; a complete local replacement does
 not. Both record the local source path and `overrides: true`.
 
-`bump list` (alias `ls`) shows sorted jobs, normalized schedules, next-run previews
+`noon list` (alias `ls`) shows sorted jobs, normalized schedules, next-run previews
 in the project timezone, and commands. No jobs means a copy-paste example.
-Bare `bump` and `bump status` add project information. None executes, writes state,
+Bare `noon` and `noon status` add project information. None executes, writes state,
 or checks whether commands or working directories exist. Intervals preview
 `now + interval` until a future scheduler persists their phase. Manual and disabled
-jobs have no next time. `bump config check` reports the validated job count.
+jobs have no next time. `noon config check` reports the validated job count.
 
-`bump list --json` returns `schema_version: 1`, `project` (`path`, `timezone`),
+`noon list --json` returns `schema_version: 1`, `project` (`path`, `timezone`),
 and `jobs`. Each job contains `name`, `description`, `schedule`, `next_at`,
 `run`, `prompt`, `prompt_file`, the effective `agent` for prompt jobs, `cwd`, `env_keys`, `timeout`, `overlap`, `missed`, `enabled`,
 `source`, `shared`, `overrides`, and `digest`.

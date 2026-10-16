@@ -6,7 +6,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"github.com/brettinternet/bump/internal/schedule"
+	"github.com/brettinternet/noon/internal/schedule"
 )
 
 func TestScheduleParse(t *testing.T) {
@@ -45,8 +45,8 @@ func TestScheduleParse(t *testing.T) {
 		{"0 0 * * 8", "", "out of range"}, {"0 0 * january *", "", "invalid integer"},
 		{"0 0 * * monday", "", "invalid integer"}, {"0 0 * * 1,", "", "integer"},
 		{"*/2/3 * * * *", "", "positive integer"}, {"0-5-7 * * * *", "", "integer"},
-		{"+1 * * * *", "", "integer"}, {"* * * * * *", "", "Bump uses five-field cron, without seconds"},
-		{"@reboot", "", "Bump has no boot trigger"}, {"@every 5m", "", "every 5m"},
+		{"+1 * * * *", "", "integer"}, {"* * * * * *", "", "Noon uses five-field cron, without seconds"},
+		{"@reboot", "", "Noon has no boot trigger"}, {"@every 5m", "", "every 5m"},
 		{"every day", "", "every day at 9am"}, {"every hour", "", "hourly"},
 		{"every minute", "", "every 1m"}, {"every 30s", "", "every 1m"},
 		{"every 0m", "", "whole minutes"}, {"every 366d", "", "365d"},

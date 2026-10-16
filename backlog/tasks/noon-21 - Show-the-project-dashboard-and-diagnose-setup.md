@@ -1,5 +1,5 @@
 ---
-id: BUMP-21
+id: NOON-21
 title: Show the project dashboard and diagnose setup
 status: To Do
 assignee: []
@@ -8,9 +8,9 @@ updated_date: '2026-10-16 02:03'
 labels:
   - cli
 dependencies:
-  - BUMP-20
-  - BUMP-17
-  - BUMP-11
+  - NOON-20
+  - NOON-17
+  - NOON-11
 documentation:
   - docs/design.md
   - docs/development.md
@@ -28,20 +28,20 @@ ordinal: 1400
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: bare `bump` answers "what will run, what ran, and what needs me?" on one screen, and `bump doctor` finds every setup problem that would stop jobs from running.
+Outcome: bare `noon` answers "what will run, what ran, and what needs me?" on one screen, and `noon doctor` finds every setup problem that would stop jobs from running.
 
 Read first: docs/design.md#experience (the dashboard transcript is the target), #enable-and-approve, and #scheduler-lifetime.
 
 Scope:
-- One app operation builds the dashboard; the CLI only renders it. JSON: `{"schema_version":1,"project":{"path","name","timezone","enabled","config_error"},"scheduler":{"state":"running"|"offline","pid","heartbeat_at"},"service":{"installed"},"jobs":[...list job objects...],"queued":[...run objects...],"notices":[{"code","message"}],"next":"bump enable"}`.
+- One app operation builds the dashboard; the CLI only renders it. JSON: `{"schema_version":1,"project":{"path","name","timezone","enabled","config_error"},"scheduler":{"state":"running"|"offline","pid","heartbeat_at"},"service":{"installed"},"jobs":[...list job objects...],"queued":[...run objects...],"notices":[{"code","message"}],"next":"noon enable"}`.
 - Human layout: a header line `NAME · PATH · scheduler running|offline · TIMEZONE`; the JOB/SCHEDULE/NEXT/LAST table (NEXT shows `paused`, `disabled`, or `needs approval` where relevant); up to three notice lines; exactly one `Next:` line. Fit 80 columns by truncating the widest column. No color.
 - Notice codes, in priority order: `config_error`, `not_enabled` (scheduled jobs exist), `needs_approval`, `scheduler_offline` (project enabled), `queued`.
-- `next` follows the same priority: fix config, `bump enable`, `bump service install` (or `bump serve` when the service is installed but not running), `bump run JOB`, or `bump add` when there are no jobs.
-- `bump doctor` checks, each `ok`, `warn`, or `fail` with a one-line fix:
+- `next` follows the same priority: fix config, `noon enable`, `noon service install` (or `noon serve` when the service is installed but not running), `noon run JOB`, or `noon add` when there are no jobs.
+- `noon doctor` checks, each `ok`, `warn`, or `fail` with a one-line fix:
   - Config: config valid (fail); timezone valid (fail).
   - State and scheduler: state directory writable, or its nearest existing parent writable when absent, without creating it (fail); database schema compatible (fail); project enabled when scheduled jobs exist (warn); approvals pending (warn); scheduler heartbeat fresh while the project is enabled (warn); service installed on macOS or Linux (warn).
   - Per job: argv[0] resolvable for list `run` jobs using the job's PATH and cwd, `/bin/sh` present for string jobs, and the agent profile's argv[0] for prompt jobs (fail); `cwd` exists (fail); `prompt_file` exists and is at most 64 KiB (fail).
-  - `.bump.yaml` ignored by Git when it exists (warn).
+  - `.noon.yaml` ignored by Git when it exists (warn).
 - Doctor exits 1 if any check fails, otherwise 0. JSON: `{"schema_version":1,"ok":bool,"checks":[{"name","status","message","hint"}]}`. Doctor never writes anything.
 
 Non-goals: fixing problems automatically, network checks, agent login checks, colors, a watch mode.
@@ -56,7 +56,7 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 `task cli:test -- -run '^(TestDashboard|TestDoctor)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
-- [ ] #2 `task cli:build && bump_ac_home=$(mktemp -d) && bump_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: [definitely-not-a-command-xyz]\n' > "$bump_ac_project/bump.yaml" && env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump -C "$bump_ac_project" doctor; echo "exit=$?"` prints a failing check naming job `t` and the missing command, then `exit=1`
+- [ ] #2 `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && printf 'jobs:\n  t:\n    run: [definitely-not-a-command-xyz]\n' > "$noon_ac_project/noon.yaml" && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" doctor; echo "exit=$?"` prints a failing check naming job `t` and the missing command, then `exit=1`
 <!-- AC:END -->
 
 ## Definition of Done

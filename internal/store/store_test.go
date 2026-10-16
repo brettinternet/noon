@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brettinternet/bump/internal/runner"
+	"github.com/brettinternet/noon/internal/runner"
 )
 
 func testStore(t *testing.T) (*Store, int64) {
@@ -420,7 +420,7 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := bytes.Join([][]byte{input[:mib], []byte(fmt.Sprintf("\n[bump: %d bytes omitted]\n", mib)), input[2*mib:]}, nil)
+		want := bytes.Join([][]byte{input[:mib], []byte(fmt.Sprintf("\n[noon: %d bytes omitted]\n", mib)), input[2*mib:]}, nil)
 		if !bytes.Equal(got, want) {
 			t.Fatalf("bounded log differs: got %d bytes, want %d", len(got), len(want))
 		}
