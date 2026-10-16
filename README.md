@@ -11,8 +11,9 @@ layered settings, non-destructive initialization, strict job validation, byte-pr
 schedule parsing and previews, foreground command and agent-prompt execution, durable per-user run records and bounded
 logs, success/failure lifecycle hooks, queued one-shot runs with idempotency and cancellation, Git and agent triggers with durable event payloads, cooldowns, and recursion guards, explicit project opt-in and shared-job
 approvals, pausing and resuming background jobs, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
-systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics, stdio MCP tools, and development tooling. Cron import
-and TUI are designed but **not implemented**. Noon never backgrounds itself; keep
+systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics,
+stdio MCP tools, and development tooling. Cron import is implemented as a preview-first conversion to
+Noon YAML; the TUI remains designed but **not implemented**. Noon never backgrounds itself; keep
 `noon serve` in the foreground or use the explicit service installer or an OS/container supervisor.
 
 ## Try it
@@ -28,6 +29,8 @@ bin/noon init            # create noon.yaml; preserve it if it exists
 bin/noon list            # validated jobs and next-run previews; executes nothing
 bin/noon add tests "every day at 2am" -- go test ./... # add a private scheduled job
 bin/noon remove tests    # remove its definition; keep history
+bin/noon import crontab old-crontab  # preview a user crontab as Noon YAML
+crontab -l | bin/noon import crontab - --write # add imported jobs to .noon.yaml
 bin/noon pause tests     # stop background dispatch
 bin/noon resume tests    # resume from now, without catch-up
 bin/noon enable          # explicitly approve this checkout for scheduled runs
@@ -168,7 +171,8 @@ local permissions.
 
 Implemented foundations and planned extensions ([design](docs/design.md), [decisions](backlog/decisions)):
 
-- Command and agent-prompt jobs, schedule parsing, `noon add`/`remove`, pause/resume, foreground `noon run NAME`, queued one-shot
+- Command and agent-prompt jobs, schedule parsing, `noon add`/`remove`, pause/resume,
+  preview-first `noon import crontab`, foreground `noon run NAME`, queued one-shot
   requests and cancellation, and durable scheduling through `noon serve` already work.
 - One per-user `noon serve` runs every enabled repo's schedules. `noon service install` keeps
   it alive across reboots on macOS and Linux. Docker runs the same foreground process. Noon never

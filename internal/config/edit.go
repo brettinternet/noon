@@ -11,16 +11,25 @@ import (
 // AddJob splices one rendered job into a supported block mapping. Existing source
 // lines are never encoded again.
 func AddJob(src []byte, name string, job Job) ([]byte, error) {
+	return addJob(src, name, job, "", nil)
+}
+
+// AddJobWithComments is AddJob with comments attached to the new job and fields.
+func AddJobWithComments(src []byte, name string, job Job, headComment string, fieldComments map[string]string) ([]byte, error) {
+	return addJob(src, name, job, headComment, fieldComments)
+}
+
+func addJob(src []byte, name string, job Job, headComment string, fieldComments map[string]string) ([]byte, error) {
 	if !jobName.MatchString(name) {
 		return nil, fmt.Errorf("config_edit: invalid job name %q", name)
 	}
 	ending := lineEnding(src)
 	if len(src) == 0 {
-		encoded, err := encodeJob(job, 4, ending)
+		encoded, err := encodeJob(job, 4, ending, fieldComments)
 		if err != nil {
 			return nil, err
 		}
-		return []byte("version: 1" + ending + "jobs:" + ending + "  " + name + ":" + ending + encoded), nil
+		return []byte("version: 1" + ending + "jobs:" + ending + commentLines(headComment, 2, ending) + "  " + name + ":" + ending + encoded), nil
 	}
 	lines := splitLines(src)
 	root, err := documentRoot(src)
@@ -33,11 +42,11 @@ func AddJob(src []byte, name string, job Job) ([]byte, error) {
 		if !bytes.HasSuffix(src, []byte("\n")) {
 			prefix = ending
 		}
-		encoded, err := encodeJob(job, 4, ending)
+		encoded, err := encodeJob(job, 4, ending, fieldComments)
 		if err != nil {
 			return nil, err
 		}
-		return []byte(string(src) + prefix + "jobs:" + ending + "  " + name + ":" + ending + encoded), nil
+		return []byte(string(src) + prefix + "jobs:" + ending + commentLines(headComment, 2, ending) + "  " + name + ":" + ending + encoded), nil
 	}
 	if jobsNode.Kind != yaml.MappingNode || len(jobsNode.Content) == 0 || jobsNode.Style&yaml.FlowStyle != 0 {
 		return nil, fmt.Errorf("config_edit: jobs must be a non-empty block mapping; edit the file by hand")
@@ -72,11 +81,11 @@ func AddJob(src []byte, name string, job Job) ([]byte, error) {
 		blockEnd--
 	}
 	insert := blockEnd
-	encoded, err := encodeJob(job, fieldIndent, ending)
+	encoded, err := encodeJob(job, fieldIndent, ending, fieldComments)
 	if err != nil {
 		return nil, err
 	}
-	insertText := strings.Repeat(" ", keyIndent) + name + ":" + ending + encoded
+	insertText := commentLines(headComment, keyIndent, ending) + strings.Repeat(" ", keyIndent) + name + ":" + ending + encoded
 	separateFromComment := insert > 0 && isIndentedComment(lines[insert-1], keyIndent)
 	if (precededByBlankJobSeparator(lines, jobsNode) && protectedEnd != insert) || separateFromComment {
 		insertText = ending + insertText
@@ -286,10 +295,26 @@ func jobFields(job Job) map[string]any {
 	return fields
 }
 
-func encodeJob(job Job, indent int, ending string) (string, error) {
+func encodeJob(job Job, indent int, ending string, fieldComments map[string]string) (string, error) {
 	data, err := yaml.Marshal(jobFields(job))
 	if err != nil {
 		return "", fmt.Errorf("config_edit: encode job: %w", err)
+	}
+	if len(fieldComments) > 0 {
+		var doc yaml.Node
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return "", fmt.Errorf("config_edit: encode job comments: %w", err)
+		}
+		fields := doc.Content[0]
+		for i := 0; i < len(fields.Content); i += 2 {
+			if comment := fieldComments[fields.Content[i].Value]; comment != "" {
+				fields.Content[i].HeadComment = comment
+			}
+		}
+		data, err = yaml.Marshal(&doc)
+		if err != nil {
+			return "", fmt.Errorf("config_edit: encode job comments: %w", err)
+		}
 	}
 	prefix := strings.Repeat(" ", indent)
 	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
@@ -297,6 +322,18 @@ func encodeJob(job Job, indent int, ending string) (string, error) {
 		lines[i] = prefix + lines[i]
 	}
 	return strings.Join(lines, ending) + ending, nil
+}
+
+func commentLines(comment string, indent int, ending string) string {
+	if comment == "" {
+		return ""
+	}
+	prefix := strings.Repeat(" ", indent) + "# "
+	lines := strings.Split(comment, "\n")
+	for i, line := range lines {
+		lines[i] = prefix + strings.TrimSuffix(line, "\r")
+	}
+	return strings.Join(lines, ending) + ending
 }
 
 func documentRoot(src []byte) (*yaml.Node, error) {

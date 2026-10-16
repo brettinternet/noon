@@ -78,6 +78,11 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition", ArgsUsage: "[NAME]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared"}, &urfave.BoolFlag{Name: "local"}}, Action: removeJob},
 			{Name: "pause", Usage: "Pause background runs of a job", ArgsUsage: "[NAME]", Action: pauseJob},
 			{Name: "resume", Usage: "Resume background runs of a job", ArgsUsage: "[NAME]", Action: resumeJob},
+			{Name: "import", Usage: "Preview or import jobs from another scheduler", Action: importers, Commands: []*urfave.Command{
+				{Name: "crontab", Usage: "Preview or import a user crontab", ArgsUsage: "FILE|-", Flags: []urfave.Flag{
+					&urfave.BoolFlag{Name: "write", Usage: "Add all imported jobs to .noon.yaml"},
+				}, Action: importCrontab},
+			}},
 			{Name: "init", Usage: "Create noon.yaml without overwriting existing files", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "local", Usage: "Create private .noon.yaml instead; add it to .gitignore"},
 			}, Action: initialize},
