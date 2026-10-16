@@ -21,7 +21,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 	root := &urfave.Command{
 		Name:        "bump",
 		Usage:       "Repo-local scheduling, without a platform",
-		Description: "Validate and list project jobs, inspect configuration, and initialize a project. Job execution and scheduling are not implemented yet.",
+		Description: "Validate, list, and run project jobs in the foreground, inspect configuration, and initialize a project. Background scheduling is not implemented yet.",
 		Version:     fmt.Sprintf("%s (commit %s, built %s)", build.Version, build.Commit, build.BuildTime),
 		Writer:      out, ErrWriter: errOut,
 		EnableShellCompletion: true,
@@ -35,6 +35,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		},
 		Action: status,
 		Commands: []*urfave.Command{
+			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Action: runJob},
 			{Name: "status", Usage: "Show project jobs and next scheduled times without running them", Action: status},
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
 			{Name: "init", Usage: "Create bump.yaml without overwriting existing files", Flags: []urfave.Flag{
@@ -60,6 +61,10 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut io.Writer) int {
 	root := NewRootCommand(build, out, errOut)
 	if err := root.Run(ctx, args); err != nil {
+		var exit runExit
+		if errors.As(err, &exit) {
+			return int(exit)
+		}
 		var failure *Error
 		if !errors.As(err, &failure) {
 			failure = &Error{Code: "error", Message: err.Error()}

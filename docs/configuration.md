@@ -1,7 +1,7 @@
 # Configuration
 
 This documents implemented settings and command job definitions. Jobs can be
-validated and listed, but are not executed. Hooks, prompts, cron import, and the
+validated, listed, and executed with `bump run NAME`. Hooks, prompts, cron import, and the
 scheduler are not implemented; see [design](design.md) for their proposed format.
 The default state directory will move from `PROJECT/.bump` to a per-user
 directory (decision-3); until then, nothing writes state.
@@ -72,7 +72,7 @@ refers to the user config directory, not each repository; normally leave it unse
 
 `bump config` prints effective settings and the loaded file paths in order.
 `bump config check` validates the same snapshot. Neither creates state or checks
-future job executability. State ownership/writability belongs to the later runner.
+job executability. Persistent run state is not implemented yet.
 
 ## Private configuration
 
@@ -114,7 +114,7 @@ See [the complete example](../examples/jobs.yaml).
 | --- | --- | --- |
 | `description` | empty | String |
 | `schedule` | manual | Five-field cron, macros, calendar phrases, or intervals; [grammar](design.md#schedules) |
-| `run` | required | Non-empty string (future `/bin/sh -c`) or non-empty string list (exact argv) |
+| `run` | required | Non-empty string (`/bin/sh -c`) or non-empty string list (exact argv) |
 | `cwd` | project root | Absolute path or path relative to project root; existence is not checked |
 | `env` | empty | String values only; quote numbers. Names match `[A-Za-z_][A-Za-z0-9_]*`; `BUMP_` is reserved |
 | `timeout` | `1h` | Integer `s`, `m`, `h`, `d` components, at least `1s`, or `none` |
@@ -122,8 +122,8 @@ See [the complete example](../examples/jobs.yaml).
 | `missed` | `run_once` | `run_once` or `skip` |
 | `enabled` | `true` | Boolean |
 
-Execution policies are validated now but take effect only when execution is
-implemented. Unknown fields (including prompts and hooks), aliases, nulls,
+Foreground runs honor `cwd`, `env`, `timeout`, and `enabled`. Scheduling,
+`overlap`, and `missed` policies are validated but not yet executed. Unknown fields (including prompts and hooks), aliases, nulls,
 duplicate keys, and wrong types are errors with file, line, and YAML path.
 
 A local job replaces the entire shared job with the same name; fields do not
@@ -151,6 +151,6 @@ Digests are `sha256:` plus the SHA-256 of canonical JSON: sorted keys, explicitl
 set execution fields only, normalized schedules and durations, and omitted unset
 fields. Description, enabled, source paths, and YAML formatting do not affect
 the digest. Digests cover definitions, **not the contents of referenced scripts**.
-Approval and execution are not yet implemented; eventually shared jobs will
-require approval of their current digest. Trust only repositories whose contents
+Unattended execution and approval are not yet implemented; eventually shared jobs
+will require approval of their current digest. Explicit foreground runs need no approval. Trust only repositories whose contents
 you would run by hand.

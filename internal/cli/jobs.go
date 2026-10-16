@@ -38,7 +38,7 @@ func inspectJobs(cmd *urfave.Command, dashboard bool) error {
 	}
 	printJobs(cmd.Writer, view.Jobs, now)
 	if dashboard {
-		fmt.Fprintln(cmd.Writer, "Bump does not run jobs yet.")
+		fmt.Fprintln(cmd.Writer, "Next: bump run (list runnable jobs)")
 	}
 	return nil
 }

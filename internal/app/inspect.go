@@ -1,4 +1,4 @@
-// Package app exposes read-only operations shared by interface adapters.
+// Package app exposes operations shared by interface adapters.
 package app
 
 import (
