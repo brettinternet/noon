@@ -4,9 +4,10 @@ title: Show the project dashboard and diagnose setup
 status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 14:11'
+updated_date: '2026-10-16 14:37'
 labels:
   - cli
+  - reviewed
 dependencies:
   - NOON-20
   - NOON-17
@@ -90,6 +91,8 @@ AC#2: task cli:build; isolated HOME/project fixture with jobs.t.run=[definitely-
 Full task ci passed (format, vet, Staticcheck, unit/integration tests, race, secret/vulnerability scans, build, smoke). Independent final defect review pending.
 
 Final review: one concrete JSON error-classification regression for absent --project was found, reproduced, fixed, and covered by extending TestJSONFailuresAreSingleObjects for bare noon and status. No existing tests removed/skipped/weakened; the new doctor test follows the explicitly approved sidecar exception. LSP diagnostics clean. Final source commit 3ecf24a passed task check:staged and task ci after commit, then fast-forward merged into main. Owned noon-21-dashboard worktree and branch removed via Worktrunk; its Herdr workspace contained only an idle shell and the post-remove hook closed it. No remaining blocker or resumable implementation work.
+
+Review (post-merge): dashboard JSON/human contract, notice and next priority, 80-column bounding, doctor checks, exit codes, and read-only behavior (no state creation; approved SQLite sidecar exception) match the contract. Fixed in bffdf41: doctor resolved commands/cwd/prompt files of enabled: false jobs, so a job disabled because its tool is absent on this machine failed doctor with exit 1 forever; disabled jobs are now skipped (regression in TestDoctor healthy case, fails before the fix). Low, not fixed: doctor warns approvals pending on a not-enabled project while the dashboard gates needs_approval on enabled; with a config error the enabled check reports ok because jobs are unknown; NEXT shows needs approval rather than disabled for shared scheduled jobs in a not-enabled project; manual NEXT renders - not the design's em dash; on Linux without a systemd user manager next suggests noon service install, which then fails service_unsupported. task ci passes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
