@@ -1,47 +1,34 @@
 # Shell setup
 
-`noon shell init bash|zsh|fish` prints sourceable code. It never edits startup files,
-creates Noon state, enables a checkout, or starts a scheduler. Choose your shell
-explicitly. Bash, Zsh, and Fish are exercised by `task shell:smoke`; all three must
-be installed on PATH (an unresolved tool-manager shim is not an installation).
-Bash 3.2 and newer are supported, including scalar prompt commands on older Bash
-and prompt-command arrays on Bash 5.1+.
+`noon shell init SHELL` prints code for you to source. It never edits startup files, creates
+state, enables a project, or starts a scheduler.
 
-## Completion only
+## Completion
 
-Run the matching command in your interactive shell, or add it yourself to
-`.bashrc`, `.zshrc`, or `~/.config/fish/config.fish`:
+Add one line to your shell's startup file:
 
 ```bash
-# Bash: no bash-completion package needed
-eval "$(noon shell init bash)"
+eval "$(noon shell init bash)"      # ~/.bashrc
 ```
 
 ```zsh
-# Zsh: uses its bundled completion system; creates no compdump file
-eval "$(noon shell init zsh)"
+eval "$(noon shell init zsh)"       # ~/.zshrc
 ```
 
 ```fish
-noon shell init fish | source
+noon shell init fish | source       # ~/.config/fish/config.fish
 ```
 
-Completion suggests commands, aliases, flags, and configured job names for
-`run`, `pause`, `resume`, `remove`/`rm`, `history`, `logs`, and `cancel`. It respects
-`--project`/`-C`, `--config`, and their environment variables. Existing names are
-not suggested as a new `add` name, after an existing selector, or as flag values.
-Only currently configured names are offered, not historical names or run IDs.
-Broken configuration suppresses job names, not static commands and flags.
+Completion covers commands, aliases, flags, and current job names for `run`, `pause`, `resume`,
+`remove`, `history`, `logs`, and `cancel`. It respects `-C` and `--config`. It only reads config:
+no jobs, state, network, or services. Broken config hides job names but not commands.
 
-Loading and invoking completion is read-only: no job or lifecycle hook execution,
-state initialization/migration, approval changes, services, or network calls.
-Arguments are passed as quoted arrays, not evaluated as shell source. The binary
-contains all glue; Python, Node, jq, and external completion frameworks are not
-needed. Keep `noon` on PATH in the shell using the integration.
+Bash 3.2+ works without the bash-completion package. Zsh uses its bundled completion system and
+writes no compdump. No Python, Node, or jq is needed.
 
-## Queue a job on entry
+## Run a job when you enter a project
 
-Define a job with a name you choose; there is no magic default or new job schema:
+Pick any job; there's no special name.
 
 ```yaml
 jobs:
@@ -50,7 +37,7 @@ jobs:
     cooldown: 5m
 ```
 
-Review the checkout and explicitly run `noon enable`. Then source:
+Review the checkout, run `noon enable`, then source with `--on-enter` (this includes completion):
 
 ```bash
 eval "$(noon shell init bash --on-enter check-in)"
@@ -64,70 +51,65 @@ eval "$(noon shell init zsh --on-enter check-in)"
 noon shell init fish --on-enter check-in | source
 ```
 
-This includes completion. Loading or reloading records the current location
-without queueing anything; it does not register duplicate hooks. Existing prompt
-and directory hooks remain installed, and Noon preserves the hook's incoming exit
-status. Each shell maintains its own entry state.
+Moving into a different Noon project queues the job. Moving within a project, including
+subdirectories and symlinked paths, doesn't. Leaving runs nothing; coming back queues again.
+Loading the setup doesn't queue anything.
 
-Zsh and Fish use directory-change events. Bash checks PWD just before the next
-prompt, so multiple moves within a single command are observed only at the final
-location. A transition into a different canonical Noon project queues the named
-job. Subdirectories and symlink aliases of the same project do not count as
-another entry. Leaving runs nothing; leaving and re-entering permits another
-request. Nearest Noon markers and Git boundaries apply, including nested projects
-and worktree `.git` files. Worktrees must be enabled independently.
+```console
+~ $ cd ~/code/app          # queues check-in
+~/code/app $ cd internal   # same project: nothing
+~/code/app/internal $ cd ~ # leaving: nothing
+~ $ cd ~/code/app          # queues check-in again (cooldown permitting)
+```
 
-The entered directory determines the project, **not inherited `NOON_PROJECT`**.
-Entry uses the automatic or explicit configuration selection recorded by
-`noon enable`, ignoring invocation `NOON_CONFIG` and `NOON_TIMEZONE`. State is
-located through user settings and `NOON_STATE_DIR`/`--state-dir`, like the scheduler;
-if an explicit config selected a private store when enabling, select that same
-store in the shell environment. An enabled checkout missing the named job is a
-quiet no-op. Unenabled projects are also quiet; disabled, paused, changed shared
-jobs and recursion failures cannot queue entry work.
+Details:
 
-Queueing does not wait for execution. An offline scheduler is fine: accepted work
-waits for an explicitly started `noon serve` or service. Nothing automatically
-enables, approves, or starts anything. Due-now requests coalesce with already due
-queued work. A `cooldown` reduces repeated requests across visits or separate
-shells; it is part of the approved job definition. There is no permanent
-project-entry idempotency key. The normal recursion limits still apply.
+- Zsh and Fish react to directory changes. Bash checks before each prompt, so only the final
+  directory of a command counts.
+- The entered directory picks the project, not `NOON_PROJECT`. Noon uses the config selection
+  recorded by `noon enable` and ignores `NOON_CONFIG` and `NOON_TIMEZONE`. If you enabled with a
+  custom state directory, set the same `NOON_STATE_DIR` in your shell.
+- Projects that aren't enabled or lack the job are skipped silently. Paused jobs, jobs needing
+  approval, and recursion failures don't queue.
+- Queueing doesn't wait. If no scheduler is running, the run waits for one. `cooldown` limits
+  repeats across visits and shells.
+- Each worktree must be enabled separately.
+- Queued jobs run in a separate process and can't change your shell's environment. Use mise or
+  direnv for that.
 
-The job's `NOON_EVENT_FILE` contains the normal CLI envelope:
+The job's `$NOON_EVENT_FILE` describes the move:
 
 ```json
 {"schema_version":1,"source":"cli","received_at":"…","data":{"event":"project_entry","shell":"bash","previous_directory":"/work","directory":"/work/repo/sub","project":"/work/repo"}}
 ```
 
-Directory strings remain data, including spaces, quotes, newlines, and shell
-metacharacters. Queued jobs run in separate processes: they **cannot change the
-parent shell environment**. Use mise or direnv for environment activation.
+## Diagnose and remove
 
-## Diagnostics and removal
+Success prints nothing. Failures print to stderr without failing `cd` or blocking the prompt, and
+aren't retried until you leave and re-enter. Inspect with:
 
-Successful queueing and ordinary no-op transitions print nothing. Failures go to
-stderr without changing `cd` success or interrupting the prompt. Failed entries
-are not retried on every prompt: fix the problem and leave/re-enter the project.
-Use `noon status`, `noon list`, `noon history check-in`, and `noon logs check-in` to
-inspect approval, paused state, queue/history, and output. Start the scheduler
-explicitly when ready. Re-approve changed shared definitions only after review.
+```sh
+noon status
+noon history check-in
+noon logs check-in
+```
 
-To disable entry automation in the current shell, source the completion-only
-command again. It removes only Noon's entry hook, keeping other hooks intact.
-To remove everything, remove the setup line from your startup file and open a
-fresh shell. To also remove completion immediately after disabling entry:
+To turn off entry jobs in the current shell, source the completion-only line again. It removes
+only Noon's hook. To remove completion too:
 
 ```bash
-complete -r noon             # Bash
+complete -r noon      # Bash
 ```
 
 ```zsh
-compdef -d noon               # Zsh
+compdef -d noon       # Zsh
 ```
 
 ```fish
-complete -c noon -e           # Fish
+complete -c noon -e   # Fish
 ```
 
-Removing shell integration does not cancel already queued work or revoke project
-approval. Use `noon cancel check-in` or `noon disable` explicitly if desired.
+Delete the line from your startup file to remove it permanently. This doesn't cancel queued work
+or revoke approval; use `noon cancel check-in` or `noon disable`.
+
+`task shell:smoke` tests all three shells; each must be installed on `PATH`.

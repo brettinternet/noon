@@ -1,10 +1,30 @@
 # Triggers
 
-Git hooks, agent hooks, and scripts can queue a configured job with JSON context. Noon stores the
-payload before a queued run becomes visible to `noon serve`; the job reads the resulting event-file
-path from `NOON_EVENT_FILE`. Payload data never becomes a command or shell fragment.
+Anything that can run a command can queue a job:
 
-A job may set a minimum one-second `cooldown`:
+```sh
+noon run tests --detach --key "$(git rev-parse HEAD)"
+noon run tests --detach --data '{"commit":"abc123"}'
+noon run tests --detach --data @event.json
+printf '%s\n' '{"sha":"abc123"}' | noon run tests --detach --data -
+```
+
+The project must be enabled, and `noon serve` (or the service) dispatches the run. Noon never
+installs hooks for you.
+
+## Event data
+
+`--data` takes a JSON value, `@FILE`, or `-` for stdin, up to 256 KiB. Noon writes it to a private
+file before the run is queued, and the job reads it from `$NOON_EVENT_FILE`:
+
+```json
+{"schema_version":1,"source":"cli","received_at":"2026-10-16T22:54:31.711Z","data":{"commit":"abc123"}}
+```
+
+`source` is `cli`, `mcp` (`run_job` with `data`), or `webhook`. Data never becomes part of a
+command. Event files are kept with the newest 10 logs per job.
+
+## Cooldown
 
 ```yaml
 jobs:
@@ -13,70 +33,46 @@ jobs:
     cooldown: 5m
 ```
 
-Cooldowns are included in the job digest and apply only to queued requests. Idempotency-key retries
-are resolved first, then enablement/approval requirements, cooldown, and due-now coalescing are
-checked in that order. Foreground and scheduled runs ignore cooldowns. CLI payloads may be a literal
-JSON value, `@FILE`, or `-` for stdin, up to 256 KiB. For example:
+If any run of the job was created within the `cooldown` (at least `1s`), a queued request returns
+that run instead of adding one:
 
-```sh
-noon run tests --detach --data '{"commit":"abc123"}'
-noon run tests --detach --data @event.json
-printf '%s\n' '{"sha":"abc123"}' | noon run tests --detach --data -
+```console
+$ noon run tests --detach
+tests is cooling down until Fri 16:59:12 (run 4)
 ```
 
-Every payload event file is JSON with `schema_version: 1`, `source`, `received_at`, and `data`.
-CLI runs use `source: "cli"`, MCP `run_job` payloads use `source: "mcp"`; the job receives the
-absolute file name in `NOON_EVENT_FILE`. Event files are private and retained with the newest ten
-logs per job. MCP clients may pass the same JSON value with the optional `data` argument to
-`run_job`.
-
-## Interactive shell entry
-
-`noon shell init bash|zsh|fish --on-enter JOB` emits completion and directory hooks
-for manual sourcing. It queues only the entered checkout's enabled, approved,
-unpaused job, using its recorded configuration selection. It never starts a
-scheduler or changes the parent shell environment. See [Shell setup](shell.md)
-for setup/removal, canonical-project transitions, event data, and cooldown guidance.
+Foreground and scheduled runs ignore cooldown. It's part of the approval digest. Checks run in this
+order: idempotency key, enablement and approval, cooldown, then merging into an already-due run.
 
 ## Git hooks
 
-Create each hook file yourself; Noon never installs hooks. For a commit trigger, create
-`.git/hooks/post-commit` and make that file executable:
+Create the hook and make it executable. Git runs it in the checkout.
 
 ```sh
 #!/bin/sh
+# .git/hooks/post-commit
 exec noon run tests --detach --key "$(git rev-parse HEAD)"
 ```
 
-For a successful merge, create `.git/hooks/post-merge` and make that file executable:
-
 ```sh
 #!/bin/sh
+# .git/hooks/post-merge
 exec noon run tests --detach --key "merge-$(git rev-parse HEAD)" --data '{"event":"post-merge"}'
 ```
 
-The commit or merge ID is used only as the idempotency key; it is not expanded into the job's
-command. Git runs these hooks in the checkout. Queueing requires that checkout to be enabled with
-`noon enable` and requires `noon serve` (or its explicitly installed service) to dispatch the run.
+The commit ID is only an idempotency key; it never reaches the job's command.
+[examples/local-dev/git-hooks](../examples/local-dev/git-hooks/) also covers `post-checkout`.
 
 ## Claude Code `Stop` hook
 
-Create `.claude/settings.json` in the project; this example uses Claude Code's documented
-`Stop` event and command-handler format. Claude Code sends the hook's JSON input to the command on
-stdin, which `--data -` stores as the event's `data` value:
+Claude Code sends hook input as JSON on stdin; `--data -` stores it as the event's `data`. In
+`.claude/settings.json`:
 
 ```json
 {
   "hooks": {
     "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "noon run tests --detach --data -"
-          }
-        ]
-      }
+      { "hooks": [{ "type": "command", "command": "noon run tests --detach --data -" }] }
     ]
   }
 }
@@ -84,38 +80,31 @@ stdin, which `--data -` stores as the event's `data` value:
 
 ## Codex `Stop` hook
 
-Codex also supports command hooks in `.codex/hooks.json`. This current documented hook-file format
-uses event names, optional matcher groups, and command handlers; `Stop` has no matcher here. Codex
-sends each command hook a JSON object on stdin. Its `Stop` handler requires JSON on stdout, so
-send Noon's status output to stderr and return an empty JSON object on success. Review and trust
-this hook in Codex before using it:
+Codex expects JSON on stdout from a `Stop` hook, so send Noon's output to stderr and print `{}`.
+Review and trust the hook in Codex first. In `.codex/hooks.json`:
 
 ```json
 {
   "hooks": {
     "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "noon run tests --detach --data - >&2 && printf '{}\\n'"
-          }
-        ]
-      }
+      { "hooks": [{ "type": "command", "command": "noon run tests --detach --data - >&2 && printf '{}\\n'" }] }
     ]
   }
 }
 ```
 
-Recursion is bounded across detached runs: each run stores the requesting process's `NOON_DEPTH`,
-and its job and lifecycle hooks receive that stored value plus one. A request at depth three or
-greater, or a request for the same project and job as the calling process, fails with code
-`recursion`. Keep hooks narrow and rely on this guard as a safety limit, not as a substitute for
-reviewing their behavior.
+Vendor formats checked 2026-10-16 against the
+[Claude Code](https://code.claude.com/docs/en/hooks) and
+[Codex](https://developers.openai.com/codex/hooks) hook docs.
 
-Documentation verified on 2026-10-16 against the current vendor references:
+## Shell entry
 
-- Claude Code hooks: <https://code.claude.com/docs/en/hooks> (project settings, `Stop` handlers,
-  and JSON stdin input).
-- Codex hooks: <https://developers.openai.com/codex/hooks> (`hooks.json`, `Stop`, command handler,
-  and JSON stdin input).
+`noon shell init bash --on-enter JOB` queues a job when you `cd` into the project. See
+[Shell setup](shell.md).
+
+## Recursion guard
+
+A job that queues a job that queues a job is bounded. Each run stores the caller's `NOON_DEPTH`;
+the job and its hooks get that value plus one. Noon refuses a request with code `recursion` when
+the depth is 3 or more, or when a job requests itself. Treat this as a safety net, not a design
+tool.

@@ -1,15 +1,11 @@
 # Signed webhooks
 
-Noon accepts signed HTTP requests as data-only triggers. A request can select only an opted-in
-project and job endpoint; it cannot choose a command or arguments. The payload is stored as an event
-file and exposed to the job through `NOON_EVENT_FILE`.
+A signed HTTP request can queue a job. The request picks a project and job by URL and supplies
+data; it can never choose a command.
 
-## Configure a job
-
-Set a secret environment-variable name on a job in `noon.yaml` or `.noon.yaml`:
+## 1. Configure the job
 
 ```yaml
-version: 1
 jobs:
   review:
     run: [task, test]
@@ -17,45 +13,39 @@ jobs:
       secret_env: NOON_GITHUB_WEBHOOK_SECRET
 ```
 
-The value of `secret_env` is included in the job digest. Store the actual secret outside YAML and
-provide it to the scheduler environment. Noon reads a startup snapshot; a missing or empty value
-disables that endpoint and is reported as a project config error in `noon status` and `noon doctor`.
-For shared jobs, run `noon enable` to approve the definition. A disabled, paused, or unapproved job
-will not accept requests.
+`secret_env` names the environment variable holding the secret; the secret itself never goes in
+YAML. The setting is part of the approval digest, so run `noon enable` after adding it.
 
-Enable the project, then inspect JSON output for the route:
+## 2. Find the URL
 
-```sh
-noon enable
-noon list --json
+```console
+$ noon enable
+$ noon list --json | jq -r '.jobs[] | select(.webhook_path) | .webhook_path'
+/hooks/12/review
 ```
 
-Webhook jobs include a `webhook_path`, for example `/hooks/12/review`. The integer is the project's
-persisted ID. It is available after the project has been registered with `noon enable`.
+`12` is the project's ID, assigned by `noon enable`.
 
-## GitHub setup
+## 3. Start the listener
 
-1. In the repository's GitHub settings, add a webhook and set the payload URL to the Noon route
-   reachable from GitHub.
-2. Set the content type to `application/json` and choose only the events the job needs.
-3. Generate a high-entropy secret, enter it in GitHub, and provide the same value as
-   `NOON_GITHUB_WEBHOOK_SECRET` to the `noon serve` process.
-4. Start Noon with an explicit listener address, for example:
+```sh
+export NOON_GITHUB_WEBHOOK_SECRET='the-secret-you-gave-github'
+noon serve --listen 127.0.0.1:8787
+```
 
-   ```sh
-   export NOON_GITHUB_WEBHOOK_SECRET='replace-with-the-GitHub-webhook-secret'
-   noon serve --listen 127.0.0.1:8787
-   ```
+There is no listener without `--listen`. The secret is read once at startup; if it's missing or
+empty, that endpoint is off and `noon status` and `noon doctor` report a config error.
 
-There is no HTTP listener unless `--listen ADDR` is supplied. Choose a loopback address when a
-local reverse proxy is available. Binding a non-loopback address logs a warning, but requests still
-require a valid HMAC signature. The listener accepts bodies up to 1 MiB and uses a 5s
-`ReadHeaderTimeout`, 10s `ReadTimeout` and `WriteTimeout`, and a 16 KiB maximum header size.
-`GET /healthz` returns `{"status":"ok"}` while the scheduler loop is healthy. A missing or
-incorrect signature receives 401; inactive jobs receive 409.
+## 4. Add the GitHub webhook
 
-GitHub sends `X-Hub-Signature-256` as `sha256=HEX`, the HMAC-SHA256 of the exact raw body. A local
-request can compute the same signature with OpenSSL:
+In the repository settings, add a webhook with:
+
+- Payload URL: your public HTTPS URL ending in `/hooks/12/review`
+- Content type: `application/json`
+- Secret: the same high-entropy value
+- Events: only the ones the job needs
+
+## Test locally
 
 ```sh
 body='{"action":"opened"}'
@@ -69,21 +59,33 @@ curl --fail-with-body -i \
   http://127.0.0.1:8787/hooks/12/review
 ```
 
-Noon also accepts `X-Noon-Signature-256` and `X-Noon-Delivery`. GitHub delivery IDs become
-idempotency keys. Deduplication only covers deliveries whose run is still retained (the newest 50
-terminal runs per job); senders without a delivery ID get no replay protection. Job cooldowns and
-queued-run coalescing apply as they do to CLI requests.
+| Response | When |
+| --- | --- |
+| 202 | Queued: `{"run_id":7,"created":true}` |
+| 200 | Matched an existing run (redelivery, cooldown, or already due) |
+| 401 | Missing or wrong signature |
+| 409 | Project or job disabled, job paused, or job needs approval |
+| 413 | Body over 1 MiB |
 
-Event files contain `schema_version`, `source: "webhook"`, `received_at`, parsed JSON `data` (or a
-string for non-JSON bodies), and only these request headers: `content-type`, `user-agent`,
-`x-github-event`, `x-github-delivery`, and `x-noon-delivery`. Signature and authorization headers
-are never stored.
+`GET /healthz` returns `{"status":"ok"}` while the scheduler is healthy.
+
+## Request handling
+
+- The signature is HMAC-SHA256 of the raw body, in `X-Hub-Signature-256` or
+  `X-Noon-Signature-256`, formatted `sha256=HEX`.
+- `X-GitHub-Delivery` or `X-Noon-Delivery` becomes the idempotency key, so redeliveries don't
+  queue twice while the earlier run is retained (newest 50 per job). Without one there's no replay
+  protection.
+- Cooldown and merging into an already-due run work as for [CLI requests](triggers.md).
+- Limits: 1 MiB body, 16 KiB headers, 5s to read headers, 10s to read and write.
+
+The job's `$NOON_EVENT_FILE` has `source: "webhook"`, the parsed JSON body as `data` (a string if
+it isn't JSON), and only these headers: `content-type`, `user-agent`, `x-github-event`,
+`x-github-delivery`, `x-noon-delivery`. Signatures and authorization headers are never stored.
 
 ## TLS reverse proxy
 
-Noon does not terminate TLS. Put a reverse proxy in front of a loopback listener and configure the
-webhook URL to use HTTPS. For example, Caddy can manage certificates and proxy the request body to
-Noon:
+Noon doesn't do TLS. Keep it on loopback behind a reverse proxy:
 
 ```caddyfile
 hooks.example.com {
@@ -91,13 +93,12 @@ hooks.example.com {
 }
 ```
 
-Keep the Noon listener on loopback and protect the secret in the service manager or process
-environment. Do not expose the unsigned health endpoint or webhook listener directly to the public
-internet without a TLS-terminating reverse proxy.
+Binding a non-loopback address logs a warning; requests still need a valid signature. Don't
+expose the listener to the internet without TLS in front.
 
-## Docker port publishing
+## Docker
 
-Bind the container listener to its interface, but publish the host port only on loopback:
+Listen on all interfaces inside the container, but publish only on host loopback:
 
 ```sh
 docker run --rm \
@@ -106,7 +107,5 @@ docker run --rm \
   noon:dev serve --listen 0.0.0.0:8787
 ```
 
-The container must also have the enabled project and persistent Noon state mounted as appropriate
-for the deployment. Configure TLS at a reverse proxy outside the container. Publishing a host port
-on `127.0.0.1` does not provide a public GitHub endpoint by itself; use an appropriately protected
-public reverse proxy or load balancer.
+Mount the project and state as in [Docker](docker.md), and put the TLS proxy outside the
+container.
