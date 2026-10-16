@@ -206,6 +206,13 @@ func TestAddJobs(t *testing.T) {
 
 	t.Run("only the added shared job is approved", func(t *testing.T) {
 		root := sandbox(t)
+		userConfigDir := filepath.Join(root, "user", "noon")
+		if err := os.MkdirAll(userConfigDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(userConfigDir, "config.yaml"), []byte("on_success: [notify]\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		manifest := []byte("jobs:\n  first:\n    run: first\n  changed:\n    run: old\n")
 		path := filepath.Join(root, "noon.yaml")
 		if err := os.WriteFile(path, manifest, 0644); err != nil {
@@ -221,11 +228,12 @@ func TestAddJobs(t *testing.T) {
 		if code, _, stderr := invokeText(t, "add", "newjob", "every 1h", "--sh", "new command", "--shared"); code != 0 {
 			t.Fatalf("shared add: %d %s", code, stderr)
 		}
-		cfg, err := config.Load(config.Input{CWD: root})
+		input := config.Input{CWD: root, UserConfigDir: filepath.Join(root, "user")}
+		cfg, err := config.Load(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		view, err := app.Inspect(config.Input{CWD: root}, time.Now())
+		view, err := app.Inspect(input, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -240,7 +248,9 @@ func TestAddJobs(t *testing.T) {
 		if approvals["newjob"] != "approved" || approvals["changed"] != "needs_approval" || approvals["first"] != "approved" {
 			t.Fatalf("selective approvals: %+v", approvals)
 		}
-		_ = cfg
+		if hooks, ok := cfg.Jobs["newjob"].OnSuccess.([]string); !ok || !reflect.DeepEqual(hooks, []string{"notify"}) {
+			t.Fatalf("new shared job did not inherit its user hook default: %+v", cfg.Jobs["newjob"])
+		}
 	})
 
 	t.Run("local duplicate overrides shared and is disclosed", func(t *testing.T) {
@@ -326,11 +336,11 @@ func TestAddJobs(t *testing.T) {
 					}
 					return
 				}
-				before, err := config.JobFromSource(original, "tests", nil, "")
+				before, err := config.JobFromSource(original, "tests", nil, "", nil, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
-				after, err := config.JobFromSource(got, "tests", nil, "")
+				after, err := config.JobFromSource(got, "tests", nil, "", nil, nil)
 				if err != nil || before.Digest != after.Digest {
 					t.Fatalf("hidden raw action changed: before=%+v after=%+v err=%v", before, after, err)
 				}

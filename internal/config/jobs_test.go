@@ -48,6 +48,7 @@ func TestLoadJobs(t *testing.T) {
 		}},
 		{name: "orphan toggle", local: "jobs: {tests: {enabled: false}}", want: "enabled-only override requires a shared job"},
 		{name: "user jobs", user: "jobs: {}", want: "allowed only in noon.yaml, .noon.yaml, or --config"},
+		{name: "project hook defaults", shared: "on_success: [notify]\njobs: {tests: {run: hi}}", want: "allowed only in user config or --config files"},
 		{name: "name", shared: "jobs:\n  1tests: {run: hi}", want: "noon.yaml:2: jobs.1tests:"},
 		{name: "unknown field", shared: "jobs:\n  tests:\n    run: hi\n    typo: nope", want: "noon.yaml:4: jobs.tests.typo: unknown field"},
 		{name: "two actions", shared: "jobs: {tests: {run: hi, prompt: nope}}", want: "exactly one of run, prompt, or prompt_file is required"},
@@ -109,6 +110,34 @@ func TestLoadJobs(t *testing.T) {
 			}
 		})
 	}
+	t.Run("inherited hook defaults and job opt-out", func(t *testing.T) {
+		root := canonical(t, t.TempDir())
+		user := filepath.Join(root, "user")
+		put(t, filepath.Join(user, "noon/config.yaml"), "on_success: [notify, --quiet]\non_failure: 'notify failure'\n")
+		put(t, filepath.Join(root, "noon.yaml"), "jobs:\n  inherited: {run: hi}\n  disabled: {run: hi, on_success: []}\n")
+		cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: user})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(cfg.Jobs["inherited"].OnSuccess, []string{"notify", "--quiet"}) || cfg.Jobs["inherited"].OnFailure != "notify failure" {
+			t.Fatalf("inherited hooks: %+v", cfg.Jobs["inherited"])
+		}
+		if hook, ok := cfg.Jobs["disabled"].OnSuccess.([]string); !ok || len(hook) != 0 || cfg.Jobs["disabled"].OnFailure != "notify failure" {
+			t.Fatalf("hook opt-out did not preserve independent inherited hook: %+v", cfg.Jobs["disabled"])
+		}
+	})
+	t.Run("explicit config hook defaults", func(t *testing.T) {
+		root := canonical(t, t.TempDir())
+		file := filepath.Join(root, "custom.yaml")
+		put(t, file, "on_success: [notify]\njobs: {tests: {run: hi}}")
+		cfg, err := config.Load(config.Input{CWD: root, File: &file})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(cfg.Jobs["tests"].OnSuccess, []string{"notify"}) {
+			t.Fatalf("explicit-file default hook: %+v", cfg.Jobs["tests"])
+		}
+	})
 	t.Run("prompt size", func(t *testing.T) {
 		root := canonical(t, t.TempDir())
 		data := "jobs:\n  tests:\n    prompt: " + strings.Repeat("x", config.MaxPromptBytes+1) + "\n    agent: claude\n"
@@ -179,6 +208,31 @@ func TestJobDigest(t *testing.T) {
 	if load("    run: hi\n", "{}") == load("    run: hi\n    timeout: 1h\n", "{}") {
 		t.Fatal("unset field included in digest")
 	}
+	hookDefinition := "    run: echo hi\n    on_success: [notify, done]\n"
+	hookDigest := load(hookDefinition, "{}")
+	if load(strings.Replace(hookDefinition, "done", "failed", 1), "{}") == hookDigest {
+		t.Fatal("changing a shared job hook did not change its digest")
+	}
+	t.Run("inherited hook defaults participate in shared digest", func(t *testing.T) {
+		root := canonical(t, t.TempDir())
+		user := filepath.Join(root, "user")
+		userConfig := filepath.Join(user, "noon", "config.yaml")
+		put(t, userConfig, "on_success: [notify-one]\n")
+		put(t, filepath.Join(root, "noon.yaml"), "jobs: {tests: {run: hi}}")
+		load := func() string {
+			t.Helper()
+			cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: user})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return cfg.Jobs["tests"].Digest
+		}
+		first := load()
+		put(t, userConfig, "on_success: [notify-two]\n")
+		if load() == first {
+			t.Fatal("changing an inherited hook default did not change the shared job digest")
+		}
+	})
 	t.Run("prompt definition and agent name", func(t *testing.T) {
 		root := canonical(t, t.TempDir())
 		user := filepath.Join(root, "user")

@@ -63,6 +63,16 @@ func RunSpec(project string, job config.Job, inherited []string) (runner.Spec, e
 			spec.Argv = append([]string(nil), run...)
 		}
 	}
+	spec.Env = JobEnvironment(project, job, inherited)
+	if job.Timeout != "none" {
+		spec.Timeout, _ = time.ParseDuration(job.Timeout)
+	}
+	return spec, nil
+}
+
+// JobEnvironment overlays validated job values and reserved Noon metadata on the
+// inherited process environment, returning a stable, duplicate-free environment.
+func JobEnvironment(project string, job config.Job, inherited []string) []string {
 	env := make(map[string]string)
 	for _, entry := range inherited {
 		if key, value, ok := strings.Cut(entry, "="); ok {
@@ -83,11 +93,9 @@ func RunSpec(project string, job config.Job, inherited []string) (runner.Spec, e
 		keys = append(keys, key)
 	}
 	slices.Sort(keys)
+	result := make([]string, 0, len(keys))
 	for _, key := range keys {
-		spec.Env = append(spec.Env, key+"="+env[key])
+		result = append(result, key+"="+env[key])
 	}
-	if job.Timeout != "none" {
-		spec.Timeout, _ = time.ParseDuration(job.Timeout)
-	}
-	return spec, nil
+	return result
 }

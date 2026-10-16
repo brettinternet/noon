@@ -65,6 +65,9 @@ CREATE UNIQUE INDEX runs_key ON runs(project_id, job, idempotency_key) WHERE ide
 CREATE TABLE pauses (
   project_id INTEGER NOT NULL REFERENCES projects(id), job TEXT NOT NULL,
   paused_at TEXT NOT NULL, PRIMARY KEY(project_id, job));
+`, `
+ALTER TABLE runs ADD COLUMN hook_status TEXT;
+ALTER TABLE runs ADD COLUMN hook_exit_code INTEGER;
 `}
 
 type Store struct {
@@ -75,6 +78,7 @@ type Store struct {
 	hasScheduler   bool
 	hasQueue       bool
 	hasPauses      bool
+	hasHooks       bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -107,6 +111,8 @@ type Run struct {
 	CancelRequestedAt            sql.NullString
 	LogBytes                     int64
 	LogTruncated, LogOverflow    bool
+	HookStatus                   sql.NullString
+	HookExitCode                 sql.NullInt64
 }
 
 const (
@@ -127,7 +133,12 @@ func (s *Store) runSelectColumns() string {
 		columns += `, NULL`
 	}
 	if s.hasQueue {
-		return columns + `, idempotency_key, cancel_requested_at`
+		columns += `, idempotency_key, cancel_requested_at`
+	} else {
+		columns += `, NULL, NULL`
+	}
+	if s.hasHooks {
+		return columns + `, hook_status, hook_exit_code`
 	}
 	return columns + `, NULL, NULL`
 }
@@ -143,7 +154,12 @@ func (s *Store) qualifiedRunSelectColumns() string {
 		columns += `, NULL`
 	}
 	if s.hasQueue {
-		return columns + `, runs.idempotency_key, runs.cancel_requested_at`
+		columns += `, runs.idempotency_key, runs.cancel_requested_at`
+	} else {
+		columns += `, NULL, NULL`
+	}
+	if s.hasHooks {
+		return columns + `, runs.hook_status, runs.hook_exit_code`
 	}
 	return columns + `, NULL, NULL`
 }
@@ -155,7 +171,7 @@ type runScanner interface {
 func scanRun(row runScanner) (Run, error) {
 	var run Run
 	var startedAt sql.NullString
-	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt)
+	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt, &run.HookStatus, &run.HookExitCode)
 	run.StartedAt = startedAt.String
 	return run, err
 }
@@ -176,6 +192,7 @@ type Outcome struct {
 	LogPath       string
 	LogBytes      int64
 	LogTruncated  bool
+	HookEvent     string
 }
 
 // Open creates the state directory and database if necessary.
@@ -252,6 +269,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasScheduler = version >= 4
 		state.hasQueue = version >= 5
 		state.hasPauses = version >= 6
+		state.hasHooks = version >= 7
 		return state, nil
 	}
 	for {
@@ -290,6 +308,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasScheduler = true
 	state.hasQueue = true
 	state.hasPauses = true
+	state.hasHooks = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}
@@ -492,6 +511,60 @@ func (s *Store) recoverRuns(ids []int64, now time.Time, grace time.Duration, sha
 			return err
 		}
 	}
+	return s.recoverHooks(ids)
+}
+
+func (s *Store) recoverHooks(ids []int64) error {
+	if !s.hasHooks {
+		return nil
+	}
+	query := `SELECT id, owner_pid, owner_start FROM runs WHERE hook_status='running'`
+	var args []any
+	if ids != nil {
+		query += ` AND id IN (` + strings.TrimSuffix(strings.Repeat(`?,`, len(ids)), `,`) + `)`
+		for _, id := range ids {
+			args = append(args, id)
+		}
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return fmt.Errorf("read running hooks: %w", err)
+	}
+	type runningHook struct {
+		id         int64
+		ownerPID   sql.NullInt64
+		ownerStart sql.NullString
+	}
+	var hooks []runningHook
+	for rows.Next() {
+		var hook runningHook
+		if err := rows.Scan(&hook.id, &hook.ownerPID, &hook.ownerStart); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		hooks = append(hooks, hook)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
+	for _, hook := range hooks {
+		alive := false
+		if hook.ownerPID.Valid && hook.ownerStart.Valid {
+			var err error
+			alive, err = runner.ProcessOwnerAlive(int(hook.ownerPID.Int64), hook.ownerStart.String)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("check owner for hook on run %d: %w", hook.id, err)
+			}
+		}
+		if alive {
+			continue
+		}
+		if _, err := s.db.Exec(`UPDATE runs SET hook_status='interrupted' WHERE id=? AND hook_status='running'`, hook.id); err != nil {
+			return fmt.Errorf("recover hook for run %d: %w", hook.id, err)
+		}
+	}
 	return nil
 }
 
@@ -521,7 +594,19 @@ func (s *Store) finishWithTerminalTolerance(runID, projectID int64, job string, 
 	if outcome.ExitCode != nil {
 		exit = *outcome.ExitCode
 	}
-	result, err := tx.Exec(`UPDATE runs SET status=?, finished_at=?, exit_code=?, signal=?, error=?, log_path=?, log_bytes=?, log_truncated=? WHERE id=? AND status='running'`, outcome.Status, FormatTime(outcome.FinishedAt), exit, nullableString(outcome.Signal), nullableString(outcome.Error), nullableString(outcome.LogPath), outcome.LogBytes, outcome.LogTruncated, runID)
+	hookStatus, hookExitCode := any(nil), any(nil)
+	if outcome.HookEvent != "" {
+		hookStatus = "running"
+	}
+	query := `UPDATE runs SET status=?, finished_at=?, exit_code=?, signal=?, error=?, log_path=?, log_bytes=?, log_truncated=?`
+	args := []any{outcome.Status, FormatTime(outcome.FinishedAt), exit, nullableString(outcome.Signal), nullableString(outcome.Error), nullableString(outcome.LogPath), outcome.LogBytes, outcome.LogTruncated}
+	if s.hasHooks {
+		query += `, hook_status=?, hook_exit_code=?`
+		args = append(args, hookStatus, hookExitCode)
+	}
+	query += ` WHERE id=? AND status='running'`
+	args = append(args, runID)
+	result, err := tx.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("finish run: %w", err)
 	}
@@ -540,6 +625,11 @@ func (s *Store) finishWithTerminalTolerance(runID, projectID int64, job string, 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit run result: %w", err)
 	}
+	// Hook completion applies retention. Do not let cleanup failures prevent
+	// execution after the durable running-hook transition.
+	if outcome.HookEvent != "" {
+		return nil
+	}
 	cleanupTx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin run retention: %w", err)
@@ -555,7 +645,7 @@ func (s *Store) finishWithTerminalTolerance(runID, projectID int64, job string, 
 }
 
 func pruneRuns(tx *sql.Tx, dir string, projectID int64, job string) error {
-	rows, err := tx.Query(`SELECT id, log_path FROM runs WHERE project_id=? AND job=? AND status NOT IN ('queued','running') ORDER BY id DESC`, projectID, job)
+	rows, err := tx.Query(`SELECT id, log_path FROM runs WHERE project_id=? AND job=? AND status NOT IN ('queued','running') AND (hook_status IS NULL OR hook_status!='running') ORDER BY id DESC`, projectID, job)
 	if err != nil {
 		return err
 	}
@@ -635,6 +725,123 @@ func (s *Store) RunLog(projectID, runID int64) (*RunLog, error) {
 
 func (s *Store) RunByID(id int64) (Run, error) {
 	return scanRun(s.db.QueryRow(`SELECT `+s.runSelectColumns()+` FROM runs WHERE id=?`, id))
+}
+
+// RunLogFilePath returns an absolute path only for a valid retained log path.
+func (s *Store) RunLogFilePath(run Run) (string, bool) {
+	if !run.LogPath.Valid {
+		return "", false
+	}
+	if filepath.IsAbs(run.LogPath.String) || filepath.Clean(run.LogPath.String) != run.LogPath.String || strings.HasPrefix(run.LogPath.String, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.Join(s.dir, run.LogPath.String), true
+}
+
+// CompleteHook records a hook result and appends bounded output while preserving
+// the run's terminal status and protecting its log from concurrent retention.
+func (s *Store) CompleteHook(runID int64, event, status string, exitCode *int, output []byte) error {
+	if !s.hasHooks {
+		return errors.New("lifecycle hooks are unavailable in this state database")
+	}
+	if event != "on_success" && event != "on_failure" {
+		return fmt.Errorf("invalid hook event %q", event)
+	}
+	switch status {
+	case "ok", "failed", "timed_out":
+	default:
+		return fmt.Errorf("invalid hook status %q", status)
+	}
+	if len(output) > 64<<10 {
+		output = output[:64<<10]
+	}
+	run, err := s.RunByID(runID)
+	if err != nil {
+		return err
+	}
+	if run.HookStatus.String != "running" {
+		return fmt.Errorf("hook for run %d is not running", runID)
+	}
+	logBytes := run.LogBytes
+	var logErr error
+	if path, ok := s.RunLogFilePath(run); ok {
+		file, openErr := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0)
+		if openErr != nil {
+			logErr = fmt.Errorf("open run log for hook: %w", openErr)
+		} else {
+			marker := "[noon: " + event + " hook "
+			if status == "timed_out" {
+				marker += "timed out]\n"
+			} else {
+				code := -1
+				if exitCode != nil {
+					code = *exitCode
+				}
+				marker += fmt.Sprintf("exited %d]\n", code)
+			}
+			prefix := []byte(nil)
+			if run.LogBytes > 0 {
+				var last [1]byte
+				if n, readErr := file.ReadAt(last[:], run.LogBytes-1); readErr == nil && n == 1 && last[0] != '\n' {
+					prefix = append(prefix, '\n')
+				}
+			}
+			payload := append(prefix, marker...)
+			payload = append(payload, output...)
+			written, writeErr := file.Write(payload)
+			if writeErr == nil && written != len(payload) {
+				writeErr = fmt.Errorf("short hook log write")
+			}
+			if writeErr == nil {
+				writeErr = file.Sync()
+			}
+			if closeErr := file.Close(); writeErr == nil {
+				writeErr = closeErr
+			}
+			if info, statErr := os.Stat(path); statErr == nil {
+				logBytes = info.Size()
+			} else if writeErr == nil {
+				writeErr = statErr
+			}
+			if writeErr != nil {
+				logErr = fmt.Errorf("append hook output: %w", writeErr)
+			}
+		}
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return errors.Join(logErr, fmt.Errorf("begin hook completion: %w", err))
+	}
+	defer tx.Rollback()
+	var exit any
+	if exitCode != nil {
+		exit = *exitCode
+	}
+	result, err := tx.Exec(`UPDATE runs SET hook_status=?, hook_exit_code=?, log_bytes=? WHERE id=? AND hook_status='running'`, status, exit, logBytes, runID)
+	if err != nil {
+		return errors.Join(logErr, fmt.Errorf("complete hook: %w", err))
+	}
+	if count, _ := result.RowsAffected(); count != 1 {
+		return errors.Join(logErr, fmt.Errorf("hook for run %d is no longer running", runID))
+	}
+	if err := tx.Commit(); err != nil {
+		return errors.Join(logErr, fmt.Errorf("commit hook result: %w", err))
+	}
+	cleanup, err := s.db.Begin()
+	if err != nil {
+		return errors.Join(logErr, fmt.Errorf("begin hook retention: %w", err))
+	}
+	defer cleanup.Rollback()
+	if err := pruneRuns(cleanup, s.dir, run.ProjectID, run.Job); err != nil {
+		return errors.Join(logErr, err)
+	}
+	if err := cleanup.Commit(); err != nil {
+		return errors.Join(logErr, fmt.Errorf("commit hook retention: %w", err))
+	}
+	if err := secureFiles(s.dir); err != nil {
+		return errors.Join(logErr, err)
+	}
+	return logErr
 }
 
 // CancellationRequested reports a durable request for an active run.

@@ -1,9 +1,9 @@
 # Configuration
 
-This documents implemented settings, command jobs, and agent-prompt jobs. Jobs can be
+This documents implemented settings, command jobs, agent-prompt jobs, and lifecycle hooks. Jobs can be
 validated, listed, added, removed, paused, resumed, and executed with `noon run NAME`. Foreground
-run history and bounded logs are stored in the per-user state directory. Hooks and cron import
-are not implemented; see [design](design.md) for their proposed format.
+run history and bounded logs are stored in the per-user state directory. Cron import is not implemented;
+see [design](design.md) for its proposed format.
 
 ## Sources
 
@@ -46,10 +46,15 @@ only reads files; it neither trusts them for execution nor starts a scheduler.
 ```yaml
 version: 1
 timezone: Local
+on_success: [my-notifier]
+on_failure: [my-notifier]
 ```
 
 `state_dir` may be set in user config or an explicit `--config` file, but not in
-`noon.yaml` or `.noon.yaml`.
+`noon.yaml` or `.noon.yaml`. Top-level `on_success` and `on_failure` hook defaults
+are allowed only in user config or an explicit `--config` file; project files cannot
+set defaults. A job-level hook overrides its inherited default, and an empty list
+(`on_failure: []`) disables that default for the job. See [Lifecycle hooks](hooks.md).
 
 | Setting | Default | Environment | Flag |
 | --- | --- | --- | --- |
@@ -128,10 +133,13 @@ See [the complete example](../examples/jobs.yaml).
 | `overlap` | `skip` | `skip` or `queue` |
 | `missed` | `run_once` | `run_once` or `skip` |
 | `enabled` | `true` | Boolean |
+| `on_success` | inherited default | Non-empty string (`/bin/sh -c`) or non-empty string list (argv); empty list disables an inherited default |
+| `on_failure` | inherited default | Non-empty string (`/bin/sh -c`) or non-empty string list (argv); empty list disables an inherited default |
 
-Foreground and scheduled runs honor `cwd`, `env`, `timeout`, and `enabled`.
-`noon serve` executes schedules with the configured `overlap` and `missed` policies.
-Hooks are not implemented.
+Foreground and scheduled runs honor `cwd`, `env`, `timeout`, `enabled`, `on_success`, and
+`on_failure`. `noon serve` executes schedules with the configured `overlap` and `missed` policies.
+Hook commands are included in shared-job digests. See [Lifecycle hooks](hooks.md) for execution,
+output, timeout, and security details.
 Unknown fields, aliases, nulls, duplicate keys, and wrong types are errors with file, line, and YAML path.
 
 ### Agent prompts

@@ -76,7 +76,7 @@ func TestServeRejectsNewerStateWithExit75(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec("PRAGMA user_version=7"); err != nil {
+	if _, err := database.Exec("PRAGMA user_version=8"); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.Close(); err != nil {
@@ -84,7 +84,7 @@ func TestServeRejectsNewerStateWithExit75(t *testing.T) {
 	}
 	var out, stderr bytes.Buffer
 	code := cli.Run(context.Background(), []string{"noon", "serve"}, config.BuildOpts{}, &out, &stderr)
-	if code != 75 || !strings.Contains(stderr.String(), "state database version 7") || !strings.Contains(stderr.String(), "Upgrade Noon") {
+	if code != 75 || !strings.Contains(stderr.String(), "state database version 8") || !strings.Contains(stderr.String(), "Upgrade Noon") {
 		t.Fatalf("newer database: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
 	}
 }

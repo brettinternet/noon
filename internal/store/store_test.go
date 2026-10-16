@@ -133,7 +133,7 @@ func TestStore(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 6 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 7 {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		for _, statement := range []string{
@@ -142,6 +142,7 @@ func TestStore(t *testing.T) {
 			`SELECT due_at FROM runs`,
 			`SELECT config_error FROM projects`,
 			`SELECT idempotency_key, cancel_requested_at FROM runs`,
+			`SELECT hook_status, hook_exit_code FROM runs`,
 		} {
 			rows, err := s.db.Query(statement)
 			if err != nil {
@@ -253,8 +254,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 6 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 6", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 7 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 7", version, err)
 		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.LogOverflow {
@@ -269,7 +270,7 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=7"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=8"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -281,8 +282,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 7 {
-			t.Fatalf("Open error = %v, want StateTooNewError(7)", err)
+		if !errors.As(err, &newer) || newer.Version != 8 {
+			t.Fatalf("Open error = %v, want StateTooNewError(8)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {
@@ -397,6 +398,19 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatalf("failed cleanup lost its reference: run=%+v err=%v", retained, err)
 		}
 
+		// Cleanup failure must not strand a newly committed hook before execution.
+		hooked := createTestRun(t, s, project, "cleanup")
+		if err := s.FinishRun(hooked.ID, project, "cleanup", Outcome{Status: "succeeded", FinishedAt: time.Now(), ExitCode: &exit, HookEvent: "on_success"}); err != nil {
+			t.Fatalf("retention prevented hook execution: %v", err)
+		}
+		if err := s.CompleteHook(hooked.ID, "on_success", "ok", &exit, nil); err == nil {
+			t.Fatal("hook completion did not report failed retention")
+		}
+		persisted, err = s.RunByID(hooked.ID)
+		if err != nil || persisted.HookStatus.String != "ok" {
+			t.Fatalf("retention stranded completed hook: run=%+v err=%v", persisted, err)
+		}
+
 		if err := os.Remove(filepath.Join(blockedPath, "child")); err != nil {
 			t.Fatal(err)
 		}
@@ -505,6 +519,71 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 		}
 		if logBytes != int64(len(want)) {
 			t.Fatalf("stored byte count=%d want=%d", logBytes, len(want))
+		}
+	})
+}
+
+func TestHookRecoveryAndRetention(t *testing.T) {
+	t.Run("orphaned lifecycle hook is marked interrupted without changing run status", func(t *testing.T) {
+		state, project := testStore(t)
+		ownerPID := deadPID(t)
+		run, err := state.CreateRun(NewRun{ProjectID: project, Job: "hook", Trigger: "manual", Digest: "test", Now: time.Now(), OwnerPID: ownerPID, OwnerStart: "dead-owner"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exit := 0
+		if err := state.FinishRun(run.ID, project, "hook", Outcome{Status: "succeeded", FinishedAt: time.Now(), ExitCode: &exit, HookEvent: "on_success"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.Recover(time.Now(), time.Second); err != nil {
+			t.Fatal(err)
+		}
+		run, err = state.RunByID(run.ID)
+		if err != nil || run.Status != "succeeded" || run.HookStatus.String != "interrupted" || run.HookExitCode.Valid {
+			t.Fatalf("recovered hook run = %+v err=%v", run, err)
+		}
+	})
+
+	t.Run("hook logs are protected from retention until the hook completes", func(t *testing.T) {
+		state, project := testStore(t)
+		active := createTestRun(t, state, project, "retention")
+		log, err := state.RunLog(project, active.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := state.SetRunLog(active.ID, log.Path()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := log.Write([]byte("job output\n")); err != nil {
+			t.Fatal(err)
+		}
+		logBytes, truncated, err := log.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		exit := 0
+		if err := state.FinishRun(active.ID, project, "retention", Outcome{Status: "succeeded", FinishedAt: time.Now(), ExitCode: &exit, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated, HookEvent: "on_success"}); err != nil {
+			t.Fatal(err)
+		}
+		active, err = state.RunByID(active.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 10; i++ {
+			run := createTestRun(t, state, project, "retention")
+			if err := state.FinishRun(run.ID, project, "retention", Outcome{Status: "succeeded", FinishedAt: time.Now().Add(time.Duration(i+1) * time.Second), ExitCode: &exit}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(state.dir, active.LogPath.String)); err != nil {
+			t.Fatalf("running hook log was pruned early: %v", err)
+		}
+		if err := state.CompleteHook(active.ID, "on_success", "ok", &exit, []byte("hook output\n")); err != nil {
+			t.Fatal(err)
+		}
+		stored, err := state.RunByID(active.ID)
+		if err != nil || stored.HookStatus.String != "ok" || stored.LogPath.Valid {
+			t.Fatalf("completed old hook was not safely pruned: %+v err=%v", stored, err)
 		}
 	})
 }

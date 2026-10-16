@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"slices"
@@ -144,19 +145,21 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	log, err := state.RunLog(projectID, run.ID)
 	if err != nil {
 		code := 125
-		finishErr := state.FinishRun(run.ID, projectID, name, store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: err.Error()})
+		hook, finishErr := app.FinishRunWithHook(state, run, cfg.Project, job, app.JobEnvironment(cfg.Project, job, os.Environ()), store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: err.Error()})
 		if finishErr != nil {
 			return stateError(errors.Join(err, finishErr))
 		}
+		printHookResult(cmd.ErrWriter, hook)
 		return stateError(err)
 	}
 	if err := state.SetRunLog(run.ID, log.Path()); err != nil {
 		logBytes, truncated, closeErr := log.Close()
 		code := 125
-		finishErr := state.FinishRun(run.ID, projectID, name, store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: errors.Join(err, closeErr).Error(), LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated})
+		hook, finishErr := app.FinishRunWithHook(state, run, cfg.Project, job, app.JobEnvironment(cfg.Project, job, os.Environ()), store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: errors.Join(err, closeErr).Error(), LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated})
 		if finishErr != nil {
-			return stateError(errors.Join(err, finishErr))
+			return stateError(errors.Join(err, closeErr, finishErr))
 		}
+		printHookResult(cmd.ErrWriter, hook)
 		return stateError(err)
 	}
 	// Register before starting the child. Count OS signals separately from parent
@@ -294,9 +297,14 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		}
 		outcomeError += "cancellation poll failed: " + cancellationPollError.Error()
 	}
-	if err := state.FinishRun(run.ID, projectID, name, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: outcomeError, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: logTruncated}); err != nil {
-		return stateError(err)
+	hookResult, finishErr := app.FinishRunWithHook(state, run, cfg.Project, job, spec.Env, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: outcomeError, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: logTruncated})
+	if finishErr != nil {
+		if hookResult == nil {
+			return stateError(finishErr)
+		}
+		fmt.Fprintf(cmd.ErrWriter, "hook recording failed: %v\n", finishErr)
 	}
+	printHookResult(cmd.ErrWriter, hookResult)
 	if cancellationPollError != nil {
 		return stateError(cancellationPollError)
 	}
@@ -310,6 +318,24 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		}
 	}
 	return runExit(result.ExitCode)
+}
+
+func printHookResult(out io.Writer, result *app.HookResult) {
+	if result == nil {
+		return
+	}
+	detail := result.Status
+	switch result.Status {
+	case "ok":
+		detail = "ok"
+	case "failed":
+		if result.ExitCode != nil {
+			detail = fmt.Sprintf("exit %d", *result.ExitCode)
+		}
+	case "timed_out":
+		detail = "timed out"
+	}
+	fmt.Fprintf(out, "%s hook: %s\n", result.Event, detail)
 }
 
 func setRunEnv(env []string, key, value string) []string {

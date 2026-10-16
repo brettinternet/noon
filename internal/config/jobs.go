@@ -28,6 +28,8 @@ type Job struct {
 	Description  string
 	Schedule     *schedule.Schedule
 	Run          any
+	OnSuccess    any
+	OnFailure    any
 	Prompt       *string
 	PromptFile   *string
 	Agent        string
@@ -84,6 +86,48 @@ func jobString(file, path string, node *yaml.Node) (string, error) {
 	return node.Value, nil
 }
 
+func hasCommand(command any) bool {
+	switch value := command.(type) {
+	case string:
+		return value != ""
+	case []string:
+		return len(value) > 0
+	default:
+		return false
+	}
+}
+
+func parseCommand(file, path string, node *yaml.Node, allowEmptyList bool) (any, error) {
+	if node.Kind == yaml.SequenceNode && node.Tag == "!!seq" {
+		if len(node.Content) == 0 {
+			if allowEmptyList {
+				return []string{}, nil
+			}
+			return nil, jobError(file, node, path, "must not be empty")
+		}
+		argv := make([]string, 0, len(node.Content))
+		for _, arg := range node.Content {
+			text, err := jobString(file, path, arg)
+			if err != nil {
+				return nil, err
+			}
+			argv = append(argv, text)
+		}
+		if strings.TrimSpace(argv[0]) == "" {
+			return nil, jobError(file, node, path, "executable must not be empty")
+		}
+		return argv, nil
+	}
+	text, err := jobString(file, path, node)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, jobError(file, node, path, "must not be empty")
+	}
+	return text, nil
+}
+
 func (cfg *Config) applyJobs(file, kind string, node *yaml.Node) error {
 	jobs, err := jobMapping(file, "jobs", node)
 	if err != nil {
@@ -114,7 +158,7 @@ func (cfg *Config) applyJobs(file, kind string, node *yaml.Node) error {
 			cfg.Jobs[name] = previous
 			continue
 		}
-		job, err := parseJob(file, path, name, jobs[name], fields)
+		job, err := parseJob(file, path, name, jobs[name], fields, cfg.OnSuccess, cfg.OnFailure)
 		if err != nil {
 			return err
 		}
@@ -240,8 +284,8 @@ func agentNames(profiles map[string]AgentProfile) []string {
 	return names
 }
 
-func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node) (Job, error) {
-	job := Job{Name: name, CWD: ".", Env: map[string]string{}, Timeout: "1h", Overlap: "skip", Missed: "run_once", Enabled: true, Source: file}
+func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node, defaultSuccess, defaultFailure any) (Job, error) {
+	job := Job{Name: name, CWD: ".", Env: map[string]string{}, Timeout: "1h", Overlap: "skip", Missed: "run_once", Enabled: true, Source: file, OnSuccess: defaultSuccess, OnFailure: defaultFailure}
 	execution := make(map[string]any)
 	job.execution = execution
 	actions := 0
@@ -257,34 +301,21 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 			job.Enabled = enabled
 		case "run":
 			actions++
-			var run any
-			if value.Kind == yaml.SequenceNode && value.Tag == "!!seq" {
-				if len(value.Content) == 0 {
-					return Job{}, jobError(file, value, field, "must not be empty")
-				}
-				argv := make([]string, 0, len(value.Content))
-				for _, arg := range value.Content {
-					text, err := jobString(file, field, arg)
-					if err != nil {
-						return Job{}, err
-					}
-					argv = append(argv, text)
-				}
-				if strings.TrimSpace(argv[0]) == "" {
-					return Job{}, jobError(file, value, field, "executable must not be empty")
-				}
-				run = argv
-			} else {
-				text, err := jobString(file, field, value)
-				if err != nil {
-					return Job{}, err
-				}
-				if strings.TrimSpace(text) == "" {
-					return Job{}, jobError(file, value, field, "must not be empty")
-				}
-				run = text
+			run, err := parseCommand(file, field, value, false)
+			if err != nil {
+				return Job{}, err
 			}
 			job.Run, execution[key] = run, run
+		case "on_success", "on_failure":
+			command, err := parseCommand(file, field, value, true)
+			if err != nil {
+				return Job{}, err
+			}
+			if key == "on_success" {
+				job.OnSuccess = command
+			} else {
+				job.OnFailure = command
+			}
 		case "prompt":
 			actions++
 			text, err := jobString(file, field, value)
@@ -388,6 +419,12 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 	}
 	if actions != 1 {
 		return Job{}, jobError(file, node, path, "exactly one of run, prompt, or prompt_file is required")
+	}
+	if hasCommand(job.OnSuccess) {
+		execution["on_success"] = job.OnSuccess
+	}
+	if hasCommand(job.OnFailure) {
+		execution["on_failure"] = job.OnFailure
 	}
 	if job.Agent != "" && job.Prompt == nil && job.PromptFile == nil {
 		return Job{}, jobError(file, fields["agent"], path+".agent", "valid only for prompt or prompt_file jobs")

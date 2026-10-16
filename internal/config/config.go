@@ -45,6 +45,8 @@ type Config struct {
 	Jobs         map[string]Job          `json:"-"`
 	Agents       map[string]AgentProfile `json:"-"`
 	DefaultAgent string                  `json:"default_agent"`
+	OnSuccess    any                     `json:"-"`
+	OnFailure    any                     `json:"-"`
 }
 
 // Load applies defaults, user settings, project settings, and invocation overrides.
@@ -232,6 +234,24 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 			}
 		}
 	}
+	for _, field := range []string{"on_success", "on_failure"} {
+		node, ok := values[field]
+		if !ok {
+			continue
+		}
+		if kind != "user" && kind != "explicit" {
+			return jobError(path, node, field, "allowed only in user config or --config files")
+		}
+		command, err := parseCommand(path, field, node, true)
+		if err != nil {
+			return err
+		}
+		if field == "on_success" {
+			cfg.OnSuccess = command
+		} else {
+			cfg.OnFailure = command
+		}
+	}
 	if node, ok := values["timezone"]; ok {
 		value := node.Value
 		if err := validTimezone(value); err != nil {
@@ -344,6 +364,8 @@ func parse(data []byte) (map[string]*yaml.Node, error) {
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				return nil, &yamlDiagnostic{line: value.Line, message: "default_agent must be a string"}
 			}
+		case "on_success", "on_failure":
+			// Hook commands retain source-aware diagnostics in applyFile.
 		case "jobs":
 			// Nested job validation retains source lines and YAML paths.
 		case "timezone", "state_dir":

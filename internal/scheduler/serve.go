@@ -593,31 +593,37 @@ func plannerRuns(runs []store.ScheduledRun) ([]Run, error) {
 
 func executeScheduledRun(ctx context.Context, state *store.Store, run store.Run, project string, job config.Job, options ServeOptions, forceKill <-chan struct{}, control *runControl, logger *schedulerLogger, completed chan<- int64) {
 	defer func() { completed <- run.ID }()
-	fail := func(err error) {
+	fail := func(err error, runLog *store.RunLog) {
 		code := 125
-		_ = state.FinishRun(run.ID, run.ProjectID, run.Job, store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: err.Error()})
+		outcome := store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: err.Error()}
+		if runLog != nil {
+			outcome.LogBytes, outcome.LogTruncated, _ = runLog.Close()
+			outcome.LogPath = runLog.Path()
+		}
+		_, finishErr := app.FinishRunWithHook(state, run, project, job, app.JobEnvironment(project, job, options.Environment), outcome)
+		if finishErr != nil {
+			logger.event("run finish error project=%q job=%q run=%d error=%q", project, run.Job, run.ID, finishErr.Error())
+			return
+		}
 		logger.event("run finished project=%q job=%q run=%d status=failed error=%q", project, run.Job, run.ID, err.Error())
 	}
 	log, err := state.RunLog(run.ProjectID, run.ID)
 	if err != nil {
-		fail(err)
+		fail(err, nil)
 		return
 	}
 	if err := state.SetRunLog(run.ID, log.Path()); err != nil {
-		_, _, _ = log.Close()
-		fail(err)
+		fail(err, log)
 		return
 	}
 	lastSuccess, hasSuccess, err := state.LastSuccess(run.ProjectID, run.Job)
 	if err != nil {
-		_, _, _ = log.Close()
-		fail(err)
+		fail(err, log)
 		return
 	}
 	spec, err := app.RunSpec(project, job, options.Environment)
 	if err != nil {
-		_, _, _ = log.Close()
-		fail(err)
+		fail(err, log)
 		return
 	}
 	spec.Env = setEnvironment(spec.Env, "NOON_RUN_ID", strconv.FormatInt(run.ID, 10))
@@ -676,11 +682,16 @@ func executeScheduledRun(ctx context.Context, state *store.Store, run store.Run,
 		}
 		errorMessage += "log write failed: " + logErr.Error()
 	}
-	if err := state.FinishRun(run.ID, run.ProjectID, run.Job, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: errorMessage, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated}); err != nil {
-		logger.event("run finish error project=%q job=%q run=%d error=%q", project, run.Job, run.ID, err.Error())
+	hookResult, finishErr := app.FinishRunWithHook(state, run, project, job, spec.Env, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: errorMessage, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated})
+	if finishErr != nil {
+		logger.event("run finish error project=%q job=%q run=%d error=%q", project, run.Job, run.ID, finishErr.Error())
 		return
 	}
-	logger.event("run finished project=%q job=%q run=%d status=%s", project, run.Job, run.ID, status)
+	if hookResult != nil {
+		logger.event("run finished project=%q job=%q run=%d status=%s hook=%s", project, run.Job, run.ID, status, hookResult.Status)
+	} else {
+		logger.event("run finished project=%q job=%q run=%d status=%s", project, run.Job, run.ID, status)
+	}
 }
 
 func setEnvironment(env []string, name, value string) []string {

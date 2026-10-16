@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/brettinternet/noon/internal/cli"
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/store"
 )
 
@@ -378,5 +381,324 @@ func TestRunCommand(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "SHOULD_NOT_EXIST")); !os.IsNotExist(err) {
 		t.Fatalf("disabled job ran: %v", err)
+	}
+}
+
+func TestHooks(t *testing.T) {
+	root := sandbox(t)
+	projectPath, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeScript := func(name, body string) string {
+		t.Helper()
+		path := filepath.Join(root, name)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	recordHook := writeScript("record-hook", `
+printf 'call\n' >> "$HOOK_CAPTURE.calls"
+cat > "$HOOK_CAPTURE.json"
+printf '%s\n' "$NOON_JOB" "$NOON_STATUS" "$NOON_EXIT_CODE" "$NOON_LOG_FILE" > "$HOOK_CAPTURE.env"
+`)
+	outputHook := writeScript("output-hook", `head -c 70000 /dev/zero | tr '\000' X
+`)
+	failingHook := writeScript("failing-hook", `printf 'hook-failure-output\n'
+exit 1
+`)
+	slowHook := writeScript("slow-hook", `sleep 1
+printf 'hook-follow-output\n'
+`)
+	timeoutHook := writeScript("timeout-hook", `sleep 60 &
+printf '%s\n' "$!" > "$HOOK_CHILD_PID_FILE"
+wait
+`)
+	userConfigDir := filepath.Join(root, "user", "noon")
+	if err := os.MkdirAll(userConfigDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	userConfig := fmt.Sprintf("on_success: [%s]\non_failure: [%s]\n", strconv.Quote(recordHook), strconv.Quote(recordHook))
+	if err := os.WriteFile(filepath.Join(userConfigDir, "config.yaml"), []byte(userConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := fmt.Sprintf(`jobs:
+  success:
+    run: 'true'
+  failure:
+    run: [sh, -c, 'exit 7']
+  timed_job:
+    run: [sh, -c, 'sleep 5']
+    timeout: 1s
+  empty_override:
+    run: 'true'
+    on_success: []
+  hook_failure:
+    run: 'true'
+    on_success: [%s]
+  large_output:
+    run: 'true'
+    on_success: [%s]
+  hook_log_error:
+    run: 'exit 7'
+    on_failure: 'mv "$NOON_LOG_FILE" "$NOON_LOG_FILE.saved"; mkdir "$NOON_LOG_FILE"; exit 1'
+  slow_follow:
+    run: 'while test ! -f follow-release; do sleep 0.01; done'
+    on_success: [%s]
+  hook_timeout:
+    run: 'true'
+    on_success: [%s]
+`, strconv.Quote(failingHook), strconv.Quote(outputHook), strconv.Quote(slowHook), strconv.Quote(timeoutHook))
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(root, "state", "noon")
+	t.Setenv("NOON_STATE_DIR", stateDir)
+	state, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID, err := state.RegisterProject(projectPath, time.Now())
+	if err != nil {
+		_ = state.Close()
+		t.Fatal(err)
+	}
+	defer state.Close()
+
+	var lastStderr string
+	runJSON := func(name string, wantCode int) map[string]any {
+		t.Helper()
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"noon", "--json", "run", name}, config.BuildOpts{}, &out, &stderr)
+		if code != wantCode {
+			t.Fatalf("run %s exit=%d want=%d stdout=%s stderr=%s", name, code, wantCode, out.String(), stderr.String())
+		}
+		lastStderr = stderr.String()
+		var result map[string]any
+		if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+			t.Fatalf("run %s returned invalid JSON %q: %v", name, out.String(), err)
+		}
+		return result["run"].(map[string]any)
+	}
+	setCapture := func(name string) string {
+		t.Helper()
+		path := filepath.Join(root, name)
+		t.Setenv("HOOK_CAPTURE", path)
+		return path
+	}
+	hookOf := func(run map[string]any, event, status string, exitCode float64) map[string]any {
+		t.Helper()
+		hook, ok := run["hook"].(map[string]any)
+		if !ok || hook["event"] != event || hook["status"] != status || hook["exit_code"] != exitCode {
+			t.Fatalf("run hook = %+v, want %s/%s/%v", run["hook"], event, status, exitCode)
+		}
+		return hook
+	}
+	captureSummary := func(path string, job, status, code string) map[string]any {
+		t.Helper()
+		calls := mustRead(t, path+".calls")
+		if calls != "call\n" {
+			t.Fatalf("hook call count = %q, want one call", calls)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(mustRead(t, path+".json")), &payload); err != nil {
+			t.Fatalf("hook stdin is not JSON: %v", err)
+		}
+		project := payload["project"].(map[string]any)
+		if payload["schema_version"] != float64(1) || project["path"] != projectPath || project["name"] != filepath.Base(projectPath) {
+			t.Fatalf("hook payload project/schema = %+v", payload)
+		}
+		run := payload["run"].(map[string]any)
+		if run["job"] != job || run["status"] != status {
+			t.Fatalf("hook payload run = %+v", run)
+		}
+		inputHook := run["hook"].(map[string]any)
+		if inputHook["status"] != "running" {
+			t.Fatalf("hook stdin does not show durable running transition: %+v", inputHook)
+		}
+		env := strings.Split(strings.TrimSuffix(mustRead(t, path+".env"), "\n"), "\n")
+		if len(env) != 4 || env[0] != job || env[1] != status || env[2] != code || !filepath.IsAbs(env[3]) {
+			t.Fatalf("hook environment = %q", env)
+		}
+		return run
+	}
+
+	capture := setCapture("success-record")
+	run := runJSON("success", 0)
+	if run["status"] != "succeeded" {
+		t.Fatalf("successful run status=%v", run["status"])
+	}
+	input := captureSummary(capture, "success", "succeeded", "0")
+	if input["hook"].(map[string]any)["event"] != "on_success" {
+		t.Fatalf("success ran the wrong hook: %+v", input["hook"])
+	}
+	hookOf(run, "on_success", "ok", 0)
+
+	capture = setCapture("failure-record")
+	run = runJSON("failure", 7)
+	if run["status"] != "failed" {
+		t.Fatalf("failed run status=%v", run["status"])
+	}
+	input = captureSummary(capture, "failure", "failed", "7")
+	if input["hook"].(map[string]any)["event"] != "on_failure" {
+		t.Fatalf("failure ran the wrong hook: %+v", input["hook"])
+	}
+	hookOf(run, "on_failure", "ok", 0)
+
+	capture = setCapture("timeout-record")
+	run = runJSON("timed_job", 124)
+	if run["status"] != "timed_out" {
+		t.Fatalf("timed-out run status=%v", run["status"])
+	}
+	input = captureSummary(capture, "timed_job", "timed_out", "124")
+	if input["hook"].(map[string]any)["event"] != "on_failure" {
+		t.Fatalf("timed-out run used the wrong hook: %+v", input["hook"])
+	}
+	hookOf(run, "on_failure", "ok", 0)
+
+	capture = setCapture("empty-record")
+	run = runJSON("empty_override", 0)
+	if run["hook"] != nil {
+		t.Fatalf("empty list did not disable the inherited default: %+v", run["hook"])
+	}
+	if _, err := os.Stat(capture + ".calls"); !os.IsNotExist(err) {
+		t.Fatalf("disabled inherited hook ran: %v", err)
+	}
+
+	run = runJSON("hook_failure", 0)
+	if run["status"] != "succeeded" {
+		t.Fatalf("hook failure changed run status: %+v", run)
+	}
+	hookOf(run, "on_success", "failed", 1)
+	if !strings.Contains(lastStderr, "on_success hook: exit 1") {
+		t.Fatalf("foreground output omitted hook result: %q", lastStderr)
+	}
+
+	// A log append failure must not replace the job exit or strand its hook.
+	run = runJSON("hook_log_error", 7)
+	if run["status"] != "failed" || !strings.Contains(lastStderr, "hook recording failed") {
+		t.Fatalf("hook log error lost original result: %+v stderr=%s", run, lastStderr)
+	}
+	hookOf(run, "on_failure", "failed", 1)
+
+	run = runJSON("large_output", 0)
+	hookOf(run, "on_success", "ok", 0)
+	stored, err := state.RunByID(int64(run["id"].(float64)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := state.ReadRunLog(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLog := "[noon: on_success hook exited 0]\n" + strings.Repeat("X", 64<<10)
+	if string(log) != wantLog {
+		t.Fatalf("hook output length=%d, expected bounded %d-byte output", len(log), len(wantLog))
+	}
+
+	type runResult struct {
+		code int
+		out  string
+		err  string
+	}
+	slowDone := make(chan runResult, 1)
+	go func() {
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"noon", "--json", "run", "slow_follow"}, config.BuildOpts{}, &out, &stderr)
+		slowDone <- runResult{code: code, out: out.String(), err: stderr.String()}
+	}()
+	var slowRun store.Run
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, err := state.RunsForJob(projectID, "slow_follow")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(runs) > 0 && runs[0].Status == "running" {
+			slowRun = runs[0]
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if slowRun.ID == 0 {
+		t.Fatal("slow job did not enter its running state")
+	}
+	followDone := make(chan runResult, 1)
+	go func() {
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"noon", "logs", strconv.FormatInt(slowRun.ID, 10), "--follow"}, config.BuildOpts{}, &out, &stderr)
+		followDone <- runResult{code: code, out: out.String(), err: stderr.String()}
+	}()
+	if err := os.WriteFile(filepath.Join(root, "follow-release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-slowDone:
+		if result.code != 0 {
+			t.Fatalf("slow hook run exit=%d stderr=%s", result.code, result.err)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("run did not finish after its hook")
+	}
+	select {
+	case result := <-followDone:
+		if result.code != 0 || !strings.Contains(result.out, "hook-follow-output") || !strings.Contains(result.out, "[noon: on_success hook exited 0]") {
+			t.Fatalf("followed hook output code=%d stdout=%q stderr=%q", result.code, result.out, result.err)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("logs --follow stopped waiting before the hook completed")
+	}
+
+	childPIDFile := filepath.Join(root, "hook-child-pid")
+	t.Setenv("HOOK_CHILD_PID_FILE", childPIDFile)
+	timeoutDone := make(chan runResult, 1)
+	go func() {
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"noon", "--json", "run", "hook_timeout"}, config.BuildOpts{}, &out, &stderr)
+		timeoutDone <- runResult{code: code, out: out.String(), err: stderr.String()}
+	}()
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(childPIDFile); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(childPIDFile); err != nil {
+		t.Fatalf("timeout hook did not start its child: %v", err)
+	}
+	childPID, err := strconv.Atoi(strings.TrimSpace(mustRead(t, childPIDFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	childIdentity, err := runner.ProcessStartIdentity(childPID)
+	if err != nil {
+		t.Fatalf("identify timeout child: %v", err)
+	}
+	var timeoutResult runResult
+	select {
+	case timeoutResult = <-timeoutDone:
+	case <-time.After(40 * time.Second):
+		t.Fatal("timed-out hook did not finish within its timeout and grace")
+	}
+	if timeoutResult.code != 0 {
+		t.Fatalf("hook timeout changed run exit code: %d stderr=%s", timeoutResult.code, timeoutResult.err)
+	}
+	var timeoutJSON map[string]any
+	if err := json.Unmarshal([]byte(timeoutResult.out), &timeoutJSON); err != nil {
+		t.Fatal(err)
+	}
+	timeoutRun := timeoutJSON["run"].(map[string]any)
+	if timeoutRun["status"] != "succeeded" {
+		t.Fatalf("hook timeout changed run status: %+v", timeoutRun)
+	}
+	hookOf(timeoutRun, "on_success", "timed_out", 124)
+	alive, err := runner.ProcessOwnerAlive(childPID, childIdentity)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("check timed-out hook child: %v", err)
+	}
+	if alive {
+		t.Fatalf("timed-out hook process group left child %d alive", childPID)
 	}
 }

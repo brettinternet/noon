@@ -32,6 +32,13 @@ type Run struct {
 	Signal      *string    `json:"signal"`
 	Error       *string    `json:"error"`
 	Log         RunLogInfo `json:"log"`
+	Hook        *RunHook   `json:"hook"`
+}
+
+type RunHook struct {
+	Event    string `json:"event"`
+	Status   string `json:"status"`
+	ExitCode *int   `json:"exit_code"`
 }
 
 type RunLogInfo struct {
@@ -84,6 +91,23 @@ func RunFromStore(run store.Run) Run {
 	}
 	if run.Error.Valid {
 		result.Error = &run.Error.String
+	}
+	if run.HookStatus.Valid {
+		event := ""
+		switch run.Status {
+		case "succeeded":
+			event = "on_success"
+		case "failed", "timed_out":
+			event = "on_failure"
+		}
+		if event != "" {
+			hook := &RunHook{Event: event, Status: run.HookStatus.String}
+			if run.HookExitCode.Valid {
+				code := int(run.HookExitCode.Int64)
+				hook.ExitCode = &code
+			}
+			result.Hook = hook
+		}
 	}
 	return result
 }
@@ -263,7 +287,7 @@ func FollowLog(ctx context.Context, stateDir string, id int64, out io.Writer) er
 		return err
 	}
 	var offset int64
-	followedRunning := run.Status == "running"
+	followedRunning := activeStoredRun(run)
 	markerShown := false
 	statusCheck := time.Now().Add(time.Second)
 	ticker := time.NewTicker(250 * time.Millisecond)
@@ -272,7 +296,7 @@ func FollowLog(ctx context.Context, stateDir string, id int64, out io.Writer) er
 		if run.LogPath.Valid {
 			data, readErr := state.ReadRunLog(run)
 			if errors.Is(readErr, store.ErrLogUnavailable) {
-				if run.Status != "running" {
+				if !activeStoredRun(run) {
 					return readErr
 				}
 			} else if readErr != nil {
@@ -298,7 +322,7 @@ func FollowLog(ctx context.Context, stateDir string, id int64, out io.Writer) er
 					}
 					markerShown = true
 				}
-				if !followedRunning || run.Status != "running" {
+				if !followedRunning || !activeStoredRun(run) {
 					if end > offset {
 						if _, err := io.Copy(out, bytes.NewReader(data[offset:end])); err != nil {
 							return err
@@ -315,10 +339,10 @@ func FollowLog(ctx context.Context, stateDir string, id int64, out io.Writer) er
 					}
 				}
 			}
-		} else if run.Status != "running" {
+		} else if !activeStoredRun(run) {
 			return store.ErrLogUnavailable
 		}
-		if run.Status != "running" {
+		if !activeStoredRun(run) {
 			return nil
 		}
 		select {
@@ -334,6 +358,10 @@ func FollowLog(ctx context.Context, stateDir string, id int64, out io.Writer) er
 			}
 		}
 	}
+}
+
+func activeStoredRun(run store.Run) bool {
+	return run.Status == "running" || (run.HookStatus.Valid && run.HookStatus.String == "running")
 }
 
 // IsMissingRun reports a run lookup that did not find a stored row.

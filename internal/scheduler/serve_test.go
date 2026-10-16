@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -89,6 +90,40 @@ func TestServeConfigSelectionRecovery(t *testing.T) {
 	fixture.stop(t)
 	if runs := fixture.runs(t); len(runs) != 1 {
 		t.Fatalf("restored checkout runs: %+v", runs)
+	}
+}
+
+func TestServeLifecycleHooks(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "hook.json")
+	hookCommand := "cat > " + shellQuote(marker)
+	manifest := fmt.Sprintf("jobs:\n  tests:\n    schedule: every 1m\n    run: 'true'\n    on_success: %s\n", strconv.Quote(hookCommand))
+	fixture := newServeFixture(t, manifest)
+	defer fixture.stop(t)
+	fixture.step(t, serveTestStart)
+	fixture.step(t, serveTestStart.Add(time.Minute))
+	waitFor(t, func() bool {
+		runs := fixture.runs(t)
+		return len(runs) == 1 && runs[0].HookStatus.Valid && runs[0].HookStatus.String == "ok"
+	})
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var input map[string]any
+	if err := json.Unmarshal(data, &input); err != nil {
+		t.Fatalf("scheduled hook stdin is not JSON: %v: %s", err, data)
+	}
+	project := input["project"].(map[string]any)
+	run := input["run"].(map[string]any)
+	if input["schema_version"] != float64(1) || project["path"] != fixture.project || run["status"] != "succeeded" || run["trigger"] != "schedule" {
+		t.Fatalf("scheduled hook payload: %+v", input)
+	}
+	if hook := run["hook"].(map[string]any); hook["event"] != "on_success" || hook["status"] != "running" {
+		t.Fatalf("scheduled hook transition: %+v", run["hook"])
+	}
+	stored := fixture.runs(t)[0]
+	if stored.Status != "succeeded" || stored.HookStatus.String != "ok" || !stored.HookExitCode.Valid || stored.HookExitCode.Int64 != 0 {
+		t.Fatalf("scheduled hook result: %+v", stored)
 	}
 }
 

@@ -9,10 +9,10 @@ Python, Node, cloud service, or agent provider.
 **Status: foreground scheduling with explicit OS supervision.** Working today: project discovery,
 layered settings, non-destructive initialization, strict job validation, byte-preserving job add/remove,
 schedule parsing and previews, foreground command and agent-prompt execution, durable per-user run records and bounded
-logs, queued one-shot runs with idempotency and cancellation, explicit project opt-in and shared-job
+logs, success/failure lifecycle hooks, queued one-shot runs with idempotency and cancellation, explicit project opt-in and shared-job
 approvals, pausing and resuming background jobs, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
-systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics, stdio MCP tools, and development tooling. Cron import,
-hooks, and TUI are designed but **not implemented**. Noon never backgrounds itself; keep
+systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics, stdio MCP tools, and development tooling. Cron import
+and TUI are designed but **not implemented**. Noon never backgrounds itself; keep
 `noon serve` in the foreground or use the explicit service installer or an OS/container supervisor.
 
 ## Try it
@@ -171,8 +171,9 @@ Implemented foundations and planned extensions ([design](docs/design.md), [decis
 - Nothing from a repository runs unattended until you `noon enable` that
   checkout, and changed shared jobs wait for re-approval.
 - After sleep, a missed job runs once, never in a burst.
-- MCP's local stdio tools use the shared app operations. Hooks, Git and agent triggers,
-  webhooks, and a TUI build on the store. Commands are the integration boundary: no plugin system.
+- MCP's local stdio tools use the shared app operations. Lifecycle hooks run commands from the
+  shared execution path; Git and agent triggers, webhooks, and a TUI remain planned integrations.
+  Commands are the integration boundary: no plugin system.
 
 ## Docker bootstrap
 
@@ -187,6 +188,7 @@ scheduler in the foreground. See [Docker](docs/docker.md).
 ## Documentation
 
 - [Configuration](docs/configuration.md): implemented sources, paths, precedence.
+- [Lifecycle hooks](docs/hooks.md): command examples, execution and safety contract.
 - [Service](docs/service.md): install, inspect, logs, upgrades, uninstall, and Linux lingering.
 - [Design](docs/design.md): CLI, scheduler, jobs, events, MCP, security.
 - [Development](docs/development.md): tooling, tests, commits, contribution workflow.
