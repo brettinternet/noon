@@ -3,5 +3,5 @@ timezone: America/Chicago
 default_agent: claude
 agents:
   claude:
-    command: [claude, -p, --permission-prompts, none]
+    command: [claude, -p, --permission-mode, manual, --permission-prompts, none]
 on_failure: [/workspace/scripts/ntfy.sh]
