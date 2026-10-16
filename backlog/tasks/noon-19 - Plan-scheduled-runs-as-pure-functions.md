@@ -1,10 +1,10 @@
 ---
 id: NOON-19
 title: Plan scheduled runs as pure functions
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 04:44'
 labels:
   - scheduler
 dependencies:
@@ -68,15 +68,35 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestPlanDue|TestPlanDispatch)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
-- [ ] #2 `rg -n 'time\.Now\(|"os"|database/sql|go func' internal/scheduler/plan.go` prints nothing
+- [x] #1 `task cli:test -- -run '^(TestPlanDue|TestPlanDispatch)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
+- [x] #2 `rg -n 'time\.Now\(|"os"|database/sql|go func' internal/scheduler/plan.go` prints nothing
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Implement pure Due and Dispatch using validated job snapshots and persisted watermarks; preserve interval phase and enforce queue/concurrency limits. 2. Add table-driven public-interface regression tests for the specified timing, reactivation, overlap, cancellation, expiry and capacity cases. 3. Update design implementation status, run acceptance commands and CI, obtain one focused independent review, commit and merge to main, finalize task and clean owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: task cli:test -- -run '^(TestPlanDue|TestPlanDispatch)$' -count=1 -v -> exit 0; both named tests PASS, with all specified cases plus inclusive timing boundaries, input immutability and replay suppression. AC#2: rg -n 'time\.Now\(|"os"|database/sql|go func' internal/scheduler/plan.go -> no output (exit 1, expected no matches). Initial task ci passed: security, formatting, vet, Staticcheck, full tests, race and smoke. LSP diagnostics clean for both Go files. No existing tests modified; changes limited to internal/scheduler/** and docs/design.md. Independent review pending; next step review result, implementation commit, main integration, final-commit CI and cleanup.
+
+Implementation commit 4b42af9 (feat(scheduler): plan due runs and dispatch) fast-forward merged into main. task check:staged passed before commit; task ci passed on committed implementation 4b42af9. Independent reviewer reported no validated findings and confirmed every specified case is covered. Design documents implemented pure planners while leaving persistence/serve explicitly unimplemented. No blockers or remaining implementation steps; final delivery is task-record commit and owned-worktree cleanup.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented pure Due and Dispatch planners with phase-preserving catch-up, overlap suppression, inactive cancellation, expiry, FIFO and project/global capacity. All acceptance checks, full CI and independent review passed; implementation 4b42af9 merged into main.
+<!-- SECTION:FINAL_SUMMARY:END -->
