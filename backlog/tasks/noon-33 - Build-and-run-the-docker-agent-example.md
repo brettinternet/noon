@@ -4,7 +4,7 @@ title: Build and run the docker-agent example
 status: To Do
 assignee: []
 created_date: '2026-10-16 22:09'
-updated_date: '2026-10-16 22:21'
+updated_date: '2026-10-16 23:00'
 labels:
   - ops
   - integration
@@ -64,4 +64,6 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 <!-- SECTION:NOTES:BEGIN -->
 Refinement: the old docker-run tmpfs check did not reproduce Compose ownership, and status/version output could pass while scheduled agent jobs could not write. The smoke now proves execution and persistence without exposing credentials or accidentally dispatching scheduled model work.
+
+NOON-32 vendor findings (2026-10-16): installed Claude Code 2.1.302 help confirms --permission-prompts none (requires >=2.1.259), but this denies only unresolved prompts, not tools or permissions granted by settings/hooks/mode. Unspecified mode can be auto; agent-profiles now explicitly select manual for inspection and document that it is not a read-only sandbox. acceptEdits also approves filesystem commands. For genuinely tool-disabled untrusted text, CLI reference documents --tools "" plus --disallowedTools 'mcp__*'; strict-mcp-config and safe-mode limit ordinary configuration, with managed-policy caveats. See https://code.claude.com/docs/en/headless and https://code.claude.com/docs/en/cli-reference. No live model call was performed; container's pinned/installed version must be checked separately. NOON-32 did not change Docker files.
 <!-- SECTION:NOTES:END -->
