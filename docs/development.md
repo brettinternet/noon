@@ -43,28 +43,51 @@ container smoke runs on Linux. Release publication is not wired up yet.
 - `internal/config`: filesystem discovery, strict YAML, precedence and validation;
   no dependency on CLI framework and no job execution.
 - `docs/design.md`: intended scheduler architecture, not claims of implementation.
-- `backlog/`: authoritative work queue, maintained only through Backlog.md.
+- `backlog/`: authoritative work queue, maintained only through Backlog.md;
+  `backlog/decisions/` holds settled architecture decisions.
 
-Avoid speculative interfaces. Extract a shared application operation when CLI and
-MCP actually need it. No in-process Go plugins or embedded LLM SDK in the core.
+Planned packages and their single owners are in
+[design § Architecture](design.md#architecture). Create a package when the first
+task needs it, not before. Operations shared by CLI, MCP, HTTP, and TUI live in
+`internal/app` and return plain structs; adapters only parse and render. No
+in-process Go plugins or embedded LLM SDK in the core.
+
+Dependencies are decided in the design. Adding any other module needs a reason in
+the task's Implementation Notes: what it replaces, its maintenance status, and that
+`CGO_ENABLED=0` builds still work.
 
 ## Tests
 
 Implement first, then test critical behavior. Before adding a test, identify the
 real failure it prevents. Prefer a few public-interface tests over wiring checks.
 
-- Configuration parsing, precedence, path anchoring, and discovery boundaries:
-  `internal/config/config_test.go`, exercising `Load` / `ProjectDir` with temp files.
-- User-facing validation, machine output, non-destructive init, and environment/flag
-  precedence: `internal/cli/root_test.go`, exercising `Run`.
+Test each rule once, at the package that computes it:
+
+| Rule | Package and file |
+| --- | --- |
+| Settings and job manifests: parsing, precedence, overrides, digests | `internal/config` (`config_test.go`, `jobs_test.go`) |
+| Schedule grammar, next occurrence, DST | `internal/schedule` (table tests plus `FuzzScheduleParse`) |
+| Planner decisions: missed, overlap, watermarks | `internal/scheduler` (`plan_test.go`, fake clock) |
+| Processes: argv, env, groups, timeouts, capture | `internal/runner` (real `sh` children in temp dirs) |
+| Store: migrations, transitions, retention, recovery | `internal/store` (real SQLite in `t.TempDir()`) |
+| Shared operations | `internal/app` |
+| Flags, rendering, JSON shape, exit codes | `internal/cli` via `cli.Run` with isolated env |
+| Built binary end to end | `integration/` (one test per user-visible behavior) |
+
+- Never read the real clock, home, config, or state in tests: pass time as an
+  argument and set `HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and
+  `BUMP_STATE_DIR` to temp dirs.
+- Poll for conditions with a deadline; never sleep a fixed time unless elapsed
+  time is the behavior. Shorten grace periods and poll intervals through options,
+  not by weakening assertions.
+- Shared helpers go in `internal/testutil` once a second package needs them.
+- Parsers of free-form text (schedules, crontabs) get a fuzz target that reuses
+  the public parser.
+- Tests never invoke real agent CLIs or the network; use fake executables.
 - Process-boundary smoke: `scripts/smoke.sh`; never touches real user settings.
-- Future scheduler/executor tests live beside their owning package; real process
-  lifecycle tests go in `integration/` only when necessary.
 
 Do not test trivial getters, framework behavior, prose, or static configuration.
-Never weaken tests to make checks pass. Prefer observable state/counters over
-sleep-based timing assertions. A config parser fuzz target should share the
-public loader rather than duplicate parsing logic.
+Never weaken tests to make checks pass.
 
 ## Build metadata
 
@@ -84,4 +107,26 @@ Read `backlog instructions overview` and use the CLI for task mutations. Each
 ready task specifies scope/non-goals, allowed modified files, dependencies,
 locally executable acceptance commands, and expected results. Future acceptance
 commands are targets to implement, not assertions that today's bootstrap passes.
-No second TODO queue in docs.
+No second TODO queue in docs. Drafts are ideas, not work: never implement one.
+
+Acceptance commands that run `bin/bump` against a fixture use
+`env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump ...` with `bump_ac_home=$(mktemp -d)`,
+so real user config, state, and `BUMP_*` variables cannot change the result. Write
+new ones the same way.
+
+One task, start to finish:
+
+1. `task backlog:next` shows the earliest ready task. Read it in full, then the
+   design sections and decisions it cites. Decisions are settled: if a task
+   cannot follow one, record the conflict in its notes and stop rather than
+   diverge.
+2. Claim it in the primary checkout with `backlog task edit ID --status "In
+   Progress"`, then reread it.
+3. Implement within the modified-file contract. Justify any expansion in
+   Implementation Notes before making it.
+4. Run every acceptance command. Append `AC#N: command -> result` to
+   Implementation Notes and check the criterion only when it passed as written.
+5. Meet the project Definition of Done, stage the intended files, run
+   `task check:staged`, and commit with a Conventional Commit.
+6. Mark the task Done with a final summary, or record the blocker, evidence, and
+   unblock condition.

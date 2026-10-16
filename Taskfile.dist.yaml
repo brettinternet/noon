@@ -56,8 +56,11 @@ tasks:
     desc: Generate changelog from conventional commits
     cmd: mise exec git-cliff -- git-cliff --output CHANGELOG.md
   backlog:
-    desc: List ready, unclaimed work
-    cmd: mise exec -- backlog task list --ready --status "To Do" --plain
+    desc: List ready, unclaimed work in delivery order
+    cmd: mise exec -- backlog task list --ready --status "To Do" --sort ordinal --plain
+  backlog:next:
+    desc: Show the next ready, unclaimed task
+    cmd: mise exec -- backlog task list --ready --status "To Do" --sort ordinal --limit 1 --plain
   docker:build:
     desc: Build the local bump development image
     cmd: docker build -t bump:dev .

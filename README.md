@@ -47,14 +47,20 @@ Invalid commands and configuration fail instead of pretending to succeed.
 
 ## Direction
 
-The intended execution model is an explicit foreground `bump serve` per repo,
-with optional launchd/systemd installation later. Bare `bump` never enables
-persistent execution. Docker will run the same foreground scheduler.
+Designed, not built yet ([design](docs/design.md), [decisions](backlog/decisions)):
 
-Commands are the first integration boundary. Existing agent CLIs, tmux, Herdr,
-Git hooks, and HTTP tools should compose with Bump rather than becoming runtime
-dependencies. MCP and the eventual TUI will share CLI operations, not implement
-their own scheduler.
+- Jobs in `bump.yaml` (shared) or `.bump.yaml` (private): shell strings or exact
+  argv, or prompts for the agent CLI you already use. Schedules are cron or plain
+  forms like `weekdays at 9am` and `every 6h`.
+- `bump run NAME` runs a job in the foreground with no daemon.
+- One per-user `bump serve` runs every enabled repo's schedules;
+  `bump service install` keeps it alive across reboots. Docker runs the same
+  foreground process. Bump never backgrounds itself.
+- Nothing from a repository runs unattended until you `bump enable` that
+  checkout, and changed shared jobs wait for re-approval.
+- After sleep, a missed job runs once, never in a burst.
+- History, logs, hooks, Git and agent triggers, webhooks, MCP, and a TUI build
+  on one store. Commands are the integration boundary: no plugin system.
 
 ## Docker bootstrap
 

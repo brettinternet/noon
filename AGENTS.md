@@ -13,6 +13,8 @@ Read README.md and docs/development.md before changing Bump. Read AGENTS.local.m
 
 ## Backlog
 - `backlog/` is the only task queue. Read and mutate task files through the Backlog.md CLI, never direct Markdown edits.
+- Follow docs/development.md#worktrees-and-backlog for the per-task loop. `task backlog:next` picks work; drafts are never work.
+- Decisions in `backlog/decisions/` are settled. Record a conflict in task notes instead of diverging.
 - A ready task needs outcome, scope, non-goals, modified-file contract, dependencies, and locally executable acceptance commands with expected results.
 - Claim tasks in the primary checkout with `backlog task edit ID --status "In Progress"`; reread after every write.
 - Follow docs/development.md#tests. Implement first, then add only critical regression tests. Never weaken tests to get green.

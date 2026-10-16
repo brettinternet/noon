@@ -2,6 +2,8 @@
 
 This documents the working bootstrap. Jobs, hooks, cron imports, and scheduling
 fields are not accepted yet; see [design](design.md) for the proposed job format.
+The default state directory will move from `PROJECT/.bump` to a per-user
+directory (decision-3); until then, nothing writes state.
 
 ## Sources
 
