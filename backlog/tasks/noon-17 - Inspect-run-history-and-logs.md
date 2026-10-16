@@ -4,10 +4,11 @@ title: Inspect run history and logs
 status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 04:20'
+updated_date: '2026-10-16 14:27'
 labels:
   - store
   - cli
+  - reviewed
 dependencies:
   - NOON-3
 documentation:
@@ -77,6 +78,8 @@ Implementation complete within allowed paths; executor reports focused tests and
 Single independent review found three concrete defects: OpenExisting migrated v1 inspection state, fast overflow could print terminal tail before the deferral notice, and follow swallowed unavailable logs. Parent confirmed paths; executor is correcting all three with regression checks. No additional general review planned.
 
 All three review findings corrected with regressions: read-only v1 queries without migration, bounded live output with notice-before-tail ordering, terminal missing-log errors. Focused acceptance tests and task ci passed after corrections. AC#2 exact script rerun passed (No runs yet., exit=0, clean). Final implementation commit 006dc26 passed task check:staged and task ci; merged locally as a956bd3, preserving concurrent backlog changes. Diff stays in contract; tests were strengthened, not weakened. README/help match implemented behavior. Owned worktree/branch noon-17-history removed through Worktrunk; matching Herdr workspace wBV removed. No blocker or remaining step.
+
+Review (post-merge): history, logs, follow, nullable run JSON, and LAST match the contract; inspection creates no state. Fixed: the human history table rendered null STARTED/DURATION/EXIT as `\u2014` and `\...` because `cell` escaped the em dash; `—` is now allowed in `internal/cli/jobs.go`. Low findings, not fixed: (1) `logs --follow` on a run whose owner was SIGKILLed loops forever, since read-only commands never check owner liveness and nothing recovers the row while `serve` runs (root cause in NOON-3); checking `ProcessOwnerAlive` on each status poll would end it. (2) `noon logs NAME` and `history NAME` return `not_found` for a job removed from config even when its history is retained; a run ID still works. ACs 1-2 rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

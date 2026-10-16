@@ -5,10 +5,11 @@ status: Done
 assignee:
   - '@pi'
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 03:55'
+updated_date: '2026-10-16 14:27'
 labels:
   - store
   - runner
+  - reviewed
 dependencies:
   - NOON-2
 references:
@@ -118,6 +119,8 @@ AC#5: CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon -> exit 0; 
 Independent review found terminal-failure log truncation, forgotten cleanup references, and zombie owners blocking recovery. All three corrected with focused regressions. task ci passed after corrections and again on implementation commit 05865711bd77c2b1cfc0836b680213fa15221dc9. Store LSP diagnostics clean. No tests deleted, skipped, or weakened.
 Dependencies: task-approved modernc.org/sqlite is maintained pure-Go SQLite instead of CGO or an ORM; golang.org/x/sys exposes Darwin process identities. CGO_ENABLED=0 verified. All paths within modified-file contract; design already matches settled behavior and docs/help updated.
 Delivery: 0586571 fast-forward merged into main. Owned worktree and branch noon-3-run-store removed with Worktrunk; exact Herdr workspace wBT removal verified. No push. No blocker or remaining implementation step.
+
+Review (post-merge): store, migrations, bounded log, exclusion, and retention match the contract. Probed the built binary: SIGKILLed a `noon run` owner mid-job; the next `noon run` marked the row `interrupted`, terminated the orphaned group (leader identity matched), and did not re-run it. 500 MB of output kept 1 MiB + marker + 1 MiB with negligible ring overhead. Medium finding, not fixed: recovery runs only when a writer starts (`noon run`, and `serve` once at startup), never periodically. While `serve` is up, a crashed foreground run stays `running` indefinitely; `Due` then skips that job (overlap) and `Dispatch` treats the project as occupied, so the whole project stops dispatching background runs until another `noon run` or a scheduler restart. Read views show it as `running` and `logs --follow` never returns (see NOON-17). Recommend recovering foreign stale rows on each serve tick, with group termination off the loop goroutine. Low: when the group leader has exited but grandchildren survive, recovery cannot identify the group and leaves them running (by design, to avoid PGID reuse). ACs 1-5 rerun and pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
