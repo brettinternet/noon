@@ -23,13 +23,14 @@ func addJob(src []byte, name string, job Job, headComment string, fieldComments 
 	if !jobName.MatchString(name) {
 		return nil, fmt.Errorf("config_edit: invalid job name %q", name)
 	}
+	key := yamlKey(name)
 	ending := lineEnding(src)
 	if len(src) == 0 {
 		encoded, err := encodeJob(job, 4, ending, fieldComments)
 		if err != nil {
 			return nil, err
 		}
-		return []byte("version: 1" + ending + "jobs:" + ending + commentLines(headComment, 2, ending) + "  " + name + ":" + ending + encoded), nil
+		return []byte("version: 1" + ending + "jobs:" + ending + commentLines(headComment, 2, ending) + "  " + key + ":" + ending + encoded), nil
 	}
 	lines := splitLines(src)
 	root, err := documentRoot(src)
@@ -46,7 +47,7 @@ func addJob(src []byte, name string, job Job, headComment string, fieldComments 
 		if err != nil {
 			return nil, err
 		}
-		return []byte(string(src) + prefix + "jobs:" + ending + commentLines(headComment, 2, ending) + "  " + name + ":" + ending + encoded), nil
+		return []byte(string(src) + prefix + "jobs:" + ending + commentLines(headComment, 2, ending) + "  " + key + ":" + ending + encoded), nil
 	}
 	if jobsNode.Kind != yaml.MappingNode || len(jobsNode.Content) == 0 || jobsNode.Style&yaml.FlowStyle != 0 {
 		return nil, fmt.Errorf("config_edit: jobs must be a non-empty block mapping; edit the file by hand")
@@ -85,7 +86,7 @@ func addJob(src []byte, name string, job Job, headComment string, fieldComments 
 	if err != nil {
 		return nil, err
 	}
-	insertText := commentLines(headComment, keyIndent, ending) + strings.Repeat(" ", keyIndent) + name + ":" + ending + encoded
+	insertText := commentLines(headComment, keyIndent, ending) + strings.Repeat(" ", keyIndent) + key + ":" + ending + encoded
 	separateFromComment := insert > 0 && isIndentedComment(lines[insert-1], keyIndent)
 	if (precededByBlankJobSeparator(lines, jobsNode) && protectedEnd != insert) || separateFromComment {
 		insertText = ending + insertText
@@ -296,25 +297,19 @@ func jobFields(job Job) map[string]any {
 }
 
 func encodeJob(job Job, indent int, ending string, fieldComments map[string]string) (string, error) {
-	data, err := yaml.Marshal(jobFields(job))
-	if err != nil {
+	var fields yaml.Node
+	if err := fields.Encode(jobFields(job)); err != nil {
 		return "", fmt.Errorf("config_edit: encode job: %w", err)
 	}
-	if len(fieldComments) > 0 {
-		var doc yaml.Node
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return "", fmt.Errorf("config_edit: encode job comments: %w", err)
+	quoteMergeStrings(&fields)
+	for i := 0; i+1 < len(fields.Content); i += 2 {
+		if comment := fieldComments[fields.Content[i].Value]; comment != "" {
+			fields.Content[i].HeadComment = comment
 		}
-		fields := doc.Content[0]
-		for i := 0; i < len(fields.Content); i += 2 {
-			if comment := fieldComments[fields.Content[i].Value]; comment != "" {
-				fields.Content[i].HeadComment = comment
-			}
-		}
-		data, err = yaml.Marshal(&doc)
-		if err != nil {
-			return "", fmt.Errorf("config_edit: encode job comments: %w", err)
-		}
+	}
+	data, err := yaml.Marshal(&fields)
+	if err != nil {
+		return "", fmt.Errorf("config_edit: encode job: %w", err)
 	}
 	prefix := strings.Repeat(" ", indent)
 	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
@@ -413,4 +408,24 @@ func lineEnding(src []byte) string {
 		return "\r\n"
 	}
 	return "\n"
+}
+
+// quoteMergeStrings quotes the string "<<", which the YAML encoder emits as a
+// plain merge key that would no longer load as a string.
+func quoteMergeStrings(node *yaml.Node) {
+	if node.Kind == yaml.ScalarNode && node.Tag == "!!merge" {
+		node.Tag, node.Style = "!!str", yaml.DoubleQuotedStyle
+	}
+	for _, child := range node.Content {
+		quoteMergeStrings(child)
+	}
+}
+
+// yamlKey quotes names such as true and null that YAML would not read as strings.
+func yamlKey(name string) string {
+	data, err := yaml.Marshal(name)
+	if err != nil {
+		return name
+	}
+	return strings.TrimSuffix(string(data), "\n")
 }

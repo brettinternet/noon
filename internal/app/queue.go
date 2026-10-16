@@ -50,8 +50,14 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 	if key != "" && !ValidIdempotencyKey(key) {
 		return QueuedRun{}, &QueueError{Code: "usage", Message: "--key must be 1–200 characters of [A-Za-z0-9._:-]"}
 	}
-	if err := CheckRecursion(cfg.Project, name, os.Environ()); err != nil {
-		return QueuedRun{}, err
+	// Webhook runs start a new chain at depth 0; the scheduler's own environment
+	// is not the requester's.
+	depth := 0
+	if options.Trigger != "webhook" {
+		if err := CheckRecursion(cfg.Project, name, os.Environ()); err != nil {
+			return QueuedRun{}, err
+		}
+		depth = RequestDepth(os.Environ())
 	}
 	if options.EventSource == "webhook" {
 		if len(options.EventData) > MaxWebhookBodyBytes {
@@ -76,7 +82,7 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 		ProjectID: projectID, Job: name, Digest: job.Digest, IdempotencyKey: key,
 		RequestedBy: requestedBy, Trigger: options.Trigger, DueAt: dueAt, Now: now, NowFunc: nowFunc,
 		JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared,
-		Coalesce: coalesce, Cooldown: job.Cooldown, Depth: RequestDepth(os.Environ()),
+		Coalesce: coalesce, Cooldown: job.Cooldown, Depth: depth,
 		EventData: options.EventData, EventSource: options.EventSource, EventHeaders: options.EventHeaders,
 	})
 	if err != nil {

@@ -167,8 +167,10 @@ func Serve(ctx context.Context, options ServeOptions) error {
 	var httpServer *http.Server
 	var httpErrors <-chan error
 	var stopHTTP func()
+	// Configs of registered but not-enabled projects, reloaded only when their files change.
+	inactiveConfigs := map[int64]*projectConfig{}
 	if options.ListenAddr != "" {
-		projects, err := webhookProjects(state, initial.Projects, configs, options)
+		projects, err := webhookProjects(state, initial.Projects, configs, inactiveConfigs, options)
 		if err != nil {
 			return err
 		}
@@ -320,7 +322,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 			}
 		}
 		if webhookHandler != nil {
-			projects, err := webhookProjects(state, snapshot.Projects, configs, options)
+			projects, err := webhookProjects(state, snapshot.Projects, configs, inactiveConfigs, options)
 			if err != nil {
 				return err
 			}
@@ -565,7 +567,7 @@ func webhookSecretSnapshots(cfg config.Config, environment []string) (map[string
 	return secrets, strings.Join(missing, "; ")
 }
 
-func webhookProjects(state *store.Store, enabled []store.EnabledProject, configs map[int64]*projectConfig, options ServeOptions) ([]httpapi.WebhookProject, error) {
+func webhookProjects(state *store.Store, enabled []store.EnabledProject, configs, inactive map[int64]*projectConfig, options ServeOptions) ([]httpapi.WebhookProject, error) {
 	records, err := state.ProjectRecords()
 	if err != nil {
 		return nil, fmt.Errorf("read webhook project records: %w", err)
@@ -575,6 +577,7 @@ func webhookProjects(state *store.Store, enabled []store.EnabledProject, configs
 		active[project.ID] = project
 	}
 	projects := make([]httpapi.WebhookProject, 0, len(records))
+	seen := make(map[int64]bool)
 	for _, record := range records {
 		var loaded config.Config
 		var projectState store.EnabledProject
@@ -592,18 +595,29 @@ func webhookProjects(state *store.Store, enabled []store.EnabledProject, configs
 			loaded = *cached.config
 			secrets = cached.webhookSecrets
 		} else {
-			project := record.Path
-			input := config.Input{CWD: project, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, Project: &project}
-			if record.ConfigFile.Valid {
-				file := record.ConfigFile.String
-				input.File = &file
+			projectState = store.EnabledProject{ID: record.ID, Path: record.Path, ConfigFile: record.ConfigFile}
+			seen[record.ID] = true
+			cached := inactive[record.ID]
+			stamps := statPaths(configPaths(projectState, options.UserConfigDir))
+			if cached == nil || cached.project.Path != record.Path || cached.configSelection != configSelection(projectState) || !sameStamps(cached.stamps, stamps) {
+				cached = &projectConfig{project: projectState, configSelection: configSelection(projectState), stamps: stamps}
+				inactive[record.ID] = cached
+				project := record.Path
+				input := config.Input{CWD: project, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, Project: &project}
+				if record.ConfigFile.Valid {
+					file := record.ConfigFile.String
+					input.File = &file
+				}
+				if loaded, err := config.Load(input); err == nil {
+					cached.config = &loaded
+					cached.webhookSecrets, _ = webhookSecretSnapshots(loaded, options.Environment)
+				}
 			}
-			loaded, err = config.Load(input)
-			if err != nil {
+			if cached.config == nil {
 				continue
 			}
-			secrets, _ = webhookSecretSnapshots(loaded, options.Environment)
-			projectState = store.EnabledProject{ID: record.ID, Path: record.Path}
+			loaded = *cached.config
+			secrets = cached.webhookSecrets
 		}
 		// Requests must use the same state store as this scheduler, including overrides.
 		loaded.StateDir = options.StateDir
@@ -615,6 +629,11 @@ func webhookProjects(state *store.Store, enabled []store.EnabledProject, configs
 			}
 		}
 		projects = append(projects, httpapi.WebhookProject{ID: record.ID, Config: loaded, Enabled: record.Enabled, Jobs: jobs})
+	}
+	for id := range inactive {
+		if !seen[id] {
+			delete(inactive, id)
+		}
 	}
 	return projects, nil
 }

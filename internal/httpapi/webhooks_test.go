@@ -127,12 +127,20 @@ func TestWebhooks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A scheduler started from inside a job must not apply its own depth or
+	// identity to webhook runs, which always start at depth 0.
+	t.Setenv("NOON_DEPTH", "5")
+	t.Setenv("NOON_PROJECT", root)
+	t.Setenv("NOON_JOB", "large")
 	largeRequest := signedRequest(http.MethodPost, fmt.Sprintf("/hooks/%d/large", projectID), largeBody, secret, noonSignatureHeader)
 	largeRequest.Header.Set("X-Noon-Delivery", "large-delivery")
 	largeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(largeResponse, largeRequest)
 	if largeResponse.Code != http.StatusAccepted {
 		t.Fatalf("signed 300 KiB body status = %d, want 202: %s", largeResponse.Code, largeResponse.Body)
+	}
+	if largeRuns, err := state.RunsForJob(projectID, "large"); err != nil || len(largeRuns) != 1 || largeRuns[0].Depth != 0 {
+		t.Fatalf("webhook run depth: %+v err=%v", largeRuns, err)
 	}
 	cooldownPath := fmt.Sprintf("/hooks/%d/cooldown", projectID)
 	firstCooldown := signedRequest(http.MethodPost, cooldownPath, body, secret, "X-Hub-Signature-256")

@@ -132,7 +132,7 @@ func TestImportCrontab(t *testing.T) {
 	})
 
 	t.Run("rendered preview loads through config", func(t *testing.T) {
-		jobs, err := cronimport.Parse(strings.NewReader("TOKEN='a value'\n0 2 * * * /usr/local/bin/backup.sh --daily\n"))
+		jobs, err := cronimport.Parse(strings.NewReader("TOKEN='a value'\n0 2 * * * /usr/local/bin/backup.sh --daily\n0 3 * * * true\n"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -157,6 +157,10 @@ func TestImportCrontab(t *testing.T) {
 		if job.Schedule == nil || job.Schedule.String() != "0 2 * * *" || job.Run != "/usr/local/bin/backup.sh --daily" || job.Env["TOKEN"] != "a value" || job.Missed != "skip" || job.Timeout != "none" {
 			t.Fatalf("loaded imported job: %+v", job)
 		}
+		// A YAML-reserved name must render as a string key.
+		if cfg.Jobs["true"].Run != "true" {
+			t.Fatalf("reserved job name did not load: %v", cfg.Jobs)
+		}
 	})
 }
 
@@ -165,6 +169,7 @@ func FuzzImportCrontab(f *testing.F) {
 	f.Add("FOO='two words'\n@daily echo ok\n")
 	f.Add("@reboot echo no\n0 0 * * * echo percent%stdin\n")
 	f.Add("\xff\n")
+	f.Add("0 0 * * * null\n")
 	home := f.TempDir()
 	f.Setenv("HOME", home)
 	f.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
