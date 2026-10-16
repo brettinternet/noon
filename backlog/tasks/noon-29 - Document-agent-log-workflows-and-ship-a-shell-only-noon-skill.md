@@ -1,9 +1,10 @@
 ---
 id: NOON-29
 title: Document agent log workflows and ship a shell-only noon skill
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 17:26'
+updated_date: '2026-10-16 19:26'
 labels:
   - cli
   - mcp
@@ -61,17 +62,39 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^TestSkillFlags$' -count=1 -v` exits 0 and prints `--- PASS: TestSkillFlags`
-- [ ] #2 `task cli:build && bin/noon skill | head -3 && bin/noon --json skill | jq -r .content | sed -n 2p && bin/noon skill extra; echo "exit=$?"` prints SKILL.md frontmatter starting `---` and `name: noon`, then `name: noon`, then a usage error and `exit=2`
-- [ ] #3 `rg -n 'docs/agents.md' README.md docs/design.md && rg -n -i 'never.*--follow|--follow.*interactive' docs/agents.md internal/skill/SKILL.md && rg -n -i 'untrusted' docs/agents.md` prints at least one match from each search
-- [ ] #4 Every command example in docs/agents.md and internal/skill/SKILL.md was run against the NOON-24 AC fixture and exited as documented. Implementation Notes list each command with its exit status, and the docs show real output
+- [x] #1 `task cli:test -- -run '^TestSkillFlags$' -count=1 -v` exits 0 and prints `--- PASS: TestSkillFlags`
+- [x] #2 `task cli:build && bin/noon skill | head -3 && bin/noon --json skill | jq -r .content | sed -n 2p && bin/noon skill extra; echo "exit=$?"` prints SKILL.md frontmatter starting `---` and `name: noon`, then `name: noon`, then a usage error and `exit=2`
+- [x] #3 `rg -n 'docs/agents.md' README.md docs/design.md && rg -n -i 'never.*--follow|--follow.*interactive' docs/agents.md internal/skill/SKILL.md && rg -n -i 'untrusted' docs/agents.md` prints at least one match from each search
+- [x] #4 Every command example in docs/agents.md and internal/skill/SKILL.md was run against the NOON-24 AC fixture and exited as documented. Implementation Notes list each command with its exit status, and the docs show real output
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Inspect implemented log contracts and hum skill pattern. 2. Add embedded shell skill, command, flag regression test, and agent guide/tool descriptions. 3. Exercise every example on an isolated fixture, run acceptance checks and CI, review once. 4. Commit, merge, finalize provider evidence, and clean up owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: task cli:test -- -run '^TestSkillFlags$' -count=1 -v -> exit 0, PASS TestSkillFlags (also rerun after wording correction). AC#2: exact task cli:build/frontmatter/JSON/extra-argument command -> frontmatter, name: noon, usage error, exit=2. AC#3: exact three rg searches -> exit 0, README/design links, both follow warnings, and untrusted-output warning matched.
+AC#4: NOON-24 fixture recreated with isolated HOME/project and env containing only PATH/HOME, t exit 3 and ok exit 0. /tmp/noon-29-examples.ts and /tmp/noon-29-examples.out record execution. Each shell example exited 0: noon skill; noon skill --json (separately verified schema 1 and name: noon); noon history --status failed,timed_out,interrupted --json; noon logs t --status failed --section job --match boom --context 1 --limit-bytes 4096 --json; noon logs 1 --section job --after-cursor 0 --limit-bytes 100 --json; noon logs 1 --section job --after-cursor 95 --limit-bytes 100 --json; noon logs 1 --path; rg -n boom "$(noon logs 1 --path)" (also executed literally through sh in isolated env). MCP stdio calls all succeeded (no isError; server exit 0): list_runs {status:[failed,timed_out,interrupted]}; get_run {job:t,status:[failed],section:job,match:boom,context:1,log_bytes:4096}; get_run {run_id:1,section:job,after:0,log_bytes:100}; get_run {run_id:1,section:job,after:95,log_bytes:100}; get_run {run_id:1,section:job,after:18898,log_bytes:4096,wait_seconds:10}. Docs paste real selected output fields: matched line 2001, cursor 95 then 191, empty terminal wait at 18898. Forbidden unbounded follow is a warning, not an executable example; MCP registration references README rather than installing client configuration.
+Single direct review checked command side effects, flag coverage, example results, and log contracts. Corrected omission-marker wording to apply only when bytes are dropped; no other concrete defects. New command reuses hum embedding and existing noArgs/emit conventions. No tests deleted, skipped, or weakened. All paths within contract; MCP changes are descriptions only. LSP clean for all changed Go files; initial task ci passed including race, security, checks, smoke. Next: commit, committed-tree CI, merge, finalize ledger and remove owned worktree.
+
+Delivery complete: task check:staged and task ci passed on implementation 8a16647. Rebased over concurrent backlog-only main commit without discarding changes; fast-forward merged as 70764ae. task ci passed again on merged main (all tests, race, vet/staticcheck, vulnerability/secrets scans, smoke). Creation receipt matched this session and exact checkout/branch; Worktrunk removed noon-29-agent-guide and its branch. Herdr workspace wDF had only an idle zsh, and its disappearance was verified after the post-remove hook. No retained task checkout/workspace, no blockers or next implementation step, and nothing pushed. Final backlog-only completion commit follows.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added noon skill and a concise CLI/MCP failure-diagnosis guide with executed fixture output, bounded paging/waiting, context fields and untrusted-log guidance. Flag regression, all four acceptance criteria, and full CI pass. Implementation merged locally as 70764ae; owned worktree, branch and workspace cleaned up.
+<!-- SECTION:FINAL_SUMMARY:END -->
