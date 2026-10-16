@@ -6,11 +6,13 @@ services:
     init: true
     read_only: true
     # Agent CLIs keep caches and settings under $HOME; give them throwaway space.
-    tmpfs: [/tmp, /home/noon]
+    tmpfs:
+      - /tmp
+      - /home/noon:uid=10001,gid=10001,mode=0700
     working_dir: /workspace
     environment:
       XDG_CONFIG_HOME: /config          # user config: agent profiles and hook defaults
-    env_file: .env                      # ANTHROPIC_API_KEY, GH_TOKEN, NTFY_TOPIC; never commit
+    env_file: .env                      # may be empty; create before starting; never commit
     volumes:
       - .:/workspace:ro                 # the project; jobs cannot modify it
       - ./config:/config:ro

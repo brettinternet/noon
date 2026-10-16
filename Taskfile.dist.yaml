@@ -49,6 +49,12 @@ tasks:
     cmds:
       - task: cli:build
       - mise exec go -- go test -tags shellintegration -run '^TestShellSmoke$' -count=1 -v ./integration
+  examples:docker-agent:
+    desc: Opt-in credential-free Docker agent execution and persistence checks
+    cmds:
+      - task: docker:build
+      - docker build -t noon-agent:local examples/integrations/docker-agent
+      - bash scripts/docker-agent-smoke.sh
   examples:db-backups:
     desc: Opt-in real PostgreSQL/SQLite backup checks with host clients and Docker
     cmds:
