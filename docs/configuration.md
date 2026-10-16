@@ -117,7 +117,9 @@ jobs:
     timeout: 10m
 ```
 
-See [the complete example](../examples/jobs.yaml).
+See [the complete example](../examples/jobs.yaml). For agent-facing descriptions,
+required-action instructions, and completion checks, see
+[Discover and run actions](agents.md#discover-and-run-actions).
 
 | Field | Default | Accepted values |
 | --- | --- | --- |

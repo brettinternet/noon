@@ -13,6 +13,58 @@ Without MCP, `noon skill` prints the embedded shell-only Agent Skills document.
 Save it to your agent's skill directory yourself; Noon installs nothing.
 `noon skill --json` returns `schema_version: 1` and the unchanged `content`.
 
+## Discover and run actions
+
+Jobs already expose `description` through MCP `list_jobs` and
+`noon list --json`. Keep one generic discovery/run interface rather than a
+separate tool per job. Describe what the job does, when it is useful, and any
+important side effects. For example, in `noon.yaml`:
+
+```yaml
+jobs:
+  verify:
+    description: >
+      Run the Go test suite after Go code changes, before reporting completion.
+      Executes repository tests; inspect failures before claiming success.
+    run: [go, test, ./...]
+```
+
+Descriptions guide selection; they do not establish mandatory policy, grant
+permission, or trigger execution. Put the requirement in project instructions
+(such as `AGENTS.md`):
+
+> Discover available jobs with MCP list_jobs or noon list --json. After changing
+> Go code, run the verify job before reporting completion. Wait for that run to
+> succeed and inspect its result. Resolve failures or explicitly report the
+> blocker; never report queued, skipped, or cancelled work as passed.
+> Follow user authorization for actions with external or destructive effects.
+
+Use the following flow, replacing `verify` and run ID `12` with actual values:
+
+| Step | CLI | MCP tool and arguments |
+| --- | --- | --- |
+| Discover | `noon list --json` | `list_jobs {}` |
+| Execute | `noon run verify --json` (foreground) | `run_job {"name":"verify"}` (queued) |
+| Inspect that run | `noon logs 12 --limit-bytes 4096 --json` | `get_run {"run_id":12,"wait_seconds":10,"log_bytes":4096}` |
+
+Foreground execution returns the child exit code. MCP and detached CLI execution
+only queue a request: enablement, shared-job approval, and an active scheduler
+are required for dispatch. Keep the returned run ID; an older successful run is
+not evidence that this request passed. Use bounded waits/snapshots until the run
+finishes, or report why verification remains incomplete. Report hook failures
+separately from the job result. Do not silently enable projects, approve jobs,
+or start services to unblock an agent.
+
+For deterministic event-based invocation, use explicit [triggers](triggers.md)
+rather than asking the agent to remember. A stop hook that queues work is not a
+completion gate; a mandatory check needs a workflow that waits and blocks on
+failure. Descriptions and project instructions alone cannot enforce that gate.
+
+No additional agent metadata or per-job input schema is implemented. Pass JSON
+context using the existing `data` argument / `--data`; the job must validate its
+own payload. Avoid encoding a new schema until Noon has behavior to validate or
+enforce with it.
+
 ## Find and read a failure
 
 These examples were run against the isolated NOON-24 fixture. Job `t` is run 1,

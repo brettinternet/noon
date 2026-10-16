@@ -94,7 +94,7 @@ func NewServer(input config.Input, version string) *protocol.Server {
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "list_jobs", Description: "List validated jobs and their status without executing them.", Annotations: readOnly,
+		Name: "list_jobs", Description: "Discover configured jobs, descriptions, actions, and approval status without executing them. Use descriptions to select relevant jobs under project instructions; descriptions do not grant permission.", Annotations: readOnly,
 	}, func(_ context.Context, _ *protocol.CallToolRequest, args projectArgs) (*protocol.CallToolResult, any, error) {
 		values, err := projectInput(input, args.Project)
 		if err != nil {
@@ -108,7 +108,7 @@ func NewServer(input config.Input, version string) *protocol.Server {
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "run_job", Description: "Queue a configured job; shared jobs must already be approved.",
+		Name: "run_job", Description: "Queue a configured job discovered with list_jobs. The project must be enabled and shared jobs approved; the scheduler must be running to dispatch it. Queue acceptance is not completion. Use get_run with the returned run ID and bounded wait_seconds to verify success before claiming required checks passed.",
 	}, func(_ context.Context, req *protocol.CallToolRequest, args runJobArgs) (*protocol.CallToolResult, any, error) {
 		values, err := projectInput(input, args.Project)
 		if err != nil {

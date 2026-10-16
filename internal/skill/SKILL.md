@@ -1,13 +1,34 @@
 ---
 name: noon
-description: Use Noon through a shell-only fallback when MCP is unavailable to find runs and read bounded logs.
+description: Discover and run configured Noon jobs, verify completion, and diagnose failures through a shell-only fallback when MCP is unavailable.
 ---
 
-# Noon log diagnosis
+# Noon jobs and log diagnosis
 
 Prefer MCP when available. This skill is the shell-only fallback.
 Run from the intended checkout; separate worktrees are separate projects.
 Inspection starts no jobs or services.
+
+## Discover, run, and verify
+
+Read project instructions, then discover jobs with `noon list --json`.
+Use each job's description and action to choose relevant work; a description is
+guidance, not permission or an automatic trigger. Honor the user's authorization,
+especially for publishing, deployment, or destructive actions.
+
+For an authorized required check, replace `verify` with the discovered job name:
+
+```sh
+noon run verify --json
+```
+
+This runs in the foreground. Inspect the exit code and run summary before
+claiming success. Resolve failures or report the blocker explicitly.
+If using `noon run verify --detach --json` instead, queue acceptance is not
+completion: the checkout must be enabled, shared jobs approved, and the scheduler
+running. Track the returned run ID with bounded log snapshots; do not substitute
+an older successful run or treat skipped/cancelled work as a passed check.
+Do not enable projects, approve jobs, or start services merely to bypass a blocker.
 
 ## Find the failure, then read it
 
