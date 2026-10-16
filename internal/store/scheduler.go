@@ -16,6 +16,13 @@ type EnabledProject struct {
 	Paused     map[string]bool
 }
 
+type ProjectRecord struct {
+	ID         int64
+	Path       string
+	Enabled    bool
+	ConfigFile sql.NullString
+}
+
 type PersistedJobState struct {
 	ProjectID   int64
 	Job         string
@@ -77,6 +84,28 @@ type SchedulerRecord struct {
 	Version       string
 	StartedAt     string
 	HeartbeatAt   string
+}
+
+// ProjectRecords lists every project ID so adapters can distinguish a disabled
+// known project from an unknown one.
+func (s *Store) ProjectRecords() ([]ProjectRecord, error) {
+	if !s.hasScheduler {
+		return nil, nil
+	}
+	rows, err := s.db.Query(`SELECT id, path, enabled, config_file FROM projects ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var projects []ProjectRecord
+	for rows.Next() {
+		var project ProjectRecord
+		if err := rows.Scan(&project.ID, &project.Path, &project.Enabled, &project.ConfigFile); err != nil {
+			return nil, err
+		}
+		projects = append(projects, project)
+	}
+	return projects, rows.Err()
 }
 
 // ReadSchedulerSnapshot returns a consistent view for reload and test setup.

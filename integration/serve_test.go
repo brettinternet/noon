@@ -1,8 +1,11 @@
 package integration
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +42,148 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Exit(code)
+}
+
+func TestServeListen(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	configHome := filepath.Join(root, "config")
+	stateHome := filepath.Join(root, "xdg-state")
+	stateDir := filepath.Join(root, "state")
+	for _, path := range []string{home, configHome, stateHome} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	environment := isolatedEnvironment(home, configHome, stateHome, stateDir)
+	command := exec.Command(noonBinary, "serve", "--listen", "127.0.0.1:0")
+	command.Dir, command.Env = home, environment
+	var stderr lockedBuffer
+	command.Stderr = &stderr
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	address := waitForListenerAddress(t, done, &stderr)
+	client := http.Client{Timeout: 500 * time.Millisecond}
+	waitForHTTPHealth(t, &client, address, done, &stderr)
+	response, err := client.Get("http://" + address + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var health struct {
+		Status string `json:"status"`
+	}
+	decodeErr := json.NewDecoder(response.Body).Decode(&health)
+	_ = response.Body.Close()
+	if decodeErr != nil || response.StatusCode != http.StatusOK || health.Status != "ok" {
+		t.Fatalf("health response: status=%d body=%+v err=%v", response.StatusCode, health, decodeErr)
+	}
+	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("listen serve exited with %v; stderr=%s", err, stderr.String())
+		}
+	case <-time.After(15 * time.Second):
+		_ = command.Process.Kill()
+		t.Fatal("serve with listener did not stop within 15s")
+	}
+	if connection, err := net.DialTimeout("tcp", address, 100*time.Millisecond); err == nil {
+		_ = connection.Close()
+		t.Fatal("webhook listener remained open after serve shutdown")
+	}
+
+	// A second instance without --listen runs the scheduler but emits no listener
+	// address and has no HTTP endpoint.
+	withoutListen := filepath.Join(root, "without-listen")
+	if err := os.MkdirAll(withoutListen, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	defaultState := filepath.Join(withoutListen, "state")
+	defaultEnvironment := isolatedEnvironment(filepath.Join(withoutListen, "home"), filepath.Join(withoutListen, "config"), filepath.Join(withoutListen, "xdg-state"), defaultState)
+	for _, path := range []string{filepath.Join(withoutListen, "home"), filepath.Join(withoutListen, "config"), filepath.Join(withoutListen, "xdg-state")} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defaultCommand := exec.Command(noonBinary, "serve")
+	defaultCommand.Dir, defaultCommand.Env = filepath.Join(withoutListen, "home"), defaultEnvironment
+	var defaultStderr lockedBuffer
+	defaultCommand.Stderr = &defaultStderr
+	if err := defaultCommand.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defaultDone := make(chan error, 1)
+	go func() { defaultDone <- defaultCommand.Wait() }()
+	waitForScheduler(t, defaultState, defaultDone, &defaultStderr)
+	if strings.Contains(defaultStderr.String(), "webhook listener") {
+		t.Fatalf("serve without --listen started a listener: %s", defaultStderr.String())
+	}
+	if err := defaultCommand.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-defaultDone:
+		if err != nil {
+			t.Fatalf("serve without listener exited with %v; stderr=%s", err, defaultStderr.String())
+		}
+	case <-time.After(15 * time.Second):
+		_ = defaultCommand.Process.Kill()
+		t.Fatal("serve without listener did not stop within 15s")
+	}
+}
+
+func waitForListenerAddress(t *testing.T, done <-chan error, stderr *lockedBuffer) string {
+	t.Helper()
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		for _, line := range strings.Split(stderr.String(), "\n") {
+			if _, address, ok := strings.Cut(line, "webhook listener listening address="); ok {
+				address = strings.TrimSpace(address)
+				if _, _, err := net.SplitHostPort(address); err == nil {
+					return address
+				}
+			}
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("serve exited before listener started: %v; stderr=%s", err, stderr.String())
+		case <-deadline.C:
+			t.Fatalf("timed out waiting for listener address; stderr=%s", stderr.String())
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForHTTPHealth(t *testing.T, client *http.Client, address string, done <-chan error, stderr *lockedBuffer) {
+	t.Helper()
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		response, err := client.Get("http://" + address + "/healthz")
+		if err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("serve exited before health became ready: %v; stderr=%s", err, stderr.String())
+		case <-deadline.C:
+			t.Fatalf("timed out waiting for /healthz; stderr=%s", stderr.String())
+		case <-ticker.C:
+		}
+	}
 }
 
 func TestServeProcess(t *testing.T) {

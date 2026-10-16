@@ -9,7 +9,7 @@ Python, Node, cloud service, or agent provider.
 **Status: foreground scheduling with explicit OS supervision.** Working today: project discovery,
 layered settings, non-destructive initialization, strict job validation, byte-preserving job add/remove,
 schedule parsing and previews, foreground command and agent-prompt execution, durable per-user run records and bounded
-logs, success/failure lifecycle hooks, queued one-shot runs with idempotency and cancellation, Git and agent triggers with durable event payloads, cooldowns, and recursion guards, explicit project opt-in and shared-job
+logs, success/failure lifecycle hooks, queued one-shot runs with idempotency and cancellation, Git and agent triggers with durable event payloads, signed webhooks, cooldowns, and recursion guards, explicit project opt-in and shared-job
 approvals, pausing and resuming background jobs, `noon serve` for enabled schedules, `noon service install` for a per-user launchd or
 systemd service, read-only run history and log inspection, a project dashboard, read-only setup diagnostics,
 stdio MCP tools, and development tooling. Cron import is implemented as a preview-first conversion to
@@ -34,7 +34,8 @@ crontab -l | bin/noon import crontab - --write # add imported jobs to .noon.yaml
 bin/noon pause tests     # stop background dispatch
 bin/noon resume tests    # resume from now, without catch-up
 bin/noon enable          # explicitly approve this checkout for scheduled runs
-bin/noon serve           # foreground scheduler; stop with Ctrl-C or SIGTERM
+bin/noon serve           # foreground scheduler; no listener; stop with Ctrl-C or SIGTERM
+bin/noon serve --listen 127.0.0.1:8787 # opt in to signed webhook HTTP
 bin/noon service install # explicitly install the per-user launchd/systemd service
 bin/noon service         # inspect service and scheduler heartbeat
 bin/noon run             # list runnable jobs; starts nothing
@@ -126,8 +127,9 @@ failures. Inspect it with `noon service`; remove the unit with `noon service uni
 keeping state and history. See [Service](docs/service.md) for logs, upgrades, and Linux lingering.
 
 `noon enable` opts in this canonical checkout and approves its current shared job
- definitions. It starts nothing; schedules run only while `noon serve` is running, directly or
- under the explicitly installed per-user service.
+definitions. It starts nothing; schedules run only while `noon serve` is running, directly or
+under the explicitly installed per-user service. `noon serve` starts no HTTP listener unless
+`--listen ADDR` is given; see [Webhooks](docs/webhooks.md) for signed webhook setup.
 `noon disable` revokes opt-in and approvals, cancels queued runs, and keeps run history.
 Changed shared definitions show `needs approval`; rerun `noon enable` after review. When the
 scheduler is offline, `noon enable` suggests `noon service install` when no service is installed.
@@ -180,9 +182,9 @@ Implemented foundations and planned extensions ([design](docs/design.md), [decis
 - Nothing from a repository runs unattended until you `noon enable` that
   checkout, and changed shared jobs wait for re-approval.
 - After sleep, a missed job runs once, never in a burst.
-- MCP's local stdio tools use the shared app operations. Lifecycle hooks and inbound Git/agent
-  triggers run through the shared execution path; signed webhooks and a TUI remain planned
-  integrations. Commands are the integration boundary: no plugin system.
+- MCP's local stdio tools use the shared app operations. Lifecycle hooks, inbound Git/agent
+  triggers, and signed webhooks run through the shared execution path; the TUI remains planned.
+  Commands are the integration boundary: no plugin system.
 
 ## Docker
 
@@ -201,6 +203,7 @@ shutdown, child reaping, offline timezones, and history persistence. See [Docker
 - [Configuration](docs/configuration.md): implemented sources, paths, precedence.
 - [Lifecycle hooks](docs/hooks.md): command examples, execution and safety contract.
 - [Triggers](docs/triggers.md): Git and agent hook examples with durable JSON event payloads.
+- [Webhooks](docs/webhooks.md): signed GitHub webhooks, listener setup, TLS proxying, and Docker publishing.
 - [Service](docs/service.md): install, inspect, logs, upgrades, uninstall, and Linux lingering.
 - [Design](docs/design.md): CLI, scheduler, jobs, events, MCP, security.
 - [Development](docs/development.md): tooling, tests, commits, contribution workflow.

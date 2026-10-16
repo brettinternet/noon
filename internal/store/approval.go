@@ -8,6 +8,7 @@ import (
 
 // ProjectApproval is a consistent snapshot of a checkout's opt-in and approvals.
 type ProjectApproval struct {
+	ID         int64
 	Enabled    bool
 	EnabledAt  sql.NullString
 	ConfigFile sql.NullString
@@ -20,7 +21,7 @@ func (s *Store) ApprovalForProject(path string) (ProjectApproval, error) {
 	if !s.hasApprovals {
 		return result, nil
 	}
-	rows, err := s.db.Query(`SELECT p.enabled, p.enabled_at, p.config_file, a.job, a.digest
+	rows, err := s.db.Query(`SELECT p.id, p.enabled, p.enabled_at, p.config_file, a.job, a.digest
  FROM projects p LEFT JOIN approvals a ON a.project_id=p.id WHERE p.path=?`, path)
 	if err != nil {
 		return result, err
@@ -28,7 +29,7 @@ func (s *Store) ApprovalForProject(path string) (ProjectApproval, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var job, digest sql.NullString
-		if err := rows.Scan(&result.Enabled, &result.EnabledAt, &result.ConfigFile, &job, &digest); err != nil {
+		if err := rows.Scan(&result.ID, &result.Enabled, &result.EnabledAt, &result.ConfigFile, &job, &digest); err != nil {
 			return result, err
 		}
 		if job.Valid {

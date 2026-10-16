@@ -24,6 +24,9 @@ var serveTestStart = time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 
 type serveFixture struct {
 	root, project, stateDir, userConfig string
+	stateDirDefault                     string
+	listenAddr                          string
+	environment                         []string
 	logger                              io.Writer
 	clock                               atomic.Int64
 	ticks                               chan time.Time
@@ -373,11 +376,19 @@ func (f *serveFixture) start(t *testing.T) {
 	if logger == nil {
 		logger = io.Discard
 	}
+	environment := f.environment
+	if environment == nil {
+		environment = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + f.root}
+	}
+	stateDirDefault := f.stateDirDefault
+	if stateDirDefault == "" {
+		stateDirDefault = f.stateDir
+	}
 	go func() {
 		f.done <- Serve(ctx, ServeOptions{
-			StateDir: f.stateDir, StateDirDefault: f.stateDir, UserConfigDir: f.userConfig, Version: "test",
-			Environment: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + f.root},
-			Now:         func() time.Time { return time.Unix(0, f.clock.Load()).UTC() }, Ticks: f.ticks,
+			StateDir: f.stateDir, StateDirDefault: stateDirDefault, UserConfigDir: f.userConfig, Version: "test",
+			Environment: environment, ListenAddr: f.listenAddr,
+			Now: func() time.Time { return time.Unix(0, f.clock.Load()).UTC() }, Ticks: f.ticks,
 			KillGrace: 20 * time.Millisecond, Logger: logger, IgnoreSignals: true, OnTick: func() { f.ack <- struct{}{} },
 		})
 	}()

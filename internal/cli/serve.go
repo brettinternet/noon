@@ -26,6 +26,13 @@ func serveAction(version string) func(context.Context, *urfave.Command) error {
 		if cmd.IsSet("json") {
 			return usageError("serve does not support --json or NOON_JSON", "Run noon status to inspect scheduler state")
 		}
+		listenAddr := ""
+		if cmd.IsSet("listen") {
+			listenAddr = cmd.String("listen")
+			if strings.TrimSpace(listenAddr) == "" {
+				return usageError("--listen must not be empty", "Use --listen ADDR to start a signed webhook listener")
+			}
+		}
 		for _, name := range []string{"NOON_PROJECT", "NOON_CONFIG", "NOON_TIMEZONE", "NOON_JSON"} {
 			if _, exists := os.LookupEnv(name); exists {
 				return usageError("serve does not accept "+name, "Use the project and config selection recorded by noon enable")
@@ -41,7 +48,7 @@ func serveAction(version string) func(context.Context, *urfave.Command) error {
 		}
 		options := scheduler.ServeOptions{
 			StateDir: stateDir, StateDirDefault: values.StateDirDefault,
-			UserConfigDir: values.UserConfigDir, Version: version, Environment: os.Environ(), Logger: cmd.ErrWriter,
+			UserConfigDir: values.UserConfigDir, Version: version, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: listenAddr,
 		}
 		if err := scheduler.Serve(ctx, options); err != nil {
 			var running *scheduler.SchedulerRunningError

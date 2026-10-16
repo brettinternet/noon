@@ -53,7 +53,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			}, Action: runLogs},
 			{Name: "enable", Usage: "Enable this checkout and approve current shared job definitions", Action: enableProject},
 			{Name: "disable", Usage: "Disable this checkout and revoke approvals; keep history", Action: disableProject},
-			{Name: "serve", Usage: "Serve enabled project schedules in the foreground until stopped", Action: serveAction(build.Version)},
+			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks with --listen", Flags: []urfave.Flag{
+				&urfave.StringFlag{Name: "listen", Usage: "Listen for signed webhooks at ADDR; no listener starts without this flag"},
+			}, Action: serveAction(build.Version)},
 			{Name: "mcp", Usage: "Serve MCP tools over stdio", Action: mcpCommand(build.Version)},
 			{Name: "service", Usage: "Inspect or manage the per-user scheduler service", Action: serviceStatus, Commands: []*urfave.Command{
 				{Name: "install", Usage: "Install and start the per-user scheduler service", Flags: []urfave.Flag{

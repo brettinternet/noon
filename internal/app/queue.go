@@ -33,9 +33,13 @@ type QueuedRun struct {
 }
 
 type QueueOptions struct {
-	EventData   []byte
-	EventSource string
+	EventData    []byte
+	EventSource  string
+	EventHeaders map[string]string
+	Trigger      string
 }
+
+const MaxWebhookBodyBytes = store.MaxWebhookBodyBytes
 
 // QueueRun is the shared client operation for durable one-shot requests.
 func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc func() time.Time, coalesce bool, requestedBy string, queueOptions ...QueueOptions) (QueuedRun, error) {
@@ -49,7 +53,11 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 	if err := CheckRecursion(cfg.Project, name, os.Environ()); err != nil {
 		return QueuedRun{}, err
 	}
-	if len(options.EventData) > 0 {
+	if options.EventSource == "webhook" {
+		if len(options.EventData) > MaxWebhookBodyBytes {
+			return QueuedRun{}, UsageError("webhook body must be at most 1 MiB", "Send a smaller request body")
+		}
+	} else if len(options.EventData) > 0 {
 		if err := ValidateEventData(options.EventData); err != nil {
 			return QueuedRun{}, err
 		}
@@ -66,10 +74,10 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 	job, exists := cfg.Jobs[name]
 	result, err := state.QueueRun(store.QueueRunInput{
 		ProjectID: projectID, Job: name, Digest: job.Digest, IdempotencyKey: key,
-		RequestedBy: requestedBy, DueAt: dueAt, Now: now, NowFunc: nowFunc,
+		RequestedBy: requestedBy, Trigger: options.Trigger, DueAt: dueAt, Now: now, NowFunc: nowFunc,
 		JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared,
 		Coalesce: coalesce, Cooldown: job.Cooldown, Depth: RequestDepth(os.Environ()),
-		EventData: options.EventData, EventSource: options.EventSource,
+		EventData: options.EventData, EventSource: options.EventSource, EventHeaders: options.EventHeaders,
 	})
 	if err != nil {
 		switch {
@@ -79,6 +87,8 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 			err = &QueueError{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: "Run noon run to list jobs"}
 		case errors.Is(err, store.ErrJobDisabled):
 			err = &QueueError{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
+		case errors.Is(err, store.ErrJobPaused):
+			err = &QueueError{Code: "paused", Message: fmt.Sprintf("job %q is paused", name)}
 		case errors.Is(err, store.ErrNeedsApproval):
 			err = &QueueError{Code: "needs_approval", Message: fmt.Sprintf("job %q needs approval", name), Hint: "Run noon enable"}
 		}
