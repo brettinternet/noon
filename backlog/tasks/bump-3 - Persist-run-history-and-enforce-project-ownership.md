@@ -1,10 +1,11 @@
 ---
 id: BUMP-3
 title: Record runs in the per-user state store
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@pi'
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 03:55'
 labels:
   - store
   - runner
@@ -81,18 +82,46 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestStore|TestRecovery)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
-- [ ] #2 `task cli:test -- -run '^TestRunRecordsHistory$' -count=1 -v` exits 0 with sequential runs recorded, a concurrent same-job run refused as `already_running`, and no new files in the project
-- [ ] #3 `task cli:build && bump_ac_home=$(mktemp -d) && env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump --json config` exits 0 and reports `state_dir` as `$bump_ac_home/.local/state/bump`, and that directory does not exist afterwards
-- [ ] #4 `task cli:build && bump_ac_home=$(mktemp -d) && bump_ac_project=$(mktemp -d) && printf 'state_dir: /tmp/x\n' > "$bump_ac_project/bump.yaml" && env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump -C "$bump_ac_project" config check; echo "exit=$?"` names the user config as the allowed location and prints `exit=1`
-- [ ] #5 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/bump` exits 0
+- [x] #1 `task cli:test -- -run '^(TestStore|TestRecovery)$' -count=1 -v` exits 0 and prints `--- PASS` for both, covering every case listed under Tests
+- [x] #2 `task cli:test -- -run '^TestRunRecordsHistory$' -count=1 -v` exits 0 with sequential runs recorded, a concurrent same-job run refused as `already_running`, and no new files in the project
+- [x] #3 `task cli:build && bump_ac_home=$(mktemp -d) && env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump --json config` exits 0 and reports `state_dir` as `$bump_ac_home/.local/state/bump`, and that directory does not exist afterwards
+- [x] #4 `task cli:build && bump_ac_home=$(mktemp -d) && bump_ac_project=$(mktemp -d) && printf 'state_dir: /tmp/x\n' > "$bump_ac_project/bump.yaml" && env -i PATH="$PATH" HOME="$bump_ac_home" bin/bump -C "$bump_ac_project" config check; echo "exit=$?"` names the user config as the allowed location and prints `exit=1`
+- [x] #5 `CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/bump` exits 0
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Implement per-user configuration and SQLite store, bounded logs, safe process identity recovery, and retention.
+2. Integrate foreground runs and environment, update implemented-behavior documentation.
+3. Add critical regression tests, run every acceptance command and task ci, obtain one independent risk-focused review.
+4. Commit implementation, merge locally, finalize provider evidence, and remove the owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: task cli:test -- -run '^(TestStore|TestRecovery)$' -count=1 -v -> exit 0, both PASS, all specified store/recovery cases plus cleanup retry and zombie owner regressions.
+AC#2: task cli:test -- -run '^TestRunRecordsHistory$' -count=1 -v -> exit 0, PASS; records/logs, concurrent refusal, unchanged project.
+AC#3: exact task command (task cli:build followed by isolated HOME bin/bump --json config) -> exit 0, HOME/.local/state/bump reported; extra assertion confirms directory absent.
+AC#4: exact task command (task cli:build, temporary project state_dir configuration, isolated HOME config check) -> allowed user config path named and exit=1 printed.
+AC#5: CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/bump -> exit 0; Linux cross-build also passed.
+Independent review found terminal-failure log truncation, forgotten cleanup references, and zombie owners blocking recovery. All three corrected with focused regressions. task ci passed after corrections and again on implementation commit 05865711bd77c2b1cfc0836b680213fa15221dc9. Store LSP diagnostics clean. No tests deleted, skipped, or weakened.
+Dependencies: task-approved modernc.org/sqlite is maintained pure-Go SQLite instead of CGO or an ORM; golang.org/x/sys exposes Darwin process identities. CGO_ENABLED=0 verified. All paths within modified-file contract; design already matches settled behavior and docs/help updated.
+Delivery: 0586571 fast-forward merged into main. Owned worktree and branch bump-3-run-store removed with Worktrunk; exact Herdr workspace wBT removal verified. No push. No blocker or remaining implementation step.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Durable per-user SQLite foreground history, bounded logs, exclusion, safe crash recovery and retention implemented in 0586571 and merged locally. All five acceptance checks and CI pass; three independent review findings fixed and regression-tested. Owned worktree and workspace removed.
+<!-- SECTION:FINAL_SUMMARY:END -->
