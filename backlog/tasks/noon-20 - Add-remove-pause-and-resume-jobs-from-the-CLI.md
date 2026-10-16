@@ -1,10 +1,10 @@
 ---
 id: NOON-20
 title: 'Add, remove, pause, and resume jobs from the CLI'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-16 13:18'
 labels:
   - config
   - cli
@@ -76,15 +76,41 @@ Modified-file contract: the modified_files list plus this task's Backlog record.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^(TestEditJobs|TestAddJobs|TestPauseResume)$' -count=1 -v` exits 0 and prints `--- PASS` for all three, covering every case listed under Tests
-- [ ] #2 In one shell: `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && git -C "$noon_ac_project" init -q && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" add tests "every day at 2am" -- go test ./...` exits 0 and prints the normalized schedule `every day at 02:00` with a next run time; repeating the same command exits 1 with `exists`; `env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" add bad "every day" -- true; echo "exit=$?"` prints a suggestion containing `every day at 9am` and `exit=2`
+- [x] #1 `task cli:test -- -run '^(TestEditJobs|TestAddJobs|TestPauseResume)$' -count=1 -v` exits 0 and prints `--- PASS` for all three, covering every case listed under Tests
+- [x] #2 In one shell: `task cli:build && noon_ac_home=$(mktemp -d) && noon_ac_project=$(mktemp -d) && git -C "$noon_ac_project" init -q && env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" add tests "every day at 2am" -- go test ./...` exits 0 and prints the normalized schedule `every day at 02:00` with a next run time; repeating the same command exits 1 with `exists`; `env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon -C "$noon_ac_project" add bad "every day" -- true; echo "exit=$?"` prints a suggestion containing `every day at 9am` and `exit=2`
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Implement byte-preserving config job editing and validation using existing config patterns. 2. Add transactional selective enable and pause/resume store operations, integrate scheduler and inspection. 3. Add CLI operations, output and docs. 4. Add specified critical regression tests after implementation; execute acceptance commands and task ci. 5. Review item-scoped defects once, commit, merge main, record completion and remove owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+User approved narrow empty-file exception: AddJob on empty input writes version: 1; removing the sole added job retains version: 1 plus newline. All other round-trip fixtures remain byte-exact; no hidden marker. User also authorized reacquiring the expired claim after both executor processes were confirmed stopped and no conflicting owner existed; continuing the same owned worktree.
+
+One independent general review completed: five concrete findings (shadowed raw-definition integrity, argv delimiter parsing, mixed-newline preservation, shared approval under local override, JSON success output). Reproductions confirmed; bounded correction pass is in progress. No second general review planned. Initial AC commands passed, but completion awaits corrections and rerun.
+
+AC#1: task cli:test -- -run '^(TestEditJobs|TestAddJobs|TestPauseResume)$' -count=1 -v -> exit 0; all three named tests PASS, including requested fixture/action/approval and injected-clock pause/resume cases plus five review regressions. AC#2: exact task cli:build and isolated HOME/project shell sequence (saved /tmp/noon-20-acceptance.sh) -> first add exit 0, every day at 02:00 with next Sat 02:00; repeat exit 1 with already exists; invalid every day suggests every day at 9am and exit=2. All five review findings corrected and reproduction rerun passed. LSP clean for config/edit.go and cli/manage.go; git diff --check clean. Existing migration 5 already implements queued requests, so pauses append migration 6 (never rewrite applied migrations). Empty-file validation expectation was replaced with positive empty-file coverage as explicitly required by this task; all invalid-YAML cases remain. All modified paths remain within contract. No dependencies added.
+
+Delivery: implementation commit 3aef02a68b1d9334c1d30d3c3769ba338dfbdf9d passed task ci on the committed tree (security/vulnerability scans, gofmt/vet/staticcheck, tests, race, build and smoke). Fast-forward merged into main. Worktrunk removed owned noon-20 worktree and branch; Herdr workspace wCA confirmed absent afterward. No retained task worktrees, no push, no unresolved blocker or resumable implementation step. Existing tests retained with schema-version expectations advanced and empty-input behavior explicitly updated to the required contract; none skipped or weakened to bypass a failure. Docs and help describe implemented behavior.
+
+Final integrated main validation: task ci passed at b1391c6. First main run hit an unchanged runner test timeout waiting for a grandchild PID; its focused test passed five consecutive runs, and the full gate passed unchanged on retry. No test changes were made for this transient failure.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented byte-preserving add/remove and transactional pause/resume with selective shared approval, safe config verification, and human/JSON CLI output. Both AC commands and task ci pass; five independent review findings fixed with regression coverage. Merged locally as 3aef02a; owned worktree, branch, and workspace removed.
+<!-- SECTION:FINAL_SUMMARY:END -->
