@@ -4,10 +4,11 @@ title: Support project-entry shell hooks and shell completion
 status: Done
 assignee: []
 created_date: '2026-10-16 19:19'
-updated_date: '2026-10-16 20:53'
+updated_date: '2026-10-16 20:54'
 labels:
   - shell
   - integration
+  - reviewed
 dependencies:
   - NOON-7
   - NOON-18
@@ -101,6 +102,8 @@ Verification: task ci -> exit 0 (security, formatting/vet/staticcheck, full test
 One scoped independent reviewer pass completed. Its Fish newline-path finding was reproduced, fixed and regression-covered. Follow-up real PTY Bash/Zsh probes confirmed quoted path candidates with spaces/apostrophes/metacharacters; Bash quote retention was corrected with non-evaluating completion-only quote removal and regression coverage. No remaining validated item-scoped defects. Next: commit implementation, integrate current main, rerun final checks, finalize record, remove owned worktree and release Worklease.
 
 Delivery: implementation commit 0c0114969a3ca3260e9ad39888e9159ccff22106 merged into current main as befed898281e2018218a60603f49ce11130021a5, preserving concurrent unrelated work. task ci and task shell:smoke both passed again on the integrated source commit. Owned worktree/branch feat/noon-30-shell removed with Worktrunk after verifying the session creation receipt; its exact Herdr workspace wDM was inspected and confirmed removed by the hook. Unrelated feat/tui-design worktree/workspace preserved. No push performed. No blocker or remaining implementation step; final administrative commit and claim release only.
+
+Post-merge review of implementation 0c01149 integrated in befed89: no actionable defects found. Inspected canonical discovery/token transitions, recorded enabled configuration selection, inherited override isolation without disabling recursion checks, transactional pause/approval/enablement checks before cooldown/coalescing, event JSON and shell quoting, idempotent hook installation/removal and exit-status preservation, and read-only position-aware completion. Reviewed focused and real-shell regressions. Verification: task cli:test -- -run '^(TestShellEntry|TestShellCompletion)$' -count=1 -v passed; task shell:smoke passed for Bash/Zsh/Fish with a temporary PATH shim to the existing Fish 4.9.3 executable (default mise fish shim is unresolved; initial unmodified invocation failed actionably). CGO_ENABLED=0 mise exec go -- go build -o /dev/null ./cmd/noon passed; shell --help under env -i with isolated HOME passed and documents completion-only and optional entry setup. No source changes, no new dependencies, no global shell/tool configuration changes. This review reran focused acceptance checks, not full CI.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
