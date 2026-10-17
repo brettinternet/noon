@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
+# Worktree lifecycle jobs. Worktrunk's hooks (wt.toml) run them in the foreground and wait.
+version: 1
+
+jobs:
+  setup:
+    description: Prepare this worktree, including its own database. Worktrunk's pre-start hook runs it.
+    run: [./scripts/worktree.sh, setup]
+    timeout: 10m
+
+  teardown:
+    description: Remove this worktree's database container and volume before Worktrunk deletes the directory.
+    run: [./scripts/worktree.sh, teardown]
+    timeout: 2m

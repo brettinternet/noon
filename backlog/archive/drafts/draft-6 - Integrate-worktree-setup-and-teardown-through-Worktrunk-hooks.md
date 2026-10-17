@@ -4,6 +4,7 @@ title: Integrate worktree setup and teardown through Worktrunk hooks
 status: Draft
 assignee: []
 created_date: '2026-10-16 19:20'
+updated_date: '2026-10-17 17:37'
 labels:
   - integration
   - worktrees
@@ -38,3 +39,9 @@ Acceptance direction when promoted: disposable owned worktrees demonstrate that 
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Resolved as an example: examples/integrations/worktrunk runs foreground noon run setup/teardown from Worktrunk pre-start/pre-remove hooks with a per-worktree Compose database. Verified with Worktrunk 0.80.0: failing pre-start leaves the worktree and exits nonzero; failing pre-remove blocks removal.
+<!-- SECTION:NOTES:END -->

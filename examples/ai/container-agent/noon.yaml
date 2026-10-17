@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
+# An editing agent whose process can't see your checkout, home directory, or credentials.
+version: 1
+
+jobs:
+  todo-sweep:
+    description: Weekly agent pass that resolves one TODO in a container and commits it on a branch.
+    schedule: every monday at 7am
+    run: [./scripts/container-agent.sh, prompts/todo-sweep.md, todo-sweep]
+    env:
+      AGENT_IMAGE: noon-codex-agent
+      # The container is the sandbox, so Codex's own sandbox is off. Never run this on the host.
+      AGENT_CMD: codex exec --sandbox danger-full-access --skip-git-repo-check -
+      AGENT_ENV: CODEX_API_KEY   # names only; values come from the scheduler's environment
+      CHECK_CMD: make check
+    timeout: 45m
+    missed: skip

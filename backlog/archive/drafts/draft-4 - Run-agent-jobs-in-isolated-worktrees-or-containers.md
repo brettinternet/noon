@@ -4,7 +4,7 @@ title: Run agent jobs in isolated worktrees or containers
 status: Draft
 assignee: []
 created_date: '2026-10-16 01:43'
-updated_date: '2026-10-16 02:03'
+updated_date: '2026-10-17 17:37'
 labels:
   - runner
   - security
@@ -31,3 +31,9 @@ Open questions: compose with `wt switch --create` inside a job's command vs. a n
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Resolved as an example, not a feature: examples/ai/container-agent composes wt switch --create with a Docker sandbox (worktree-only mount, read-only .git pointer, scoped credentials, hook-free commit). A native worktree or container field would contradict the design non-goals (Noon never creates worktrees; no container per job).
+<!-- SECTION:NOTES:END -->

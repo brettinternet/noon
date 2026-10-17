@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
+# Jobs a file watcher requests after edits. Noon runs and records them; scripts/watch.sh decides when.
+version: 1
+
+jobs:
+  test:
+    description: Go tests. scripts/watch.sh re-runs them in your terminal after Go files change.
+    run: [go, test, ./...]
+    timeout: 10m
+
+  vet:
+    description: go vet after edits, queued for the scheduler. A burst of saves becomes one run.
+    run: [go, vet, ./...]
+    timeout: 5m

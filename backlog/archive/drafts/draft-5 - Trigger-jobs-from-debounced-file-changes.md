@@ -4,6 +4,7 @@ title: Trigger jobs from debounced file changes
 status: Draft
 assignee: []
 created_date: '2026-10-16 19:20'
+updated_date: '2026-10-17 17:37'
 labels:
   - integration
   - watching
@@ -38,3 +39,9 @@ Acceptance direction when promoted: real isolated file writes/renames produce on
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Resolved as an example, not a feature: examples/local-dev/file-watch composes watchexec with noon run (foreground, --on-busy-update queue) or noon run --detach (joins the waiting run). The design keeps no fsnotify in Noon. Per-event payload delivery is NOON-48.
+<!-- SECTION:NOTES:END -->

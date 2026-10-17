@@ -314,8 +314,10 @@ No plugin system; commands are the integration boundary (decision-4).
 - **Crontab import** ([doc](crontab.md)): preview by default; unsupported features fail with line
   numbers.
 - Outbound HTTP is a command (`run: [curl, -fsS, …]`), not a built-in action.
-- Drafts, not commitments: a bearer-token remote API and MCP over Streamable HTTP on the same
-  listener, attachable tmux/Herdr sessions, user-scope jobs, isolated worktree or container runs.
+- Not implemented: a bearer-token remote API and MCP over Streamable HTTP on the same listener,
+  and user-scope jobs, are planned; attachable tmux/Herdr sessions are a draft. File watching,
+  worktree lifecycles, and container-isolated agents compose existing tools instead (see
+  `examples/local-dev/file-watch`, `examples/integrations/worktrunk`, `examples/ai/container-agent`).
 
 Revisit plugins only when two real integrations need something commands, hooks, and agent profiles
 can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSON over Go plugins.

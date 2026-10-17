@@ -37,6 +37,7 @@ is validated by `integration/examples_test.go`.
 | [db-backups](local-dev/db-backups/) | intermediate | Postgres/SQLite backups, retention, weekly restore drills, catch-up after sleep |
 | [git-hooks](local-dev/git-hooks/) | intermediate | post-commit/merge/checkout queueing, idempotency keys, event payloads |
 | [shell-entry](local-dev/shell-entry/) | intermediate | a check-in job when you `cd` into a project, with failure notifications |
+| [file-watch](local-dev/file-watch/) | intermediate | watchexec re-running jobs after edits: foreground vs `--detach`, never losing the last save |
 | [pipelines](local-dev/pipelines/) | advanced | build → test → package chained by `on_success` hooks; recursion depth |
 
 ## AI workflows
@@ -50,6 +51,7 @@ is validated by `integration/examples_test.go`.
 | [verify-loop](ai/verify-loop/) | intermediate → advanced | agent-facing descriptions, MCP, Claude/Codex `Stop` hooks, a blocking completion gate |
 | [failure-triage](ai/failure-triage/) | advanced | `on_failure` queues an agent that diagnoses the failed run's log |
 | [background-agents](ai/background-agents/) | advanced | editing agents in throwaway worktrees: weekly dependency upgrades and a task inbox |
+| [container-agent](ai/container-agent/) | advanced | an editing agent sandboxed in Docker: sees one worktree, scoped credentials, commits without hooks |
 | [pr-review](ai/pr-review/) | advanced | signed GitHub webhooks → AI PR review and issue triage, side effects opt-in |
 
 ## Integrations
@@ -58,6 +60,7 @@ is validated by `integration/examples_test.go`.
 | --- | --- | --- |
 | [notifications](integrations/notifications/) | beginner → intermediate | desktop, ntfy, and Slack hooks; per-job opt-out; recovery alerts |
 | [docker-agent](integrations/docker-agent/) | advanced | agent jobs in Docker with mounted user config, secrets, and a writable reports volume |
+| [worktrunk](integrations/worktrunk/) | intermediate | Worktrunk hooks running `noon run` to set up and tear down a database per worktree |
 | [compose.yaml](compose.yaml) | intermediate | minimal production Compose service ([Docker](../docs/docker.md)) |
 | [jobs.yaml](jobs.yaml) | reference | every job field in one file ([Configuration](../docs/configuration.md#jobs)) |
 

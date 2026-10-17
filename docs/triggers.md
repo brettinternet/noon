@@ -102,6 +102,17 @@ Vendor formats checked 2026-10-16 against the
 `noon shell init bash --on-enter JOB` queues a job when you `cd` into the project. See
 [Shell setup](shell.md).
 
+## File changes
+
+Noon doesn't watch files. Run a watcher yourself and let it call Noon:
+
+```sh
+watchexec -n --postpone --exts go --debounce 1s --on-busy-update queue -- noon run tests
+```
+
+[examples/local-dev/file-watch](../examples/local-dev/file-watch/) compares this foreground form
+with `--detach` and covers trigger loops.
+
 ## Recursion guard
 
 A job that queues a job that queues a job is bounded. Each run stores the caller's `NOON_DEPTH`;

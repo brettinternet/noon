@@ -17,7 +17,8 @@ Every run:
 5. pushes and opens a draft PR only when `OPEN_PR=1`.
 
 The wrapper applies agent edits in the new worktree; this is not a security boundary for
-custom agents, repository hooks, or check commands. Review results with `git log agent/deps-upgrade-...` or
+custom agents, repository hooks, or check commands; [container-agent](../container-agent/) adds
+one. Review results with `git log agent/deps-upgrade-...` or
 `noon logs deps-upgrade`.
 
 ```sh

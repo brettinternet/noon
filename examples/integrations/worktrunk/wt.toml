@@ -1,0 +1,10 @@
+# Copy to .config/wt.toml. Worktrunk asks you to approve project hooks on first use.
+# pre-* hooks block: if setup fails, `wt switch --create` exits nonzero before any --execute
+# command or post-start hook (the new worktree stays), and if teardown fails, `wt remove` stops
+# before deleting anything.
+
+[pre-start]
+setup = "noon run setup"
+
+[pre-remove]
+teardown = "noon run teardown"
