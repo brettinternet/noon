@@ -151,7 +151,12 @@ Homebrew executable with `task release:smoke BINARY="$(brew --prefix brettintern
 Formula creation and tap publication remain separate from the Noon release workflow.
 
 Release CI installs both `latest` and the pinned version on all four native platforms using fresh
-mise cache/data/state directories. It sets `MISE_MINIMUM_RELEASE_AGE=0` only for this immediate
+mise cache/data/state directories, isolated HOME/config, and an empty inherited environment.
+The check invokes the mise binary by absolute path with only system tools on PATH: never retain
+mise shims or personal tool configuration when changing mise's data directory. Otherwise credential
+commands such as `gh auth token` and gem discovery can re-enter mise through shims recursively.
+Do not run these checks with only cache/data/state overrides in a normal developer shell.
+CI sets `MISE_MINIMUM_RELEASE_AGE=0` only for this immediate
 post-publication check; normal installations retain the user's release-age policy. A newly published
 release may therefore require an explicit version until that policy's waiting period passes.
 
