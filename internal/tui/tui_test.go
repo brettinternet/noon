@@ -13,6 +13,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/cli"
 	"github.com/brettinternet/noon/internal/config"
@@ -128,7 +130,7 @@ func TestTUIModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := model.View().Content
+	content := screen(model)
 	for _, expected := range []string{"hooked", "long", "orphan", "review", "tests", "zlive", "needs approval", "noon enable", "scheduler offline"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("initial view missing %q:\n%s", expected, content)
@@ -141,67 +143,67 @@ func TestTUIModel(t *testing.T) {
 
 	// Selection, rendering, history filtering, and log reads must be read-only.
 	model = press(t, model, "enter")
-	if !strings.Contains(model.View().Content, "Runs for hooked") || !strings.Contains(model.View().Content, "status: all") {
-		t.Fatalf("all-status run view:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "jobs › hooked") || !strings.Contains(screen(model), "all runs") {
+		t.Fatalf("all-status run view:\n%s", screen(model))
 	}
 	model = press(t, model, "f")
-	if !strings.Contains(model.View().Content, "failed,timed_out,interrupted") {
-		t.Fatalf("failure status filter view:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "failed, timed out, or interrupted runs") {
+		t.Fatalf("failure status filter view:\n%s", screen(model))
 	}
 	model = press(t, model, "f")
-	if !strings.Contains(model.View().Content, "status: running,queued") {
-		t.Fatalf("queued/running status filter not shown:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "running or queued runs") {
+		t.Fatalf("queued/running status filter not shown:\n%s", screen(model))
 	}
 	model = press(t, model, "f")
-	if !strings.Contains(model.View().Content, "status: all") {
-		t.Fatalf("all status filter not restored:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "all runs") {
+		t.Fatalf("all status filter not restored:\n%s", screen(model))
 	}
 	model = press(t, model, "esc")
 	model = press(t, model, "j")
 	model = press(t, model, "down")
 	model = press(t, model, "k")
 	model = press(t, model, "enter")
-	if !strings.Contains(model.View().Content, "Runs for long") {
-		t.Fatalf("enter did not open selected job history:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "jobs › long") {
+		t.Fatalf("enter did not open selected job history:\n%s", screen(model))
 	}
 	model = press(t, model, "esc")
 	model = press(t, model, "l")
-	content = model.View().Content
-	if !strings.Contains(content, "Run 1 · succeeded") || !strings.Contains(content, "line-1200") || strings.Contains(content, "line-0001") {
+	content = screen(model)
+	if !strings.Contains(content, "long › run 1") || !strings.Contains(content, "✓ succeeded") || !strings.Contains(content, "line-1200") || strings.Contains(content, "line-0001") {
 		t.Fatalf("log did not open on the last screenful:\n%s", content)
 	}
 	model = press(t, model, "g")
-	if !strings.Contains(model.View().Content, "line-0001") {
-		t.Fatalf("g did not jump to the beginning of the log:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "line-0001") {
+		t.Fatalf("g did not jump to the beginning of the log:\n%s", screen(model))
 	}
 	model = refreshOnce(t, model)
 	model = refreshOnce(t, model)
-	if content := model.View().Content; !strings.Contains(content, "line-0001") || strings.Contains(content, "line-1200") {
+	if content := screen(model); !strings.Contains(content, "line-0001") || strings.Contains(content, "line-1200") {
 		t.Fatalf("refresh after g autoscrolled away from the first page:\n%s", content)
 	}
-	for range 1400 {
+	for range 3000 {
 		model = press(t, model, "j")
 	}
-	if !strings.Contains(model.View().Content, "line-1200") {
-		t.Fatalf("scrolling after g could not reach the completed log's later page:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "line-1200") {
+		t.Fatalf("scrolling after g could not reach the completed log's later page:\n%s", screen(model))
 	}
 	model = press(t, model, "G")
-	if !strings.Contains(model.View().Content, "line-1200") {
-		t.Fatalf("G did not jump to the end of the log:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "line-1200") {
+		t.Fatalf("G did not jump to the end of the log:\n%s", screen(model))
 	}
 	model = press(t, model, "/")
 	model = typeText(t, model, "line-0042")
 	model = press(t, model, "enter")
-	if !strings.Contains(model.View().Content, "42:line-0042") {
-		t.Fatalf("log search did not preserve the file line number:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "42:line-0042") {
+		t.Fatalf("log search did not preserve the file line number:\n%s", screen(model))
 	}
 	model = press(t, model, "esc")
-	if !strings.Contains(model.View().Content, "line-1200") || strings.Contains(model.View().Content, "42:line-0042") {
-		t.Fatalf("escape did not return to the log tail:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "line-1200") || strings.Contains(screen(model), "42:line-0042") {
+		t.Fatalf("escape did not return to the log tail:\n%s", screen(model))
 	}
 	model = press(t, model, "?")
-	if !strings.Contains(model.View().Content, "never adds, edits, enables, or approves") {
-		t.Fatalf("help view missing safety contract:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "never adds, edits, enables, or approves") {
+		t.Fatalf("help view missing safety contract:\n%s", screen(model))
 	}
 	model = press(t, model, "esc")
 	model = press(t, model, "esc")
@@ -209,23 +211,23 @@ func TestTUIModel(t *testing.T) {
 	// A failed run with hook output opens on job output, then cycles job → hook → all.
 	model = press(t, model, "up")
 	model = press(t, model, "l")
-	content = model.View().Content
-	if !strings.Contains(content, "section: job") || !strings.Contains(content, "job-output") || strings.Contains(content, "hook-output") {
+	content = screen(model)
+	if !strings.Contains(content, "Showing job output") || !strings.Contains(content, "job-output") || strings.Contains(content, "hook-output") {
 		t.Fatalf("failed run did not open on job output:\n%s", content)
 	}
 	model = press(t, model, "s")
-	content = model.View().Content
-	if !strings.Contains(content, "section: hook") || strings.Contains(content, "job-output") || !strings.Contains(content, "hook-output") {
+	content = screen(model)
+	if !strings.Contains(content, "Showing hook output") || strings.Contains(content, "job-output") || !strings.Contains(content, "hook-output") {
 		t.Fatalf("hook section did not isolate hook output:\n%s", content)
 	}
 	model = press(t, model, "s")
-	content = model.View().Content
-	if !strings.Contains(content, "section: all") || !strings.Contains(content, "job-output") || !strings.Contains(content, "hook-output") {
+	content = screen(model)
+	if !strings.Contains(content, "Showing all output") || !strings.Contains(content, "job-output") || !strings.Contains(content, "hook-output") {
 		t.Fatalf("all section did not include both outputs:\n%s", content)
 	}
 	model = press(t, model, "s")
-	if strings.Contains(model.View().Content, "hook-output") {
-		t.Fatalf("cycling back to job section retained hook output:\n%s", model.View().Content)
+	if strings.Contains(screen(model), "hook-output") {
+		t.Fatalf("cycling back to job section retained hook output:\n%s", screen(model))
 	}
 	model = press(t, model, "esc")
 	if afterRuns := readRuns(t, stateDir, project, ""); !reflect.DeepEqual(runIDs(beforeRuns), runIDs(afterRuns)) {
@@ -240,21 +242,21 @@ func TestTUIModel(t *testing.T) {
 	model = press(t, model, "j")
 	model = press(t, model, "j")
 	model = press(t, model, "j")
-	if !strings.Contains(model.View().Content, "> tests") {
-		t.Fatalf("test job was not selected:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "▎ tests") {
+		t.Fatalf("test job was not selected:\n%s", screen(model))
 	}
 	model = press(t, model, "r")
 	testsRuns := readRuns(t, stateDir, project, "tests")
-	if len(testsRuns) == 0 || testsRuns[0].Status != "queued" || !strings.Contains(model.View().Content, "Follow it: noon logs") {
-		t.Fatalf("r did not queue the selected job: runs=%+v\n%s", testsRuns, model.View().Content)
+	if len(testsRuns) == 0 || testsRuns[0].Status != "queued" || !strings.Contains(screen(model), fmt.Sprintf("Queued tests as run %d", testsRuns[0].ID)) {
+		t.Fatalf("r did not queue the selected job: runs=%+v\n%s", testsRuns, screen(model))
 	}
 	model = press(t, model, "p")
-	if !strings.Contains(model.View().Content, "paused") || !readPaused(t, stateDir, project)["tests"] {
-		t.Fatalf("p did not pause the selected job:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "paused") || !readPaused(t, stateDir, project)["tests"] {
+		t.Fatalf("p did not pause the selected job:\n%s", screen(model))
 	}
 	model = press(t, model, "p")
 	if readPaused(t, stateDir, project)["tests"] {
-		t.Fatalf("p did not resume the selected job:\n%s", model.View().Content)
+		t.Fatalf("p did not resume the selected job:\n%s", screen(model))
 	}
 	// Pausing intentionally cancels queued work. Queue a fresh run after resume
 	// so the confirmation keys exercise both the no-op and confirmed paths.
@@ -266,12 +268,12 @@ func TestTUIModel(t *testing.T) {
 	queuedID := testsRuns[0].ID
 
 	model = press(t, model, "enter")
-	if !strings.Contains(model.View().Content, "Runs for tests") {
-		t.Fatalf("enter did not open queued job history:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "jobs › tests") {
+		t.Fatalf("enter did not open queued job history:\n%s", screen(model))
 	}
 	model = press(t, model, "c")
-	if !strings.Contains(model.View().Content, "Press y to confirm") {
-		t.Fatalf("c did not ask for cancellation confirmation:\n%s", model.View().Content)
+	if s := screen(model); !strings.Contains(s, fmt.Sprintf("Cancel run %d of tests?", queuedID)) || !strings.Contains(s, "y/n") {
+		t.Fatalf("c did not ask for cancellation confirmation:\n%s", screen(model))
 	}
 	model = press(t, model, "n")
 	testsRuns = readRuns(t, stateDir, project, "tests")
@@ -288,8 +290,8 @@ func TestTUIModel(t *testing.T) {
 	// A queued log shows the shared waiting notice until its owner starts.
 	model = press(t, model, "esc")
 	model = press(t, model, "j")
-	if !strings.Contains(model.View().Content, "> zlive") {
-		t.Fatalf("live job was not selected:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), "▎ zlive") {
+		t.Fatalf("live job was not selected:\n%s", screen(model))
 	}
 	model = press(t, model, "r")
 	liveRuns := readRuns(t, stateDir, project, "zlive")
@@ -298,8 +300,8 @@ func TestTUIModel(t *testing.T) {
 	}
 	queuedLiveID := liveRuns[0].ID
 	model = press(t, model, "l")
-	if !strings.Contains(model.View().Content, fmt.Sprintf("noon: run %d is queued; waiting for it to start", queuedLiveID)) {
-		t.Fatalf("queued log omitted waiting notice:\n%s", model.View().Content)
+	if !strings.Contains(screen(model), fmt.Sprintf("noon: run %d is queued; waiting for it to start", queuedLiveID)) {
+		t.Fatalf("queued log omitted waiting notice:\n%s", screen(model))
 	}
 	model = press(t, model, "esc")
 	model = press(t, model, "enter")
@@ -338,24 +340,24 @@ func TestTUIModel(t *testing.T) {
 		followModel = press(t, followModel, "j")
 	}
 	followModel = press(t, followModel, "l")
-	if !strings.Contains(followModel.View().Content, "before") || !strings.Contains(followModel.View().Content, "running") {
-		t.Fatalf("active log did not open at its current tail: run=%+v\n%s", liveRun, followModel.View().Content)
+	if !strings.Contains(screen(followModel), "before") || !strings.Contains(screen(followModel), "running") {
+		t.Fatalf("active log did not open at its current tail: run=%+v\n%s", liveRun, screen(followModel))
 	}
 	followModel = refreshOnce(t, followModel)
-	if strings.Contains(followModel.View().Content, "after") {
-		t.Fatalf("live job passed its gate before the test released it:\n%s", followModel.View().Content)
+	if strings.Contains(screen(followModel), "after") {
+		t.Fatalf("live job passed its gate before the test released it:\n%s", screen(followModel))
 	}
 	if err := os.WriteFile(gate, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	waitForLogText(t, stateDir, project, "zlive", "unique-after-G")
 	followModel = press(t, followModel, "G")
-	if strings.Count(followModel.View().Content, "unique-after-G") != 1 {
-		t.Fatalf("G snapshot did not contain the new unique output once:\n%s", followModel.View().Content)
+	if strings.Count(screen(followModel), "unique-after-G") != 1 {
+		t.Fatalf("G snapshot did not contain the new unique output once:\n%s", screen(followModel))
 	}
 	followModel = refreshOnce(t, followModel)
-	if strings.Count(followModel.View().Content, "unique-after-G") != 1 {
-		t.Fatalf("refresh duplicated output already included in the G snapshot:\n%s", followModel.View().Content)
+	if strings.Count(screen(followModel), "unique-after-G") != 1 {
+		t.Fatalf("refresh duplicated output already included in the G snapshot:\n%s", screen(followModel))
 	}
 	if err := os.WriteFile(uniqueGate, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -370,14 +372,14 @@ func TestTUIModel(t *testing.T) {
 		t.Fatal("live job did not finish after its gate opened")
 	}
 	followModel = refreshOnce(t, followModel)
-	if content := followModel.View().Content; strings.Count(content, "before") != 1 || strings.Count(content, "unique-after-G") != 1 || !strings.Contains(content, "\nafter\n") {
+	if content := screen(followModel); strings.Count(content, "before") != 1 || strings.Count(content, "unique-after-G") != 1 || !strings.Contains(content, "\nafter\n") {
 		t.Fatalf("log follow repeated or missed output after its cursor:\n%s", content)
 	}
 
 	capOpenDone := startTUIRun(t, input, "zzcapopen")
 	waitForRunLogSize(t, stateDir, project, "zzcapopen", 1<<20)
 	capOpenModel := openLatestLog(t, input, "zzcapopen")
-	if content := capOpenModel.View().Content; !strings.Contains(content, "running") || !strings.Contains(content, "output past 1 MiB") {
+	if content := screen(capOpenModel); !strings.Contains(content, "running") || !strings.Contains(content, "output past 1 MiB") {
 		t.Fatalf("opening an active unfinished log at the persisted cap omitted its notice:\n%s", content)
 	}
 	if err := os.WriteFile(capOpenGate, nil, 0o600); err != nil {
@@ -388,7 +390,7 @@ func TestTUIModel(t *testing.T) {
 	capFollowDone := startTUIRun(t, input, "zzcapfollow")
 	waitForLogText(t, stateDir, project, "zzcapfollow", "cap-follow-start")
 	capFollowModel := openLatestLog(t, input, "zzcapfollow")
-	if content := capFollowModel.View().Content; !strings.Contains(content, "cap-follow-start") || !strings.Contains(content, "running") {
+	if content := screen(capFollowModel); !strings.Contains(content, "cap-follow-start") || !strings.Contains(content, "running") {
 		t.Fatalf("cap-follow log did not open before output reached the cap:\n%s", content)
 	}
 	if err := os.WriteFile(capFollowStartGate, nil, 0o600); err != nil {
@@ -396,7 +398,7 @@ func TestTUIModel(t *testing.T) {
 	}
 	waitForRunLogSize(t, stateDir, project, "zzcapfollow", 1<<20)
 	capFollowModel = refreshOnce(t, capFollowModel)
-	if content := capFollowModel.View().Content; !strings.Contains(content, "output past 1 MiB") {
+	if content := screen(capFollowModel); !strings.Contains(content, "output past 1 MiB") {
 		t.Fatalf("following an active unfinished log at the persisted cap omitted its notice:\n%s", content)
 	}
 	if err := os.WriteFile(capFollowReleaseGate, nil, 0o600); err != nil {
@@ -412,7 +414,7 @@ func TestTUIModel(t *testing.T) {
 	orphanModel = press(t, orphanModel, "j")
 	orphanModel = press(t, orphanModel, "j")
 	orphanModel = press(t, orphanModel, "l")
-	content = orphanModel.View().Content
+	content = screen(orphanModel)
 	if !strings.Contains(content, fmt.Sprintf("run %d's owner process exited without recording a result", orphanID)) || !strings.Contains(content, fmt.Sprintf("noon cancel %d", orphanID)) {
 		t.Fatalf("orphan log did not show its diagnostic and cancel hint:\n%s", content)
 	}
@@ -524,13 +526,13 @@ func openLatestLog(t *testing.T, input config.Input, job string) *tui.Model {
 		t.Fatal(err)
 	}
 	for range 25 {
-		if strings.Contains(model.View().Content, "> "+job+" ") {
+		if strings.Contains(screen(model), "▎ "+job+" ") {
 			model = press(t, model, "enter")
 			return press(t, model, "l")
 		}
 		model = press(t, model, "j")
 	}
-	t.Fatalf("job %s was not selectable in the TUI:\n%s", job, model.View().Content)
+	t.Fatalf("job %s was not selectable in the TUI:\n%s", job, screen(model))
 	return nil
 }
 
@@ -571,6 +573,11 @@ func seedOrphanRun(t *testing.T, input config.Input) int64 {
 		t.Fatal(err)
 	}
 	return run.ID
+}
+
+// screen returns the visible text of the model's view without styling.
+func screen(model *tui.Model) string {
+	return ansi.Strip(model.View().Content)
 }
 
 func press(t *testing.T, model *tui.Model, key string) *tui.Model {

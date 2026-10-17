@@ -157,6 +157,9 @@ Examples:
   noon add check-ci --in 2h --agent claude --prompt "Check CI and fix failures"
 ```
 
+In `noon tui`, press `?` for every shortcut. Log search uses `/` and `n`/`N` to step
+through matches; `w` toggles line wrapping. The TUI never edits jobs or enables or approves a project.
+
 ## Find a failure
 
 ```console
