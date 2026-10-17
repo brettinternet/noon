@@ -289,14 +289,9 @@ func completeValues(out io.Writer, values []string, prefix string) {
 }
 
 func completeStatusValues(out io.Writer, prefix string) {
-	const statuses = "queued,running,succeeded,failed,timed_out,cancelled,interrupted,skipped,missed,expired"
-	completed := strings.Split(prefix, ",")
-	last := completed[len(completed)-1]
-	lead := strings.Join(completed[:len(completed)-1], ",")
-	if lead != "" {
-		lead += ","
-	}
-	for _, status := range strings.Split(statuses, ",") {
+	split := strings.LastIndex(prefix, ",") + 1
+	lead, last := prefix[:split], prefix[split:]
+	for _, status := range app.RunStatuses {
 		if strings.HasPrefix(status, last) {
 			fmt.Fprintln(out, lead+status)
 		}

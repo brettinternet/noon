@@ -28,18 +28,14 @@ func UsageError(message, hint string) *Error {
 	return &Error{Code: "usage", Message: message, Hint: hint, Usage: true}
 }
 
-const validRunStatusNames = "queued, running, succeeded, failed, timed_out, cancelled, interrupted, skipped, missed, expired"
-
-var validRunStatuses = map[string]struct{}{
-	"queued": {}, "running": {}, "succeeded": {}, "failed": {}, "timed_out": {},
-	"cancelled": {}, "interrupted": {}, "skipped": {}, "missed": {}, "expired": {},
-}
+// RunStatuses lists every run status accepted by status filters.
+var RunStatuses = []string{"queued", "running", "succeeded", "failed", "timed_out", "cancelled", "interrupted", "skipped", "missed", "expired"}
 
 // ValidateRunStatuses checks status filters shared by CLI and MCP.
 func ValidateRunStatuses(statuses []string) error {
 	for _, status := range statuses {
-		if _, ok := validRunStatuses[status]; !ok {
-			return UsageError(fmt.Sprintf("invalid run status %q", status), "Valid statuses: "+validRunStatusNames)
+		if !slices.Contains(RunStatuses, status) {
+			return UsageError(fmt.Sprintf("invalid run status %q", status), "Valid statuses: "+strings.Join(RunStatuses, ", "))
 		}
 	}
 	return nil

@@ -14,6 +14,9 @@ _noon_install() {
             esac
         done < <(NOON_COMPLETION_SHELL=bash command noon "${COMP_WORDS[@]:1:COMP_CWORD}" --generate-shell-completion 2>/dev/null)
         if [[ -n $path_mode ]]; then
+            # Filename handling (quoting, directory slashes) applies only to
+            # path values, so job names matching directories stay intact.
+            compopt -o filenames 2>/dev/null
             current=${COMP_WORDS[COMP_CWORD]-}
             [[ $current == = ]] && current=
             [[ $current == -*=* ]] && current=${current#*=}
@@ -25,7 +28,12 @@ _noon_install() {
         fi
         return 0
     }
-    complete -o filenames -F _noon_complete noon
+    # Bash 3.2 lacks compopt, so it keeps filename handling for every value.
+    if type compopt >/dev/null 2>&1; then
+        complete -F _noon_complete noon
+    else
+        complete -o filenames -F _noon_complete noon
+    fi
 
     # Bash before 5.1 executes only the first PROMPT_COMMAND array element.
     # Preserve scalar scripts verbatim there; newer Bash keeps array entries.

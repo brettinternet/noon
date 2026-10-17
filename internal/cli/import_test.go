@@ -75,7 +75,7 @@ func TestImportWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(afterFailure, beforeFailure) {
-		t.Fatalf("failed import changed .noon.yaml\nbefore: %s\nafter: %s", beforeFailure, afterFailure)
+		t.Fatalf("failed import changed .git/noon.yaml\nbefore: %s\nafter: %s", beforeFailure, afterFailure)
 	}
 }
 
