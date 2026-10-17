@@ -22,16 +22,16 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 	root := &urfave.Command{
 		Name:        "noon",
 		Usage:       "Repo-local scheduling, without a platform",
-		Description: "Validate, list, and run project jobs; serve enabled schedules in the foreground or install a per-user service; inspect configuration and initialize a project.",
+		Description: "With no command, show the project dashboard without running jobs, starting services, or opening listeners. Background runs require explicit enablement and a scheduler.\n\nExamples:\n  noon\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon run tests\n  noon history -s failed\n  noon logs tests -n 50",
 		Version:     fmt.Sprintf("%s (commit %s, built %s)", build.Version, build.Commit, build.BuildTime),
 		Writer:      out, ErrWriter: errOut,
 		EnableShellCompletion: true,
 		ExitErrHandler:        func(context.Context, *urfave.Command, error) {},
 		Flags: []urfave.Flag{
-			&urfave.StringFlag{Name: "project", Aliases: []string{"C"}, Usage: "Use this project directory instead of discovery", Sources: urfave.EnvVars("NOON_PROJECT")},
-			&urfave.StringFlag{Name: "config", Usage: "Read only this configuration file (relative to invocation directory)", Sources: urfave.EnvVars("NOON_CONFIG")},
-			&urfave.StringFlag{Name: "timezone", Usage: "Override timezone (default Local)", Sources: urfave.EnvVars("NOON_TIMEZONE")},
-			&urfave.StringFlag{Name: "state-dir", Usage: "Override per-user state directory", Sources: urfave.EnvVars("NOON_STATE_DIR")},
+			&urfave.StringFlag{Name: "project", Aliases: []string{"C"}, Usage: "Use project `DIR` instead of discovery", Sources: urfave.EnvVars("NOON_PROJECT")},
+			&urfave.StringFlag{Name: "config", Usage: "Read only `FILE` (relative to invocation directory)", Sources: urfave.EnvVars("NOON_CONFIG")},
+			&urfave.StringFlag{Name: "timezone", Usage: "Override timezone with `TZ` (default Local)", Sources: urfave.EnvVars("NOON_TIMEZONE")},
+			&urfave.StringFlag{Name: "state-dir", Usage: "Override per-user state directory with `DIR`", Sources: urfave.EnvVars("NOON_STATE_DIR")},
 
 			&urfave.BoolFlag{Name: "json", Aliases: []string{"j"}, Usage: "Print structured JSON instead of human output"},
 		},
@@ -39,32 +39,32 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		Commands: []*urfave.Command{
 			shellCommand(),
 			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
-				&urfave.StringFlag{Name: "data", Usage: "JSON event data, @FILE, or - for stdin (up to 256 KiB)"},
+				&urfave.StringFlag{Name: "data", Usage: "Event `JSON`, @FILE, or - for stdin (up to 256 KiB)"},
 				&urfave.BoolFlag{Name: "detach", Aliases: []string{"d"}, Usage: "Queue NAME to run as soon as capacity is available"},
-				&urfave.StringFlag{Name: "in", Usage: "Queue NAME after DURATION (at least 1s)"},
-				&urfave.StringFlag{Name: "at", Usage: "Queue NAME at HH:MM, YYYY-MM-DD HH:MM, or RFC 3339 time"},
-				&urfave.StringFlag{Name: "key", Usage: "Idempotency key; deduplicated while retained (newest 50 terminal runs per job)"},
+				&urfave.StringFlag{Name: "in", Usage: "Queue NAME after `DURATION` (at least 1s)"},
+				&urfave.StringFlag{Name: "at", Usage: "Queue NAME at `TIME`: HH:MM, YYYY-MM-DD HH:MM, or RFC 3339"},
+				&urfave.StringFlag{Name: "key", Usage: "Idempotency `KEY`; deduplicated while retained (newest 50 terminal runs per job)"},
 			}, Action: runJob},
 			{Name: "cancel", Usage: "Cancel a run or all active runs of a job; without an argument, list active runs", ArgsUsage: "[RUN|NAME]", Action: cancelRuns},
 			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
 				&urfave.IntFlag{Name: "limit", Aliases: []string{"n"}, Value: 20, Usage: "Limit history to `N` runs (1–50)"},
 				&urfave.StringSliceFlag{Name: "status", Aliases: []string{"s"}, Usage: "Filter by `STATUS`; repeat or comma-separate values"},
 			}, Action: historyRuns},
-			{Name: "logs", Usage: "Read a run log, follow it, or print its path", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
+			{Name: "logs", Usage: "Read a run log, follow it, or print its path", Description: "Without a target, read the latest run. Bounded reads support --json; --follow rejects it. Resume guidance goes to stderr.\n\nExamples:\n  noon logs tests -n 50\n  noon logs 12 --match FAIL --context 2\n  noon logs 12 --follow", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "follow", Aliases: []string{"f"}, Usage: "Follow a running run until it finishes"},
 				&urfave.BoolFlag{Name: "path", Usage: "Print the absolute log path"},
-				&urfave.StringFlag{Name: "section", Value: "all", Usage: "read all, job, or hook output"},
-				&urfave.IntFlag{Name: "tail", Aliases: []string{"n"}, Usage: "keep the last 1–10000 selected lines"},
-				&urfave.Int64Flag{Name: "after-cursor", Aliases: []string{"c"}, Usage: "read from byte offset BYTES and return a resumable cursor"},
-				&urfave.StringFlag{Name: "match", Aliases: []string{"m"}, Usage: "select lines matching a Go RE2 regular expression"},
-				&urfave.IntFlag{Name: "context", Usage: "include 0–50 surrounding lines; requires --match"},
-				&urfave.IntFlag{Name: "limit-bytes", Aliases: []string{"b"}, Usage: "cap emitted log text in bytes"},
+				&urfave.StringFlag{Name: "section", Value: "all", Usage: "Read `SECTION`: all, job, or hook"},
+				&urfave.IntFlag{Name: "tail", Aliases: []string{"n"}, Usage: "Keep the last `N` selected lines (1–10000)"},
+				&urfave.Int64Flag{Name: "after-cursor", Aliases: []string{"c"}, Usage: "Read from byte offset `BYTES` and return a resumable cursor"},
+				&urfave.StringFlag{Name: "match", Aliases: []string{"m"}, Usage: "Select lines matching Go RE2 `REGEX`"},
+				&urfave.IntFlag{Name: "context", Usage: "Include `N` surrounding lines (0–50); requires --match"},
+				&urfave.IntFlag{Name: "limit-bytes", Aliases: []string{"b"}, Usage: "Cap emitted log text at `BYTES`"},
 				&urfave.StringSliceFlag{Name: "status", Aliases: []string{"s"}, Usage: "Filter by `STATUS`; repeat or comma-separate values"},
 			}, Action: runLogs},
 			{Name: "enable", Usage: "Enable this checkout and approve current shared job definitions", Action: enableProject},
 			{Name: "disable", Usage: "Disable this checkout and revoke approvals; keep history", Action: disableProject},
-			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks with --listen", Flags: []urfave.Flag{
-				&urfave.StringFlag{Name: "listen", Usage: "Listen for signed webhooks at ADDR; no listener starts without this flag"},
+			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks with --listen", Description: "Runs in the foreground until stopped. Uses each enabled project's recorded configuration. Accepts --state-dir and --listen; rejects --project, --config, --timezone, and --json. No HTTP listener starts by default.\n\nExamples:\n  noon serve\n  noon serve --listen 127.0.0.1:8080", Flags: []urfave.Flag{
+				&urfave.StringFlag{Name: "listen", Usage: "Listen for signed webhooks at `ADDR`; no listener starts without this flag"},
 			}, Action: serveAction(build.Version)},
 			{Name: "mcp", Usage: "Serve MCP tools over stdio", Action: mcpCommand(build.Version)},
 			{Name: "tui", Usage: "Open the keyboard-driven jobs, runs, and logs view", Description: "Requires terminal stdin and stdout; --json is not supported. Inspect the current project and safely queue, pause, or cancel work. Keys: j/k or arrows move, enter opens runs, l opens logs, / searches, s changes log sections, f filters runs, r queues, p pauses, c cancels after confirmation, g/G jump through logs, ? shows help, q quits. Never adds, edits, enables, or approves jobs.", Action: tuiAction},
@@ -78,18 +78,18 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "status", Usage: "Show the project dashboard without running anything", Action: status},
 			{Name: "doctor", Usage: "Diagnose setup with read-only checks; exit 1 if a check fails", Action: doctor},
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
-			{Name: "add", Usage: "Add a scheduled or manual job", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
-				&urfave.StringFlag{Name: "sh", Usage: "Run STRING through /bin/sh -c"},
+			{Name: "add", Usage: "Add a scheduled or manual job", Description: "Without arguments, print examples. Writes private .noon.yaml by default; --shared writes noon.yaml.\n\nExamples:\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon add lint --sh 'go vet ./...'\n  noon add review --agent claude --prompt \"Review changes\"", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
+				&urfave.StringFlag{Name: "sh", Usage: "Run `STRING` through /bin/sh -c"},
 				&urfave.StringFlag{Name: "prompt", Aliases: []string{"p"}, Usage: "Create an agent-prompt job with `TEXT`"},
-				&urfave.StringFlag{Name: "prompt-file", Usage: "Read the prompt from PATH at run time"},
+				&urfave.StringFlag{Name: "prompt-file", Usage: "Read the prompt from `PATH` at run time"},
 				&urfave.StringFlag{Name: "agent", Aliases: []string{"a"}, Usage: "Use agent profile `NAME`"},
-				&urfave.StringFlag{Name: "description", Usage: "Set the job description"},
+				&urfave.StringFlag{Name: "description", Usage: "Set the job description to `TEXT`"},
 				&urfave.StringFlag{Name: "timeout", Aliases: []string{"t"}, Usage: "Set the run timeout to `DURATION`"},
 				&urfave.BoolFlag{Name: "shared", Usage: "Write noon.yaml instead of .noon.yaml"},
-				&urfave.StringFlag{Name: "in", Usage: "Queue a run after DURATION"},
-				&urfave.StringFlag{Name: "at", Usage: "Queue a run at TIME"},
+				&urfave.StringFlag{Name: "in", Usage: "Queue a run after `DURATION`"},
+				&urfave.StringFlag{Name: "at", Usage: "Queue a run at `TIME`"},
 			}, Action: addJob},
-			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition", ArgsUsage: "[NAME]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared"}, &urfave.BoolFlag{Name: "local"}}, Action: removeJob},
+			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition; retain history", Description: "Without NAME, list jobs without removing anything. If both files define NAME, choose --shared or --local.\n\nExample:\n  noon remove tests --local", ArgsUsage: "[NAME]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared", Usage: "Remove from shared noon.yaml"}, &urfave.BoolFlag{Name: "local", Usage: "Remove from private .noon.yaml"}}, Action: removeJob},
 			{Name: "pause", Usage: "Pause background runs of a job", ArgsUsage: "[NAME]", Action: pauseJob},
 			{Name: "resume", Usage: "Resume background runs of a job", ArgsUsage: "[NAME]", Action: resumeJob},
 			{Name: "import", Usage: "Preview or import jobs from another scheduler", Action: importers, Commands: []*urfave.Command{
@@ -109,8 +109,32 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 	_ = root.Walk(func(cmd *urfave.Command) error {
 		// urfave adds a help/h subcommand to every command; on leaves it would capture job names.
 		cmd.HideHelpCommand = len(cmd.Commands) == 0
-		cmd.OnUsageError = func(_ context.Context, _ *urfave.Command, err error, _ bool) error {
-			return usageError(err.Error(), "Run noon --help")
+		cmd.OnUsageError = func(_ context.Context, selected *urfave.Command, err error, _ bool) error {
+			return usageError(err.Error(), flagUsageHint(selected, err))
+		}
+		action := cmd.Action
+		if action != nil {
+			cmd.Action = func(ctx context.Context, selected *urfave.Command) error {
+				if len(selected.Commands) > 0 {
+					if err := noArgs(selected); err != nil {
+						return err
+					}
+				}
+				err := action(ctx, selected)
+				var failure *Error
+				if errors.As(err, &failure) && failure.Usage {
+					copy := *failure
+					hint := commandHelp(selected)
+					if !strings.Contains(copy.Hint, hint) {
+						if copy.Hint != "" {
+							copy.Hint += ". "
+						}
+						copy.Hint += hint
+					}
+					return &copy
+				}
+				return err
+			}
 		}
 		return nil
 	})
@@ -265,7 +289,11 @@ func load(cmd *urfave.Command) (config.Config, error) {
 
 func noArgs(cmd *urfave.Command) error {
 	if cmd.Args().Len() != 0 {
-		return usageError(fmt.Sprintf("unexpected argument %q", cmd.Args().First()), "Run noon --help")
+		names := []string{}
+		for _, child := range cmd.VisibleCommands() {
+			names = append(names, child.Names()...)
+		}
+		return usageError(fmt.Sprintf("unexpected argument %q", cmd.Args().First()), commandHelp(cmd)+nearbyHint(cmd.Args().First(), names, cmd.FullName()+" "))
 	}
 	return nil
 }

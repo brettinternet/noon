@@ -116,6 +116,11 @@ func TestJSONFailuresAreSingleObjects(t *testing.T) {
 		kind string
 	}{
 		{[]string{"config", "-p", "--json"}, 2, "usage"},
+		{[]string{"import", "typo", "--json"}, 2, "usage"},
+		{[]string{"service", "typo", "--json"}, 2, "usage"},
+		{[]string{"shell", "typo", "--json"}, 2, "usage"},
+		{[]string{"config", "show", "extra", "--json"}, 2, "usage"},
+		{[]string{"run", "--detah", "--json"}, 2, "usage"},
 		{[]string{"config", "-p", "-j"}, 2, "usage"},
 		{[]string{"config", "check", "-a", "-j"}, 2, "usage"},
 		{[]string{"-j", "--bogus"}, 2, "usage"},
@@ -149,6 +154,40 @@ func TestJSONFailuresAreSingleObjects(t *testing.T) {
 		}
 		if hint, exists := failure["hint"]; exists && hint == "" {
 			t.Fatalf("empty hint was not omitted: %+v", failure)
+		}
+	}
+	for _, tc := range []struct {
+		args             []string
+		help, suggestion string
+	}{
+		{[]string{"import", "typo"}, "noon import --help", ""},
+		{[]string{"config", "chek"}, "noon config --help", "noon config check"},
+		{[]string{"run", "--detah"}, "noon run --help", "--detach"},
+		{[]string{"run", "--projec", "nowhere"}, "noon run --help", "--project"},
+		{[]string{"config", "check", "--timezon", "UTC"}, "noon config check --help", "--timezone"},
+		{[]string{"config", "check", "--bogus"}, "noon config check --help", ""},
+		{[]string{"config", "s"}, "noon config --help", ""},
+	} {
+		for _, jsonMode := range []bool{false, true} {
+			args := append([]string{"noon"}, tc.args...)
+			if jsonMode {
+				args = append(args, "--json")
+			}
+			var out, stderr bytes.Buffer
+			code := cli.Run(context.Background(), args, config.BuildOpts{}, &out, &stderr)
+			hint := stderr.String()
+			if jsonMode {
+				var value map[string]any
+				if err := json.Unmarshal(out.Bytes(), &value); err != nil || stderr.Len() != 0 {
+					t.Fatalf("%v: stdout=%s stderr=%s", args, &out, &stderr)
+				}
+				hint = value["error"].(map[string]any)["hint"].(string)
+			} else if out.Len() != 0 {
+				t.Fatalf("%v leaked stdout: %s", args, &out)
+			}
+			if code != 2 || !strings.Contains(hint, tc.help) || (tc.suggestion != "" && !strings.Contains(hint, "Did you mean "+tc.suggestion+"?")) || (tc.suggestion == "" && strings.Contains(hint, "Did you mean")) {
+				t.Fatalf("%v: exit=%d hint=%s", args, code, hint)
+			}
 		}
 	}
 	for _, key := range []string{"NOON_PROJECT", "NOON_CONFIG", "NOON_TIMEZONE", "NOON_STATE_DIR"} {
@@ -241,7 +280,20 @@ func TestInspectionDoesNotWriteOrExecute(t *testing.T) {
 			}
 		}
 		before := snapshot()
-		for _, args := range [][]string{{}, {"run"}, {"add"}, {"remove"}, {"pause"}, {"resume"}, {"cancel"}, {"history"}, {"logs"}, {"service"}, {"import", "crontab"}, {"shell", "init"}} {
+		for _, args := range [][]string{{"import", "typo"}, {"config", "typo"}, {"service", "instal"}, {"run", "--detah"}} {
+			code, _ := invoke(t, append(args, "--json")...)
+			if code != 2 || !reflect.DeepEqual(before, snapshot()) {
+				t.Fatalf("%v: exit=%d or unexpected side effects", args, code)
+			}
+		}
+		for _, args := range [][]string{{"shell", "--json", "--help"}, {"import", "--json", "--help"}} {
+			var out, stderr bytes.Buffer
+			code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)
+			if code != 0 || !strings.Contains(out.String(), "USAGE:") || stderr.Len() != 0 || !reflect.DeepEqual(before, snapshot()) {
+				t.Fatalf("%v: exit=%d stdout=%s stderr=%s", args, code, &out, &stderr)
+			}
+		}
+		for _, args := range [][]string{{}, {"run"}, {"add"}, {"remove"}, {"pause"}, {"resume"}, {"cancel"}, {"history"}, {"logs"}, {"service"}, {"import"}, {"import", "crontab"}, {"shell"}, {"shell", "init"}} {
 			for _, jsonMode := range []bool{false, true} {
 				argv := append([]string{"noon"}, args...)
 				if jsonMode {
@@ -250,6 +302,12 @@ func TestInspectionDoesNotWriteOrExecute(t *testing.T) {
 				var out, stderr bytes.Buffer
 				if code := cli.Run(context.Background(), argv, config.BuildOpts{}, &out, &stderr); code != 0 || out.Len() == 0 || stderr.Len() != 0 {
 					t.Fatalf("populated=%v %v: exit=%d stdout=%s stderr=%s", populated, argv, code, &out, &stderr)
+				}
+				if jsonMode {
+					var result map[string]any
+					if err := json.Unmarshal(out.Bytes(), &result); err != nil || result["schema_version"] != float64(1) {
+						t.Fatalf("%v: expected one versioned object, got %s", argv, &out)
+					}
 				}
 				if !reflect.DeepEqual(before, snapshot()) {
 					t.Fatalf("populated=%v %v changed files or executed work", populated, argv)

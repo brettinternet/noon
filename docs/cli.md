@@ -14,8 +14,9 @@ These work before or after the subcommand.
 | `--state-dir DIR` | `NOON_STATE_DIR` | Override the per-user state directory |
 | `-j`, `--json` | — | One JSON object on stdout |
 
-`noon serve` accepts only `--state-dir`. Each project uses the config selection recorded by
-`noon enable`.
+`noon serve` accepts `--state-dir DIR` and optional `--listen ADDR` for signed webhooks.
+No listener starts without `--listen`. It rejects `--project`, `--config`, `--timezone`,
+and `--json`; each project uses the config selection recorded by `noon enable`.
 
 ## Short flags
 
@@ -58,7 +59,18 @@ $ noon --json run nope
 {"error":{"code":"not_found","message":"job \"nope\" not found","hint":"Run noon run to list jobs"},"schema_version":1}
 ```
 
-`serve`, `mcp`, `tui`, and `logs --follow` don't finish, so they reject `--json`.
+Finishing actions emit exactly one `schema_version: 1` object with `--json`, including
+bare-group guidance such as `noon shell --json`. Explicit `--help`, `help`, `--version`,
+and shell-completion requests remain text, even with `--json`. Human results go to stdout;
+human errors and bounded-log resume hints go to stderr. Foreground `run --json` sends job
+stdout and stderr to stderr, keeping stdout exclusively for the JSON result.
+
+`serve`, `mcp`, `tui`, and `logs --follow` reject `--json` because they are streaming or
+interactive interfaces, not single-result actions.
+
+Unknown or extra group arguments exit 2 with the relevant full command's help path.
+An unambiguous single-typo command or flag match is suggested, never automatically executed.
+Bare `import` lists importers; bare `config` shows effective configuration.
 
 | Exit | Meaning |
 | --- | --- |
@@ -85,6 +97,8 @@ print examples, `service` shows status, and `shell init` shows explicit sourcing
 for Bash, Zsh, and Fish. These inspections exit 0 without changing jobs or starting services.
 Logs still default to the latest run when one exists.
 
+`noon remove NAME --shared` selects `noon.yaml`; `--local` selects `.noon.yaml`.
+If both files define the name, choose one explicitly. Without a name, nothing is removed.
 `noon remove NAME` confirms the job and definition file removed; history remains queryable
 with `noon history NAME` and `noon logs RUN`. Its JSON result contains `removed` and `file`.
 

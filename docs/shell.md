@@ -1,5 +1,9 @@
 # Shell setup
 
+Bare `noon shell` shows setup help; `noon shell --json` returns one versioned guidance object
+with `usage`, `next`, and `description`. Explicit `--help` and completion requests remain text.
+Unknown subcommands exit 2 without changing anything.
+
 `noon shell init` lists supported shells and sourcing commands, exits 0, and never guesses your shell.
 `noon shell init SHELL` prints code for you to source. It never edits startup files, creates
 state, enables a project, or starts a scheduler.

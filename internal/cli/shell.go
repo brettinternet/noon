@@ -28,6 +28,9 @@ func shellCommand() *urfave.Command {
 			if err := noArgs(cmd); err != nil {
 				return err
 			}
+			if cmd.Bool("json") {
+				return emit(cmd, map[string]any{"usage": "noon shell init bash|zsh|fish", "next": "noon shell init", "description": cmd.Description})
+			}
 			return urfave.ShowSubcommandHelp(cmd)
 		},
 		Commands: []*urfave.Command{

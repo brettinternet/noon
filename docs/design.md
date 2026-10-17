@@ -47,7 +47,11 @@ The CLI is the product.
 - Finishing commands accept `--json` and print exactly one object with `schema_version: 1`.
   Long-running commands (`serve`, `mcp`, `tui`, `logs --follow`) reject it. Errors are
   `{"schema_version":1,"error":{"code":"…","message":"…","hint":"…"}}`. Job output never enters
-  JSON stdout; a JSON foreground run streams job output to stderr.
+  JSON stdout; a JSON foreground run streams job output to stderr. Explicit help, version,
+  and shell-completion requests remain text exceptions, even with `--json`. Bare group actions
+  (including `shell`) honor JSON mode; unknown or extra group arguments are usage errors.
+  Usage hints include the full command help path. Unique single-typo command/flag matches
+  may be suggested, never autocorrected or executed.
 - Exit 0 for success (including empty results), 1 for operational errors, 2 for usage errors. A
   foreground `noon run` exits with the job's code (see [Execution](#execution)).
 - No prompts. Noninteractive use never hangs; `noon mcp` on a TTY prints setup help and exits.
