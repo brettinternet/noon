@@ -14,7 +14,7 @@ import (
 
 func TestImportWrite(t *testing.T) {
 	root := sandbox(t)
-	configPath := filepath.Join(root, ".noon.yaml")
+	configPath := filepath.Join(root, ".git", "noon.yaml")
 	original := []byte("# keep root comment\nversion: 1\njobs:\n  # keep existing job comment\n  backup:\n    run: echo existing\n")
 	if err := os.WriteFile(configPath, original, 0o600); err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestImportWriteExplicitConfig(t *testing.T) {
 	if got, err := os.ReadFile(custom); err != nil || !bytes.Equal(got, customBytes) {
 		t.Fatalf("explicit config changed: %q err=%v", got, err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".noon.yaml")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".git", "noon.yaml")); !os.IsNotExist(err) {
 		t.Fatalf("explicit config import wrote local file: %v", err)
 	}
 }
@@ -109,8 +109,8 @@ func TestImportPreview(t *testing.T) {
 	if code != 0 || stderr != "" || !strings.HasPrefix(stdout, "jobs:\n") || !strings.Contains(stdout, "# crontab line 1") {
 		t.Fatalf("preview: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if entries, err := os.ReadDir(root); err != nil || len(entries) != 0 {
-		t.Fatalf("preview wrote project files: entries=%v err=%v", entries, err)
+	if entries := projectFiles(t, root); len(entries) != 0 {
+		t.Fatalf("preview wrote project files: %v", entries)
 	}
 }
 
@@ -124,8 +124,8 @@ func TestImportUsage(t *testing.T) {
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "crontab") {
 		t.Fatalf("importer list: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if entries, err := os.ReadDir(root); err != nil || len(entries) != 0 {
-		t.Fatalf("usage command changed project: entries=%v err=%v", entries, err)
+	if entries := projectFiles(t, root); len(entries) != 0 {
+		t.Fatalf("usage command changed project: %v", entries)
 	}
 }
 

@@ -80,7 +80,7 @@ digests are in [Configuration](configuration.md).
 
 - `run` as a YAML string runs with `/bin/sh -c`; as a list it is exact argv. The YAML type decides,
   never punctuation.
-- A `.noon.yaml` job replaces the shared job wholesale. `{enabled: false}` alone toggles it off.
+- A private `.git/noon.yaml` job replaces the shared job wholesale. `{enabled: false}` alone toggles it off.
   There is no field-level merge.
 - Durations combine `s`, `m`, `h`, and `d` (24h), as in `1h30m`.
 - Validation never executes anything or checks that commands exist; `noon doctor` does.
@@ -197,8 +197,11 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   definition of every shared job. It is idempotent, so a container can run
   `noon enable && exec noon serve`. Worktrees and clones are separate checkouts; none is enabled
   implicitly. `noon disable` stops background runs, cancels queued runs, and keeps history.
-- `.noon.yaml` and user-config jobs need no approval. Jobs from `noon.yaml` or `--config` run
+- Private `.git/noon.yaml` jobs need no approval. Jobs from `noon.yaml` or `--config` run
   unattended only while their digest matches the approved one; a changed job shows `needs approval`.
+- Privacy needs a file repository content can't supply. Git refuses paths inside its directory, so
+  a branch can't add or replace `.git/noon.yaml`. A filename in the tree is never private: a commit
+  can add `.noon.yaml` despite ignore rules, so Noon never loads it.
 - The digest covers what runs and when (schedule, action, agent, cwd, env, timeout, overlap, missed,
   cooldown, hooks, webhook), not the description, and not referenced file contents.
 - `noon add` enables the project when the new job has a schedule or queued run, and approves only
@@ -321,7 +324,8 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 
 | Input | Trust | Consequence |
 | --- | --- | --- |
-| User config, `.noon.yaml` | Yours | Runs unattended once the project is enabled |
+| User config, `.git/noon.yaml` | Yours: Git can't commit or check out paths in its directory | Runs unattended once the project is enabled |
+| In-tree `.noon.yaml` | Repository content: commits can add it | Never loaded |
 | `noon.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
 | Scripts and prompt files | Not pinned | Approval covers what and when, not file contents |
 | MCP clients | Inspect and queue approved jobs | Can't approve, add, or edit commands; identity is metadata |

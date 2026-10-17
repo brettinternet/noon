@@ -1,4 +1,4 @@
 # Noon bootstrap settings. Jobs will be added in a later release.
-# Ignore .noon.yaml and .noon/ in your repository.
+# Private jobs go in .git/noon.yaml, which Git can't commit.
 version: 1
 # timezone: Local

@@ -91,11 +91,11 @@ func TestEnableApproval(t *testing.T) {
 	}
 	write("noon.yaml", strings.Replace(base, "schedule: daily", "schedule: daily\n    description: changed", 1))
 	check(true, map[string]string{"a": "approved", "b": "approved"})
-	write(".noon.yaml", "jobs:\n  a: {enabled: false}\n  local: {run: 'true'}\n")
+	write(".git/noon.yaml", "jobs:\n  a: {enabled: false}\n  local: {run: 'true'}\n")
 	check(true, map[string]string{"a": "approved", "b": "approved", "local": "not_required"})
 	write("noon.yaml", strings.Replace(base, "run: 'true'", "run: 'exit 0'", 1))
 	check(true, map[string]string{"a": "needs_approval", "b": "approved", "local": "not_required"})
-	write(".noon.yaml", "jobs:\n  a: {run: 'true'}\n  local: {run: 'true'}\n")
+	write(".git/noon.yaml", "jobs:\n  a: {run: 'true'}\n  local: {run: 'true'}\n")
 	check(true, map[string]string{"a": "not_required", "b": "approved", "local": "not_required"})
 	enable()
 	if got := snapshot(); len(got.Approvals) != 1 || got.Approvals["b"] == "" {
@@ -111,14 +111,14 @@ func TestEnableApproval(t *testing.T) {
 	}
 	// Broken shared and local YAML must not prevent revocation or erase history.
 	write("noon.yaml", "jobs: [invalid")
-	write(".noon.yaml", "jobs: [invalid")
+	write(".git/noon.yaml", "jobs: [invalid")
 	for range 2 {
 		if code, result := invoke(t, "disable", "--json"); code != 0 {
 			t.Fatalf("disable: %d %+v", code, result)
 		}
 	}
 	write("noon.yaml", base)
-	write(".noon.yaml", "jobs:\n  a: {run: 'true'}\n  local: {run: 'true'}\n")
+	write(".git/noon.yaml", "jobs:\n  a: {run: 'true'}\n  local: {run: 'true'}\n")
 	check(false, map[string]string{"a": "not_required", "b": "needs_approval", "local": "not_required"})
 	if got := snapshot(); got.Enabled || len(got.Approvals) != 0 {
 		t.Fatalf("disable: %+v", got)

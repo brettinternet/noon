@@ -50,7 +50,7 @@ func TestAddJobs(t *testing.T) {
 				if code != 0 {
 					t.Fatalf("add: %d %s", code, stderr)
 				}
-				data, err := os.ReadFile(filepath.Join(root, ".noon.yaml"))
+				data, err := os.ReadFile(filepath.Join(root, ".git", "noon.yaml"))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -77,7 +77,7 @@ func TestAddJobs(t *testing.T) {
 
 	t.Run("invalid schedule preserves bytes and suggests a correction", func(t *testing.T) {
 		root := sandbox(t)
-		path := filepath.Join(root, ".noon.yaml")
+		path := filepath.Join(root, ".git", "noon.yaml")
 		original := []byte("# preserve exact bytes\nversion: 1\n")
 		if err := os.WriteFile(path, original, 0600); err != nil {
 			t.Fatal(err)
@@ -96,7 +96,7 @@ func TestAddJobs(t *testing.T) {
 
 	t.Run("collision and explicit config are refused", func(t *testing.T) {
 		root := sandbox(t)
-		path := filepath.Join(root, ".noon.yaml")
+		path := filepath.Join(root, ".git", "noon.yaml")
 		original := []byte("jobs:\n  tests:\n    run: 'true'\n")
 		if err := os.WriteFile(path, original, 0600); err != nil {
 			t.Fatal(err)
@@ -133,14 +133,14 @@ func TestAddJobs(t *testing.T) {
 		if code, _, stderr := invokeText(t, "add", "local", "every 1h", "--sh", "true"); code != 0 {
 			t.Fatalf("local add: %d %s", code, stderr)
 		}
-		localInfo, err := os.Stat(filepath.Join(root, ".noon.yaml"))
+		localInfo, err := os.Stat(filepath.Join(root, ".git", "noon.yaml"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if localInfo.Mode().Perm() != 0600 {
 			t.Fatalf("private mode=%o", localInfo.Mode().Perm())
 		}
-		localPath := filepath.Join(root, ".noon.yaml")
+		localPath := filepath.Join(root, ".git", "noon.yaml")
 		if err := os.Chmod(localPath, 0640); err != nil {
 			t.Fatal(err)
 		}
@@ -180,31 +180,14 @@ func TestAddJobs(t *testing.T) {
 		}
 	})
 
-	t.Run("local ignore warning respects git check-ignore", func(t *testing.T) {
-		root := sandbox(t)
-		if err := exec.Command("git", "-C", root, "init", "-q").Run(); err != nil {
-			t.Fatal(err)
-		}
-		code, out, stderr := invokeText(t, "add", "local", "--sh", "true")
-		if code != 0 {
-			t.Fatalf("add: %d %s", code, stderr)
-		}
-		if !strings.Contains(out, ".gitignore: .noon.yaml") {
-			t.Fatalf("missing ignore reminder: %s", out)
-		}
-		root = sandbox(t)
-		if err := exec.Command("git", "-C", root, "init", "-q").Run(); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".noon.yaml\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
-		code, out, stderr = invokeText(t, "add", "local", "--sh", "true")
-		if code != 0 {
-			t.Fatalf("ignored add: %d %s", code, stderr)
-		}
-		if strings.Contains(out, ".gitignore") {
-			t.Fatalf("warned for ignored file: %s", out)
+	// An in-tree private file would be committable and is never loaded, so
+	// writing one outside Git would silently lose the job.
+	t.Run("private add outside Git is refused", func(t *testing.T) {
+		sandbox(t)
+		plain := t.TempDir()
+		code, _, stderr := invokeText(t, "-C", plain, "add", "local", "--sh", "true")
+		if entries, err := os.ReadDir(plain); code != 2 || !strings.Contains(stderr, "--shared") || err != nil || len(entries) != 0 {
+			t.Fatalf("private add outside Git: %d %s %v %v", code, stderr, entries, err)
 		}
 	})
 
@@ -280,7 +263,7 @@ func TestAddJobs(t *testing.T) {
 	// than its local override, and preservation of hidden raw scalar values.
 	t.Run("shared duplicate approves raw job and discloses local override", func(t *testing.T) {
 		root := sandbox(t)
-		if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), []byte("jobs:\n  tests:\n    run: local\n"), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), []byte("jobs:\n  tests:\n    run: local\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte("jobs:\n  other:\n    run: other\n"), 0644); err != nil {
@@ -323,7 +306,7 @@ func TestAddJobs(t *testing.T) {
 				if err := os.WriteFile(sharedPath, original, 0644); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), []byte("jobs:\n  tests:\n    run: local\n"), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), []byte("jobs:\n  tests:\n    run: local\n"), 0600); err != nil {
 					t.Fatal(err)
 				}
 				code, result := invoke(t, "--json", "add", "added", "--shared", "--sh", "true")
@@ -389,7 +372,7 @@ func TestAddJobs(t *testing.T) {
 
 func TestRemoveJobs(t *testing.T) {
 	root := sandbox(t)
-	sharedPath, localPath := filepath.Join(root, "noon.yaml"), filepath.Join(root, ".noon.yaml")
+	sharedPath, localPath := filepath.Join(root, "noon.yaml"), filepath.Join(root, ".git", "noon.yaml")
 	shared := []byte("jobs:\n  tests:\n    run: shared\n")
 	local := []byte("jobs:\n  tests:\n    run: local\n")
 	if err := os.WriteFile(sharedPath, shared, 0644); err != nil {
@@ -504,6 +487,54 @@ func TestPauseResume(t *testing.T) {
 	})
 }
 
+// Regression: .noon.yaml was private by name, so a PR committing it ran its
+// jobs unattended without approval once checked out in an enabled project.
+func TestCommittedDotNoonYAMLNeverRunsUnattended(t *testing.T) {
+	root := sandbox(t)
+	git := func(args ...string) {
+		t.Helper()
+		args = append([]string{"-C", root, "-c", "user.name=noon", "-c", "user.email=noon@example.invalid", "-c", "commit.gpgsign=false"}, args...)
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	marker := filepath.Join(root, "ran")
+	if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), markerManifest(marker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-f", ".noon.yaml")
+	git("commit", "-qm", "pr")
+	jobs := func() []any {
+		t.Helper()
+		code, result := invoke(t, "list", "--json")
+		if code != 0 {
+			t.Fatalf("list: %d %+v", code, result)
+		}
+		return result["jobs"].([]any)
+	}
+	f := startPauseFixture(t, root, marker)
+	defer f.stop(t)
+	if listed := jobs(); len(listed) != 0 {
+		t.Fatalf("committed .noon.yaml loaded: %+v", listed)
+	}
+	f.step(t, fixtureStart)
+	f.step(t, fixtureStart.Add(time.Minute))
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("committed .noon.yaml job ran: %v", err)
+	}
+	// The same job in the uncommittable private file is yours and needs no approval.
+	if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), markerManifest(marker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if listed := jobs(); len(listed) != 1 || listed[0].(map[string]any)["approval"] != "not_required" {
+		t.Fatalf("private job: %+v", listed)
+	}
+	f.step(t, fixtureStart.Add(2*time.Minute))
+	f.step(t, fixtureStart.Add(3*time.Minute))
+	waitForMarker(t, marker)
+}
+
 var fixtureStart = time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 
 type pauseFixture struct {
@@ -521,10 +552,19 @@ func newPauseFixture(t *testing.T) *pauseFixture {
 	t.Helper()
 	root := sandbox(t)
 	marker := filepath.Join(root, "ran")
-	manifest := []byte("jobs:\n  tests:\n    schedule: every 1m\n    run: [touch, " + strconv.Quote(marker) + "]\n")
-	if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), manifest, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), markerManifest(marker), 0600); err != nil {
 		t.Fatal(err)
 	}
+	return startPauseFixture(t, root, marker)
+}
+
+func markerManifest(marker string) []byte {
+	return []byte("jobs:\n  tests:\n    schedule: every 1m\n    run: [touch, " + strconv.Quote(marker) + "]\n")
+}
+
+// startPauseFixture enables root and starts a scheduler driven by injected ticks.
+func startPauseFixture(t *testing.T, root, marker string) *pauseFixture {
+	t.Helper()
 	cfg, err := config.Load(config.Input{CWD: root})
 	if err != nil {
 		t.Fatal(err)

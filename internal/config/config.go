@@ -112,12 +112,21 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 		if input.UserConfigDir != "" {
 			paths = append(paths, filepath.Join(input.UserConfigDir, "noon", "config.yaml"))
 		}
-		paths = append(paths, filepath.Join(project, "noon.yaml"), filepath.Join(project, ".noon.yaml"))
+		paths = append(paths, filepath.Join(project, "noon.yaml"))
+		local := ""
+		if !stateOnly {
+			if local, err = LocalPath(project); err != nil {
+				return Config{}, err
+			}
+			if local != "" {
+				paths = append(paths, local)
+			}
+		}
 		for i, path := range paths {
 			kind := "shared"
 			if input.UserConfigDir != "" && i == 0 {
 				kind = "user"
-			} else if i == len(paths)-1 {
+			} else if path == local {
 				kind = "local"
 			}
 			if stateOnly && kind != "user" {
@@ -175,7 +184,7 @@ func ProjectDir(input Input) (string, error) {
 		return start, nil
 	}
 	for dir := start; ; dir = filepath.Dir(dir) {
-		for _, name := range []string{"noon.yaml", ".noon.yaml", ".git"} {
+		for _, name := range []string{"noon.yaml", ".git"} {
 			_, err := os.Lstat(filepath.Join(dir, name))
 			if err == nil {
 				return dir, nil
@@ -271,7 +280,7 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 	}
 	if node, ok := values["default_agent"]; ok {
 		if kind != "user" && kind != "local" && kind != "explicit" {
-			return jobError(path, node, "default_agent", "allowed only in user config, .noon.yaml, or --config files")
+			return jobError(path, node, "default_agent", "allowed only in user config, .git/noon.yaml, or --config files")
 		}
 		value := node.Value
 		if strings.TrimSpace(value) == "" {
@@ -289,7 +298,7 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 	}
 	if jobs, ok := values["jobs"]; ok {
 		if kind == "user" {
-			return jobError(path, jobs, "jobs", "allowed only in noon.yaml, .noon.yaml, or --config files")
+			return jobError(path, jobs, "jobs", "allowed only in noon.yaml, .git/noon.yaml, or --config files")
 		}
 		if err := cfg.applyJobs(path, kind, jobs); err != nil {
 			return err
@@ -392,6 +401,63 @@ func validTimezone(value string) error {
 		return fmt.Errorf("timezone %q: %w", value, err)
 	}
 	return nil
+}
+
+// LocalPath returns the project's private config, noon.yaml in the common Git
+// directory that linked worktrees share, or "" when the project has no .git.
+// Git refuses to check out paths inside that directory, so repository content
+// cannot supply private, approval-free jobs. Only .git and commondir are read;
+// git never runs.
+func LocalPath(project string) (string, error) {
+	marker := filepath.Join(project, ".git")
+	info, err := os.Stat(marker)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("git directory %s: %w", marker, err)
+	}
+	gitDir := marker
+	if !info.IsDir() {
+		line, err := readGitPointer(marker)
+		target, ok := strings.CutPrefix(line, "gitdir: ")
+		if err == nil && (!ok || target == "") {
+			err = errors.New("want a gitdir: line")
+		}
+		if err != nil {
+			return "", fmt.Errorf("git directory %s: %w", marker, err)
+		}
+		gitDir = resolvePath(project, target)
+	}
+	// Linked worktrees name the shared directory in commondir; others are it.
+	common, err := readGitPointer(filepath.Join(gitDir, "commondir"))
+	if errors.Is(err, os.ErrNotExist) {
+		return filepath.Join(gitDir, "noon.yaml"), nil
+	}
+	if err == nil && common == "" {
+		err = errors.New("empty")
+	}
+	if err != nil {
+		return "", fmt.Errorf("git directory %s: commondir: %w", gitDir, err)
+	}
+	return filepath.Join(resolvePath(gitDir, common), "noon.yaml"), nil
+}
+
+func readGitPointer(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	const maxSize = 4096
+	data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxSize {
+		return "", errors.New("exceeds 4 KiB")
+	}
+	return strings.TrimRight(string(data), "\r\n"), nil
 }
 
 func resolvePath(base, path string) string {

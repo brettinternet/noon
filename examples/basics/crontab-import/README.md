@@ -6,7 +6,7 @@
 cd examples/basics/crontab-import
 noon import crontab crontab.txt             # preview only; writes nothing
 crontab -l | noon import crontab -          # your real crontab
-crontab -l | noon import crontab - --write  # append to .noon.yaml (all-or-nothing)
+crontab -l | noon import crontab - --write  # append to .git/noon.yaml (all-or-nothing)
 ```
 
 [`crontab.txt`](crontab.txt) previews as:

@@ -2,26 +2,30 @@
 
 **Level:** beginner · **Shows:** configuration layers, toggles, whole-job replacement, private jobs, `default_agent`
 
-Layers, lowest to highest: defaults → user config → `noon.yaml` → `.noon.yaml` → `NOON_*`
+Layers, lowest to highest: defaults → user config → `noon.yaml` → `.git/noon.yaml` → `NOON_*`
 environment → CLI flags.
 
 | File | Committed | Holds |
 | --- | --- | --- |
 | [`user-config.yaml`](user-config.yaml) → `~/.config/noon/config.yaml` | no | timezone, agent profiles, hook defaults, `state_dir` |
 | [`noon.yaml`](noon.yaml) | yes | team jobs; need `noon enable` approval before they run unattended |
-| [`dot-noon.yaml`](dot-noon.yaml) → `.noon.yaml` | **never** | private jobs, toggles, replacements, `default_agent` |
+| [`private.yaml`](private.yaml) → `.git/noon.yaml` | **can't be** | private jobs, toggles, replacements, `default_agent` |
+
+The private file lives in the Git directory because Git can't commit or check out paths there.
+Try it in a scratch checkout:
 
 ```sh
-cd examples/basics/local-overrides
+cp -R examples/basics/local-overrides /tmp/local-overrides && cd /tmp/local-overrides
+git init -q
 noon list                       # shared jobs only
-cp dot-noon.yaml .noon.yaml && chmod 600 .noon.yaml
+cp private.yaml .git/noon.yaml && chmod 600 .git/noon.yaml
 noon list                       # test replaced, lint disabled, notes-sync added
 noon list --json | jq '.jobs[] | {name, source, overrides, approval}'
 noon config                     # effective settings and which files were loaded
-rm .noon.yaml                   # clean up
 ```
 
-`noon init --local` creates an empty `.noon.yaml` with the right mode. `noon add NAME ...`
-writes to `.noon.yaml` by default; `--shared` writes to `noon.yaml`.
+`noon init --local` creates an empty `.git/noon.yaml` with the right mode. `noon add NAME ...`
+writes to `.git/noon.yaml` by default; `--shared` writes to `noon.yaml`.
 
-Local jobs bypass approval, which is why `.noon.yaml` must stay out of Git.
+Private jobs skip approval, which is why only an uncommittable file can hold them. Noon ignores
+an in-tree `.noon.yaml`.

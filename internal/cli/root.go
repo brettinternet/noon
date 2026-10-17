@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -81,27 +80,27 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "wide", Usage: "Show complete names, schedules, and commands without truncation"},
 			}, Action: listJobs},
-			{Name: "add", Usage: "Add a scheduled or manual job", Description: "Without arguments, print examples. Writes private .noon.yaml by default; --shared writes noon.yaml.\n\nExamples:\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon add lint --sh 'go vet ./...'\n  noon add review --agent claude --prompt \"Review changes\"", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
+			{Name: "add", Usage: "Add a scheduled or manual job", Description: "Without arguments, print examples. Writes private .git/noon.yaml by default; --shared writes noon.yaml.\n\nExamples:\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon add lint --sh 'go vet ./...'\n  noon add review --agent claude --prompt \"Review changes\"", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "sh", Usage: "Run `STRING` through /bin/sh -c"},
 				&urfave.StringFlag{Name: "prompt", Aliases: []string{"p"}, Usage: "Create an agent-prompt job with `TEXT`"},
 				&urfave.StringFlag{Name: "prompt-file", Usage: "Read the prompt from `PATH` at run time"},
 				&urfave.StringFlag{Name: "agent", Aliases: []string{"a"}, Usage: "Use agent profile `NAME`"},
 				&urfave.StringFlag{Name: "description", Usage: "Set the job description to `TEXT`"},
 				&urfave.StringFlag{Name: "timeout", Aliases: []string{"t"}, Usage: "Set the run timeout to `DURATION`"},
-				&urfave.BoolFlag{Name: "shared", Usage: "Write noon.yaml instead of .noon.yaml"},
+				&urfave.BoolFlag{Name: "shared", Usage: "Write noon.yaml instead of private .git/noon.yaml"},
 				&urfave.StringFlag{Name: "in", Usage: "Queue a run after `DURATION`"},
 				&urfave.StringFlag{Name: "at", Usage: "Queue a run at `TIME`"},
 			}, Action: addJob},
-			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition; retain history", Description: "Without NAME, list jobs without removing anything. If both files define NAME, choose --shared or --local.\n\nExample:\n  noon remove tests --local", ArgsUsage: "[NAME]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared", Usage: "Remove from shared noon.yaml"}, &urfave.BoolFlag{Name: "local", Usage: "Remove from private .noon.yaml"}}, Action: removeJob},
+			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition; retain history", Description: "Without NAME, list jobs without removing anything. If both files define NAME, choose --shared or --local.\n\nExample:\n  noon remove tests --local", ArgsUsage: "[NAME]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared", Usage: "Remove from shared noon.yaml"}, &urfave.BoolFlag{Name: "local", Usage: "Remove from private .git/noon.yaml"}}, Action: removeJob},
 			{Name: "pause", Usage: "Pause background runs of a job", ArgsUsage: "[NAME]", Action: pauseJob},
 			{Name: "resume", Usage: "Resume background runs of a job", ArgsUsage: "[NAME]", Action: resumeJob},
 			{Name: "import", Usage: "Preview or import jobs from another scheduler", Action: importers, Commands: []*urfave.Command{
 				{Name: "crontab", Usage: "Preview or import a user crontab", ArgsUsage: "FILE|-", Flags: []urfave.Flag{
-					&urfave.BoolFlag{Name: "write", Usage: "Add all imported jobs to .noon.yaml"},
+					&urfave.BoolFlag{Name: "write", Usage: "Add all imported jobs to private .git/noon.yaml"},
 				}, Action: importCrontab},
 			}},
 			{Name: "init", Usage: "Create noon.yaml without overwriting existing files", Flags: []urfave.Flag{
-				&urfave.BoolFlag{Name: "local", Usage: "Create private .noon.yaml instead; add it to .gitignore"},
+				&urfave.BoolFlag{Name: "local", Usage: "Create private .git/noon.yaml instead; Git cannot commit it"},
 			}, Action: initialize},
 			{Name: "config", Usage: "Show effective configuration (default) or validate it", Action: showConfig, Commands: []*urfave.Command{
 				{Name: "show", Usage: "Show effective settings and loaded file paths", Action: showConfig},
@@ -373,12 +372,13 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return configError(err)
 	}
-	name := "noon.yaml"
-	mode := os.FileMode(0o644)
+	path, mode := filepath.Join(project, "noon.yaml"), os.FileMode(0o644)
 	if cmd.Bool("local") {
-		name, mode = ".noon.yaml", 0o600
+		if path, err = privateFile(project); err != nil {
+			return err
+		}
+		mode = 0o600
 	}
-	path := filepath.Join(project, name)
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	created := true
 	if errors.Is(err, os.ErrExist) {
@@ -386,72 +386,21 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	} else if err != nil {
 		return err
 	} else {
-		_, writeErr := io.WriteString(file, "# Noon settings. Listing jobs does not execute them.\n# Ignore .noon.yaml in your repository.\nversion: 1\n# timezone: Local\n# jobs:\n#   tests:\n#     schedule: weekdays at 9am\n#     run: task test\n")
+		_, writeErr := io.WriteString(file, "# Noon settings. Listing jobs does not execute them.\nversion: 1\n# timezone: Local\n# jobs:\n#   tests:\n#     schedule: weekdays at 9am\n#     run: task test\n")
 		closeErr := file.Close()
 		if err := errors.Join(writeErr, closeErr); err != nil {
 			return err
 		}
 	}
-	protection := ""
-	if cmd.Bool("local") {
-		protection = "Git ignore protection not applicable outside a Git checkout."
-		if gitWorkTree(project) {
-			if err := protectLocalConfig(project); err != nil {
-				return fmt.Errorf("cannot protect %s from Git: %w; check .gitignore and run noon init --local again", path, err)
-			}
-			protection = ".noon.yaml is ignored by Git."
-		}
-	}
 	if cmd.Bool("json") {
-		result := map[string]any{"path": path, "created": created}
-		if protection != "" {
-			result["protection"] = protection
-		}
-		return emit(cmd, result)
+		return emit(cmd, map[string]any{"path": path, "created": created})
 	}
 	if created {
 		fmt.Fprintf(cmd.Writer, "Created %s\n", path)
 	} else {
 		fmt.Fprintf(cmd.Writer, "Kept existing %s (not overwritten)\n", path)
 	}
-	if protection != "" {
-		fmt.Fprintln(cmd.Writer, protection)
-	}
 	fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon config check"))
-	return nil
-}
-
-func protectLocalConfig(project string) error {
-	if ignoredLocalConfig(project) {
-		return nil
-	}
-	if exec.Command("git", "-C", project, "ls-files", "--error-unmatch", "--", ".noon.yaml").Run() == nil {
-		return errors.New(".noon.yaml is already tracked; ignore rules cannot protect tracked files")
-	}
-	path := filepath.Join(project, ".gitignore")
-	mode := os.FileMode(0o644)
-	if info, err := os.Lstat(path); err == nil {
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("%s must be a regular file", path)
-		}
-		mode = info.Mode().Perm()
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		data = append(data, '\n')
-	}
-	data = append(data, []byte("/.noon.yaml\n")...)
-	if err := atomicWrite(path, data, mode); err != nil {
-		return err
-	}
-	if !ignoredLocalConfig(project) {
-		return errors.New(".noon.yaml is still not ignored; inspect Git exclude rules")
-	}
 	return nil
 }
 

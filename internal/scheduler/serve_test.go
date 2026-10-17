@@ -173,7 +173,7 @@ func TestServe(t *testing.T) {
 		fixture.step(t, serveTestStart)
 		fixture.writeConfig(t, "jobs: [invalid\n")
 		fixture.step(t, serveTestStart.Add(2*time.Second))
-		if message := fixture.configError(t); !strings.Contains(message, ".noon.yaml:") {
+		if message := fixture.configError(t); !strings.Contains(message, "/.git/noon.yaml:") {
 			t.Fatalf("config error = %q; want source file and line", message)
 		}
 		fixture.step(t, serveTestStart.Add(121*time.Second))
@@ -337,7 +337,7 @@ func newServeFixture(t *testing.T, manifest string) *serveFixture {
 	t.Helper()
 	fixture := &serveFixture{root: t.TempDir(), ticks: make(chan time.Time), ack: make(chan struct{}, 20), done: make(chan error, 1)}
 	fixture.project = filepath.Join(fixture.root, "project")
-	if err := os.MkdirAll(fixture.project, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(fixture.project, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	var err error
@@ -432,7 +432,7 @@ func (f *serveFixture) stop(t *testing.T) {
 
 func (f *serveFixture) writeConfig(t *testing.T, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(f.project, ".noon.yaml"), []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(f.project, ".git", "noon.yaml"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

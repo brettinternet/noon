@@ -147,14 +147,14 @@ func TestServeQueued(t *testing.T) {
 		var expiredID, firstProjectID int64
 		for i := 1; i <= 6; i++ {
 			project := filepath.Join(fixture.root, fmt.Sprintf("queued-%d", i))
-			if err := os.MkdirAll(project, 0o700); err != nil {
+			if err := os.MkdirAll(filepath.Join(project, ".git"), 0o700); err != nil {
 				t.Fatal(err)
 			}
 			project, err = filepath.EvalSymlinks(project)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(project, ".noon.yaml"), []byte("jobs:\n  tests:\n    run: 'sleep 30'\n"), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(project, ".git", "noon.yaml"), []byte("jobs:\n  tests:\n    run: 'sleep 30'\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if err := state.EnableProject(project, nil, nil, serveTestStart); err != nil {

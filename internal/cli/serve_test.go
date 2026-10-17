@@ -92,7 +92,7 @@ func TestServeRejectsNewerStateWithExit75(t *testing.T) {
 func TestListUsesPersistedIntervalPhase(t *testing.T) {
 	root := sandbox(t)
 	manifest := "timezone: America/Chicago\njobs:\n  interval:\n    schedule: every 1h\n    run: 'true'\n"
-	if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var out, stderr bytes.Buffer
@@ -152,7 +152,7 @@ func TestListUsesPersistedIntervalPhase(t *testing.T) {
 func TestListJSONWebhookPath(t *testing.T) {
 	root := sandbox(t)
 	manifest := "jobs:\n  hook:\n    run: 'true'\n    webhook:\n      secret_env: HOOK_SECRET\n  plain:\n    run: 'true'\n"
-	if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var out, stderr bytes.Buffer

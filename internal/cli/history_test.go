@@ -431,9 +431,8 @@ func TestHistoryAndLogs(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "state", "noon")); !os.IsNotExist(err) {
 			t.Fatalf("inspection created state: %v", err)
 		}
-		entries, err := os.ReadDir(root)
-		if err != nil || len(entries) != 1 || entries[0].Name() != "noon.yaml" {
-			t.Fatalf("inspection changed project files: %v err=%v", entries, err)
+		if entries := projectFiles(t, root); len(entries) != 1 || entries[0] != "noon.yaml" {
+			t.Fatalf("inspection changed project files: %v", entries)
 		}
 	})
 }

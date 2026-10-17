@@ -47,18 +47,18 @@ func TestLoadJobs(t *testing.T) {
 		}},
 		{name: "whole override", shared: "jobs: {tests: {run: original, env: {TOKEN: secret}, schedule: daily, timeout: 5m}}", local: "jobs: {tests: {run: replacement}}", check: func(t *testing.T, c config.Config) {
 			j := c.Jobs["tests"]
-			if j.Run != "replacement" || len(j.Env) != 0 || j.Schedule != nil || j.Timeout != "1h" || j.Shared || !j.Overrides || filepath.Base(j.Source) != ".noon.yaml" {
+			if j.Run != "replacement" || len(j.Env) != 0 || j.Schedule != nil || j.Timeout != "1h" || j.Shared || !j.Overrides || !strings.HasSuffix(j.Source, "/.git/noon.yaml") {
 				t.Fatalf("override merged fields: %+v", j)
 			}
 		}},
 		{name: "toggle", shared: "jobs: {tests: {run: original, env: {TOKEN: secret}}}", local: "jobs: {tests: {enabled: false}}", check: func(t *testing.T, c config.Config) {
 			j := c.Jobs["tests"]
-			if j.Enabled || j.Run != "original" || j.Env["TOKEN"] != "secret" || !j.Shared || !j.Overrides || filepath.Base(j.Source) != ".noon.yaml" {
+			if j.Enabled || j.Run != "original" || j.Env["TOKEN"] != "secret" || !j.Shared || !j.Overrides || !strings.HasSuffix(j.Source, "/.git/noon.yaml") {
 				t.Fatalf("toggle lost execution provenance: %+v", j)
 			}
 		}},
 		{name: "orphan toggle", local: "jobs: {tests: {enabled: false}}", want: "enabled-only override requires a shared job"},
-		{name: "user jobs", user: "jobs: {}", want: "allowed only in noon.yaml, .noon.yaml, or --config"},
+		{name: "user jobs", user: "jobs: {}", want: "allowed only in noon.yaml, .git/noon.yaml, or --config"},
 		{name: "project hook defaults", shared: "on_success: [notify]\njobs: {tests: {run: hi}}", want: "allowed only in user config or --config files"},
 		{name: "name", shared: "jobs:\n  1tests: {run: hi}", want: "noon.yaml:2: jobs.1tests:"},
 		{name: "unknown field", shared: "jobs:\n  tests:\n    run: hi\n    typo: nope", want: "noon.yaml:4: jobs.tests.typo: unknown field"},
@@ -67,7 +67,7 @@ func TestLoadJobs(t *testing.T) {
 		{name: "unknown agent", shared: "jobs: {tests: {prompt: hi, agent: missing}}", want: `unknown agent "missing"; known agents: claude, codex`},
 		{name: "prompt needs agent", shared: "jobs: {tests: {prompt: hi}}", want: "requires agent or default_agent; set agent on the job or default_agent"},
 		{name: "agents outside user config", shared: "agents: {team: {command: [agent]}}", want: "agents: allowed only in user config or --config files"},
-		{name: "default agent outside allowed file", shared: "default_agent: claude", want: "default_agent: allowed only in user config, .noon.yaml, or --config files"},
+		{name: "default agent outside allowed file", shared: "default_agent: claude", want: "default_agent: allowed only in user config, .git/noon.yaml, or --config files"},
 		{name: "invalid profile prompt mode", user: "agents: {team: {command: [agent], prompt: terminal}}", want: "must be stdin or argument"},
 		{name: "schedule suggestion", shared: "jobs:\n  tests:\n    schedule: every day\n    run: hi", want: "noon.yaml:3: jobs.tests.schedule: every day needs a time: try every day at 9am"},
 		{name: "numeric env", shared: "jobs: {tests: {run: hi, env: {COUNT: 1}}}", want: "jobs.tests.env.COUNT: must be a string (quote numbers)"},
@@ -99,7 +99,7 @@ func TestLoadJobs(t *testing.T) {
 				put(t, filepath.Join(root, "noon.yaml"), tc.shared)
 			}
 			if tc.local != "" {
-				put(t, filepath.Join(root, ".noon.yaml"), tc.local)
+				put(t, filepath.Join(root, ".git", "noon.yaml"), tc.local)
 			}
 			if tc.user != "" {
 				put(t, filepath.Join(user, "noon/config.yaml"), tc.user)
@@ -205,7 +205,7 @@ func TestJobDigest(t *testing.T) {
 	load := func(body, local string) string {
 		t.Helper()
 		put(t, filepath.Join(root, "noon.yaml"), "jobs:\n  tests:\n"+body)
-		put(t, filepath.Join(root, ".noon.yaml"), local)
+		put(t, filepath.Join(root, ".git", "noon.yaml"), local)
 		cfg, err := config.Load(config.Input{CWD: root})
 		if err != nil {
 			t.Fatal(err)

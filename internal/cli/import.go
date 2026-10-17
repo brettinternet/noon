@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 
 	"github.com/brettinternet/noon/internal/config"
@@ -72,7 +71,7 @@ func importCrontab(_ context.Context, cmd *urfave.Command) error {
 		return &Error{Code: "crontab_import", Message: err.Error()}
 	}
 
-	written := false
+	written := ""
 	if cmd.Bool("write") && len(jobs) > 0 {
 		written, err = writeImportedJobs(values, cfg, jobs)
 		if err != nil {
@@ -80,13 +79,13 @@ func importCrontab(_ context.Context, cmd *urfave.Command) error {
 		}
 	}
 	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"jobs": importJobOutput(jobs), "written": written})
+		return emit(cmd, map[string]any{"jobs": importJobOutput(jobs), "written": written != ""})
 	}
 	if _, err := cmd.Writer.Write(preview); err != nil {
 		return err
 	}
-	if written {
-		fmt.Fprintf(cmd.Writer, "Wrote %d jobs to .noon.yaml.\n", len(jobs))
+	if written != "" {
+		fmt.Fprintf(cmd.Writer, "Wrote %d jobs to %s.\n", len(jobs), displayPath(cfg.Project, written))
 	} else if cmd.Bool("write") {
 		fmt.Fprintln(cmd.Writer, "No jobs to write.")
 	}
@@ -104,48 +103,52 @@ func importJobOutput(jobs []cronimport.Job) []map[string]any {
 	return output
 }
 
-func writeImportedJobs(values config.Input, before config.Config, jobs []cronimport.Job) (bool, error) {
+// writeImportedJobs returns the private file it wrote, or "" when there was nothing to write.
+func writeImportedJobs(values config.Input, before config.Config, jobs []cronimport.Job) (string, error) {
 	if len(jobs) == 0 {
-		return false, nil
+		return "", nil
 	}
-	file := filepath.Join(before.Project, ".noon.yaml")
+	file, err := privateFile(before.Project)
+	if err != nil {
+		return "", err
+	}
 	source, err := os.ReadFile(file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, configError(err)
+		return "", configError(err)
 	}
 	oldNames, err := config.JobNames(source)
 	if err != nil {
-		return false, &Error{Code: "config_edit", Message: err.Error(), Hint: "Edit the file by hand"}
+		return "", &Error{Code: "config_edit", Message: err.Error(), Hint: "Edit the file by hand"}
 	}
 	after := source
 	for _, job := range jobs {
 		after, err = cronimport.AddJobToYAML(after, job)
 		if err != nil {
-			return false, &Error{Code: "config_edit", Message: err.Error(), Hint: "Edit the file by hand"}
+			return "", &Error{Code: "config_edit", Message: err.Error(), Hint: "Edit the file by hand"}
 		}
 	}
 	wantNames := append(append([]string(nil), oldNames...), importedNames(jobs)...)
 	newNames, err := config.JobNames(after)
 	if err != nil {
-		return false, &Error{Code: "config_edit", Message: err.Error(), Hint: "Edit the file by hand"}
+		return "", &Error{Code: "config_edit", Message: err.Error(), Hint: "Edit the file by hand"}
 	}
 	if !sameNames(newNames, wantNames) {
-		return false, editVerificationError("edited job names do not match the requested import")
+		return "", editVerificationError("edited job names do not match the requested import")
 	}
 	if err := verifyRawJobsUnchanged(source, after, oldNames, "", before); err != nil {
-		return false, editVerificationError(err.Error())
+		return "", editVerificationError(err.Error())
 	}
 	candidate, err := config.LoadWithFileOverride(values, file, after)
 	if err != nil {
-		return false, &Error{Code: "config_edit", Message: err.Error(), Hint: "Edit the file by hand"}
+		return "", &Error{Code: "config_edit", Message: err.Error(), Hint: "Edit the file by hand"}
 	}
 	if err := verifyConfigUnchangedAfterAdding(before, candidate, importedNames(jobs)); err != nil {
-		return false, editVerificationError(err.Error())
+		return "", editVerificationError(err.Error())
 	}
 	if err := atomicWrite(file, after, 0); err != nil {
-		return false, err
+		return "", err
 	}
-	return true, nil
+	return file, nil
 }
 
 func importedNames(jobs []cronimport.Job) []string {

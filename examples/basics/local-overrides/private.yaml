@@ -1,6 +1,5 @@
-# Copy to .noon.yaml (mode 0600) and keep it out of Git:
-#   cp dot-noon.yaml .noon.yaml && chmod 600 .noon.yaml
-#   echo .noon.yaml >> .gitignore
+# Copy into your checkout's Git directory (mode 0600), where Git cannot commit it:
+#   cp private.yaml .git/noon.yaml && chmod 600 .git/noon.yaml
 # Private, machine-local jobs. They need no approval and are never shared.
 
 # Prompt jobs without an agent use this profile (allowed here, not in noon.yaml).

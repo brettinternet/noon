@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -141,13 +140,13 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			return usageError(err.Error(), "Use --in DURATION or --at TIME")
 		}
 	}
-	file := filepath.Join(cfg.Project, ".noon.yaml")
-	kind := "private"
-	mode := os.FileMode(0600)
-	if cmd.Bool("shared") {
-		file = filepath.Join(cfg.Project, "noon.yaml")
-		kind = "shared"
-		mode = 0644
+	file, kind, mode := filepath.Join(cfg.Project, "noon.yaml"), "shared", os.FileMode(0644)
+	if !cmd.Bool("shared") {
+		var err error
+		if file, err = privateFile(cfg.Project); err != nil {
+			return err
+		}
+		kind, mode = "private", 0600
 	}
 	if info, statErr := os.Stat(file); statErr == nil {
 		mode = info.Mode().Perm()
@@ -242,9 +241,6 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		if overrides {
 			notes = append(notes, "Local job "+name+" overrides the shared definition.")
 		}
-		if !cmd.Bool("shared") && gitWorkTree(cfg.Project) && !ignoredLocalConfig(cfg.Project) {
-			notes = append(notes, "Ignore .noon.yaml in Git by adding this line to .gitignore: .noon.yaml")
-		}
 		var nextAt *time.Time
 		if job.Schedule != nil {
 			location, _ := time.LoadLocation(updated.Timezone)
@@ -273,7 +269,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			"schedule": scheduleText, "next_at": nextAt, "scheduling_enabled": job.Schedule != nil || queued,
 			"notes": notes, "needs_approval": needsApproval, "next": guidance(cmd, next)})
 	}
-	fmt.Fprintf(cmd.Writer, "Added %s to %s (%s) · %s", name, filepath.Base(file), kind, scheduleText)
+	fmt.Fprintf(cmd.Writer, "Added %s to %s (%s) · %s", name, displayPath(cfg.Project, file), kind, scheduleText)
 	if job.Schedule != nil {
 		location, _ := time.LoadLocation(updated.Timezone)
 		fmt.Fprintf(cmd.Writer, " · next %s", job.Schedule.Next(now, location).Format("Mon 15:04"))
@@ -284,9 +280,6 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	fmt.Fprintln(cmd.Writer)
 	if overrides {
 		fmt.Fprintf(cmd.Writer, "Local job %s overrides the shared definition.\n", name)
-	}
-	if !cmd.Bool("shared") && gitWorkTree(cfg.Project) && !ignoredLocalConfig(cfg.Project) {
-		fmt.Fprintln(cmd.Writer, "Ignore .noon.yaml in Git by adding this line to .gitignore: .noon.yaml")
 	}
 	if job.Schedule != nil || queued {
 		fmt.Fprintf(cmd.Writer, "Scheduling enabled for %s.\n", view.Project.Path)
@@ -364,10 +357,16 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	if cmd.Bool("shared") && cmd.Bool("local") {
 		return usageError("--shared and --local are mutually exclusive", "Choose the definition to remove")
 	}
-	sharedFile, localFile := filepath.Join(cfg.Project, "noon.yaml"), filepath.Join(cfg.Project, ".noon.yaml")
-	sharedExists, localExists := hasJobInFile(values, sharedFile, args[0]), hasJobInFile(values, localFile, args[0])
+	sharedFile, localFile := filepath.Join(cfg.Project, "noon.yaml"), ""
+	if localFile, e = config.LocalPath(cfg.Project); e != nil {
+		return configError(e)
+	}
+	sharedExists, localExists := hasJobInFile(values, sharedFile, args[0]), localFile != "" && hasJobInFile(values, localFile, args[0])
 	if sharedExists && localExists && !cmd.Bool("shared") && !cmd.Bool("local") {
-		return usageError("job is defined in both noon.yaml and .noon.yaml", "Choose --shared or --local")
+		return usageError("job is defined in both noon.yaml and "+displayPath(cfg.Project, localFile), "Choose --shared or --local")
+	}
+	if cmd.Bool("local") && localFile == "" {
+		return usageError("no private config outside a Git checkout", "Choose --shared")
 	}
 	file := job.Source
 	if cmd.Bool("shared") {
@@ -528,12 +527,25 @@ func validJobName(name string) bool {
 	return true
 }
 
-func gitWorkTree(project string) bool {
-	return exec.Command("git", "-C", project, "rev-parse", "--is-inside-work-tree").Run() == nil
+// privateFile returns the project's private config path. Private jobs skip
+// approval, so they live only where repository content cannot place them.
+func privateFile(project string) (string, error) {
+	path, err := config.LocalPath(project)
+	if err != nil {
+		return "", configError(err)
+	}
+	if path == "" {
+		return "", usageError("private jobs need a Git checkout; they live in .git/noon.yaml", "Use --shared to write noon.yaml")
+	}
+	return path, nil
 }
-func ignoredLocalConfig(project string) bool {
-	cmd := exec.Command("git", "-C", project, "check-ignore", "-q", ".noon.yaml")
-	return cmd.Run() == nil
+
+// displayPath shortens paths inside the project, such as .git/noon.yaml.
+func displayPath(project, path string) string {
+	if rel, err := filepath.Rel(project, path); err == nil && filepath.IsLocal(rel) {
+		return rel
+	}
+	return path
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {

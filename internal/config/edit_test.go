@@ -90,7 +90,10 @@ func TestEditJobs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), data, 0600); err != nil {
+		if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), data, 0600); err != nil {
 			t.Fatal(err)
 		}
 		loaded, err := config.Load(config.Input{CWD: root})
@@ -148,7 +151,10 @@ func TestEditJobs(t *testing.T) {
 func loadBytes(t *testing.T, data []byte) {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), data, 0600); err != nil {
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := config.Load(config.Input{CWD: root}); err != nil {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"os/exec"
 	"reflect"
 	"slices"
 	"time"
@@ -30,11 +29,35 @@ func sandbox(t *testing.T) string {
 		}
 	}
 	root := t.TempDir()
+	// A Git marker gives the sandbox a private config location, .git/noon.yaml.
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("HOME", root)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "user"))
 	t.Chdir(root)
 	return root
+}
+
+// projectFiles lists a sandbox project's entries, including the private config
+// directory, so checks for unexpected writes also see .git/noon.yaml.
+func projectFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var names []string
+	for _, dir := range []string{"", ".git"} {
+		entries, err := os.ReadDir(filepath.Join(root, dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if dir == "" && entry.Name() == ".git" {
+				continue
+			}
+			names = append(names, filepath.Join(dir, entry.Name()))
+		}
+	}
+	return names
 }
 
 func invoke(t *testing.T, args ...string) (int, map[string]any) {
@@ -74,7 +97,7 @@ func TestInitPreservesExistingConfig(t *testing.T) {
 	if code != 0 || result["created"] != true {
 		t.Fatalf("local init: %d %+v", code, result)
 	}
-	info, err := os.Stat(filepath.Join(root, ".noon.yaml"))
+	info, err := os.Stat(filepath.Join(root, ".git", "noon.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,101 +108,11 @@ func TestInitPreservesExistingConfig(t *testing.T) {
 	if code != 0 || result["config"].(map[string]any)["timezone"] != "UTC" {
 		t.Fatalf("local init shadowed inherited settings: %d %+v", code, result)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".gitignore")); !os.IsNotExist(err) {
-		t.Fatalf("outside Git created ignore file: %v", err)
-	}
-
-	t.Run("selected nested checkout", func(t *testing.T) {
-		root := sandbox(t)
-		git := func(dir string, args ...string) {
-			t.Helper()
-			out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
-			if err != nil {
-				t.Fatalf("git %v: %v %s", args, err, out)
-			}
-		}
-		git(root, "init", "-q")
-		project := filepath.Join(root, "nested")
-		if err := os.Mkdir(project, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		git(project, "init", "-q")
-		ignore := filepath.Join(project, ".gitignore")
-		if err := os.WriteFile(ignore, []byte("# keep\ncache/"), 0o640); err != nil {
-			t.Fatal(err)
-		}
-		for i := 0; i < 2; i++ {
-			code, result := invoke(t, "-C", project, "init", "--local", "--json")
-			if code != 0 || result["created"] != (i == 0) {
-				t.Fatalf("local init: %d %+v", code, result)
-			}
-			git(project, "check-ignore", ".noon.yaml")
-			got, err := os.ReadFile(ignore)
-			if err != nil || string(got) != "# keep\ncache/\n/.noon.yaml\n" {
-				t.Fatalf("ignore changed: %q %v", got, err)
-			}
-			info, err := os.Stat(ignore)
-			if err != nil || info.Mode().Perm() != 0o640 {
-				t.Fatalf("ignore mode: %v %v", info, err)
-			}
-			manifest := filepath.Join(project, ".noon.yaml")
-			if i == 0 {
-				if err := os.WriteFile(manifest, data, 0o600); err != nil {
-					t.Fatal(err)
-				}
-			} else if got, err := os.ReadFile(manifest); err != nil || !bytes.Equal(got, data) {
-				t.Fatalf("manifest changed: %q %v", got, err)
-			}
-		}
-		if _, err := os.Stat(filepath.Join(root, ".gitignore")); !os.IsNotExist(err) {
-			t.Fatalf("modified unrelated checkout: %v", err)
-		}
-
-		// An effective exclude must not cause a new rule or rewrite.
-		if err := os.WriteFile(ignore, []byte("# already protected\n.*\n"), 0o640); err != nil {
-			t.Fatal(err)
-		}
-		for _, args := range [][]string{{"--local"}, {}} {
-			code, result := invoke(t, append([]string{"-C", project, "init", "--json"}, args...)...)
-			if code != 0 {
-				t.Fatalf("init: %d %+v", code, result)
-			}
-			if got, err := os.ReadFile(ignore); err != nil || string(got) != "# already protected\n.*\n" {
-				t.Fatalf("existing ignore rewritten: %q %v", got, err)
-			}
-		}
-	})
-
-	for _, problem := range []string{"directory", "symlink", "tracked"} {
-		t.Run(problem, func(t *testing.T) {
-			root := sandbox(t)
-			if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
-				t.Fatalf("git init: %v %s", err, out)
-			}
-			ignore := filepath.Join(root, ".gitignore")
-			switch problem {
-			case "directory":
-				if err := os.Mkdir(ignore, 0o755); err != nil {
-					t.Fatal(err)
-				}
-			case "symlink":
-				if err := os.Symlink(filepath.Join(t.TempDir(), "unrelated"), ignore); err != nil {
-					t.Fatal(err)
-				}
-			case "tracked":
-				if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), data, 0o600); err != nil {
-					t.Fatal(err)
-				}
-				if out, err := exec.Command("git", "-C", root, "add", ".noon.yaml").CombinedOutput(); err != nil {
-					t.Fatalf("git add: %v %s", err, out)
-				}
-			}
-			var out, stderr bytes.Buffer
-			code := cli.Run(context.Background(), []string{"noon", "init", "--local"}, config.BuildOpts{}, &out, &stderr)
-			if code == 0 || strings.Contains(out.String(), "ignored by Git") || !strings.Contains(stderr.String(), "cannot protect") || !strings.Contains(stderr.String(), "check .gitignore") {
-				t.Fatalf("protection failure: %d stdout=%s stderr=%s", code, &out, &stderr)
-			}
-		})
+	// Outside Git there is no uncommittable location for private config.
+	plain := t.TempDir()
+	code, result = invoke(t, "-C", plain, "init", "--local", "--json")
+	if entries, err := os.ReadDir(plain); code != 2 || err != nil || len(entries) != 0 {
+		t.Fatalf("local init outside Git: %d %+v %v %v", code, result, entries, err)
 	}
 }
 
@@ -333,11 +266,7 @@ func TestInspectionDoesNotWriteOrExecute(t *testing.T) {
 			t.Fatalf("inspection: %d %+v", code, result)
 		}
 	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
+	if entries := projectFiles(t, root); len(entries) != 0 {
 		t.Fatalf("inspection created files: %v", entries)
 	}
 	// A missing target must never select the only job or install/start a service.
