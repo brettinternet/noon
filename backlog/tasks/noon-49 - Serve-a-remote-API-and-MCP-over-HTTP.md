@@ -6,11 +6,12 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-10-16 01:43'
-updated_date: '2026-10-17 18:41'
+updated_date: '2026-10-17 21:11'
 labels:
   - http
   - mcp
   - security
+  - reviewed
 dependencies:
   - NOON-48
 documentation:
@@ -113,4 +114,6 @@ AC#4: same TestRemoteAPI -> passed; token absent from scheduler output, logs, ev
 AC#5: task cli:test PKG=./internal/mcp -- -count=1 -> passed (corrected argument separator), including stdio list_projects. README and scoped docs updated. Installed claude mcp add --help confirmed HTTP transport/header options; codex mcp add --help confirmed URL/bearer-token-env options. task ci -> passed on committed implementation and again on integrated main b65e6c9 (log /tmp/noon-49-integrated-ci.log).
 Single independent security review completed. Fixed confirmed reverse-proxy Host rejection by disabling SDK localhost protection only behind bearer authentication; integration regression passes. Also reproduced delayed MCP body plus full 60s wait failing with socket hang up; extended API-only deadline to 75s (10s body budget + 60s wait + response margin), unchanged webhook limits. Isolated /tmp/noon-49-wait-probe.js then returned HTTP 200 after 67.010s. LSP diagnostics clean for scheduler and integration edits. No tests deleted, skipped or weakened; staged scanner false positive resolved by generating a synthetic test token.
 Delivery: implementation commit b65e6c9d965caf7fe7196852b5367e42fbe31119 fast-forwarded into main after rebasing onto concurrent unrelated main commits. Worktrunk removed owned worktree and branch; Herdr cleanup hook ran. No push. No remaining blocker or resumable implementation step; final task-record commit and claim release remain.
+
+Post-completion review: no actionable defects found. Inspected bearer authentication before routing, constant-time digest comparison, enabled-project and run restrictions across JSON API/HTTP MCP, absence of administrative routes, bounded bodies and error mapping, token startup validation before scheduler state, token isolation, and API-only write-deadline extension. task cli:test PKG="./internal/cli ./internal/httpapi ./internal/mcp" -- -count=1 passed all three packages. task cli:test PKG=./integration -- -run ^TestRemoteAPI$ -count=1 -v passed, exercising both live transports, reverse-proxy Host, unauthorized requests, disabled resources, queue/wait/cancel, token hygiene, and tokenless webhook compatibility. No source changes; full CI was not rerun for this review.
 <!-- SECTION:NOTES:END -->

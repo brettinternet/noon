@@ -4,8 +4,9 @@ title: Make human CLI output easier to scan with restrained terminal styling
 status: Done
 assignee: []
 created_date: '2026-10-17 05:54'
-updated_date: '2026-10-17 06:12'
-labels: []
+updated_date: '2026-10-17 21:11'
+labels:
+  - reviewed
 dependencies: []
 priority: medium
 type: enhancement
@@ -52,6 +53,8 @@ AC#1: task cli:test PKG=./internal/cli and focused TestColorOutputBoundaries/Tes
 Delivery checkpoint: implementation committed as 3d57d2c6050ad1a6bab2e11570a3ab55768dfc25 (feat(cli): add restrained terminal styling), task check:staged and task ci both passed on that commit. task release:check VERSION=0.3.0 COMMIT=3d57d2c6050ad1a6bab2e11570a3ab55768dfc25 BUILD_TIME=2026-10-17T06:05:02Z validated all four CGO-free archives/checksums; task release:smoke with dist/release/v0.3.0/native-noon passed. Pushed main and annotated v0.3.0 tag. GitHub CI run 39008657666 started; tagged release publication pending. Next: verify both workflows and published assets/mise checks, then finalize task and commit/push backlog evidence. No worktree or background service created.
 
 Delivery complete: GitHub CI https://github.com/brettinternet/noon/actions/runs/39008657666 and Release https://github.com/brettinternet/noon/actions/runs/39008661448 both concluded success. Release v0.3.0 published 2026-10-17T06:11:43Z with four Linux/macOS amd64/arm64 archives and checksums.txt; native smoke and latest/pinned mise installation succeeded on all four platforms. gh api repos/brettinternet/noon/commits/v0.3.0 confirms exact implementation SHA 3d57d2c6050ad1a6bab2e11570a3ab55768dfc25. Release: https://github.com/brettinternet/noon/releases/tag/v0.3.0. No remaining work or blocker; provider claim released. No checkout/workspace created or adopted; unrelated pre-existing worktrees left untouched. Temporary verification artifacts retained for evidence.
+
+Post-completion review: no actionable defects found. Inspected per-stream style selection, color flag/error parsing, sanitization before ANSI insertion, table width calculations, and JSON/child/log output boundaries against the implementation diff. Verified existing regression coverage for Unicode guidance, escape injection/alignment, explicit overrides, invalid flags, and raw child/log preservation. task cli:test PKG="./internal/cli ./internal/httpapi ./internal/mcp" -- -count=1 passed all three packages. No source changes; full CI and visual/PTY checks were not rerun for this review.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
