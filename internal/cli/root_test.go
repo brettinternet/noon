@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"reflect"
 	"slices"
@@ -345,6 +346,45 @@ func TestInspectionDoesNotWriteOrExecute(t *testing.T) {
 
 // Guard against executing a manifest during inspection, leaking secrets, or
 // accidentally changing the machine-readable contract.
+func TestListHumanIdentifiers(t *testing.T) {
+	root := sandbox(t)
+	names := []string{"long-job-name-alpha", "long-job-name-beta"}
+	command := "printf " + strings.Repeat("full-command-", 12) + "\x1b[31m"
+	manifest := "jobs:\n"
+	for _, name := range names {
+		manifest += fmt.Sprintf("  %s:\n    run: 'true'\n", name)
+	}
+	manifest += fmt.Sprintf("  controls:\n    run: %q\n", command)
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	invokeHuman := func(args ...string) string {
+		t.Helper()
+		var out, stderr bytes.Buffer
+		if code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr); code != 0 {
+			t.Fatalf("%v: %d %s", args, code, &stderr)
+		}
+		return out.String()
+	}
+	for _, name := range names {
+		invokeHuman("run", name)
+	}
+	for _, args := range [][]string{{"list"}, {"list", "--wide"}, {"history"}, {}} {
+		out := invokeHuman(args...)
+		for _, name := range names {
+			if !strings.Contains(out, name) {
+				t.Fatalf("%v lost identifier %s: %s", args, name, out)
+			}
+		}
+		if strings.ContainsRune(out, '\x1b') {
+			t.Fatalf("%v emitted terminal controls: %q", args, out)
+		}
+	}
+	if out := invokeHuman("list", "--wide"); !strings.Contains(out, strings.ReplaceAll(command, "\x1b", `\x1b`)) {
+		t.Fatalf("wide command truncated or not escaped: %q", out)
+	}
+}
+
 func TestListJSON(t *testing.T) {
 	root := sandbox(t)
 	data := "timezone: America/Chicago\njobs:\n  zmanual:\n    run: [touch, SHOULD_NOT_EXIST]\n  adaily:\n    schedule: every day at 9am\n    run: touch SHOULD_NOT_EXIST\n    env: {TOKEN: never-print-this-value, OTHER: also-private}\n  bdisabled:\n    schedule: every 1h\n    enabled: false\n    run: 'true'\n  cinterval:\n    schedule: every 1h\n    run: 'true'\n"
@@ -425,7 +465,7 @@ func TestListJSON(t *testing.T) {
 	if view.Jobs[0].NextAt.Format(time.RFC3339) != "2026-01-01T09:00:00-06:00" || view.Jobs[2].NextAt.Format(time.RFC3339) != "2025-12-31T19:00:00-06:00" {
 		t.Fatal(view)
 	}
-	for _, args := range [][]string{{"list", "--json"}, {"ls"}, {}, {"status"}, {"config", "--json"}, {"config", "check", "--json"}} {
+	for _, args := range [][]string{{"list", "--json"}, {"list", "--wide"}, {"ls"}, {}, {"status"}, {"config", "--json"}, {"config", "check", "--json"}} {
 		var out, stderr bytes.Buffer
 		if code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr); code != 0 {
 			t.Fatalf("%v: %s", args, &stderr)
