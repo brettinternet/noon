@@ -4,10 +4,11 @@ title: Smoke-test event-driven example scripts against the built binary
 status: Done
 assignee: []
 created_date: '2026-10-16 22:10'
-updated_date: '2026-10-16 23:20'
+updated_date: '2026-10-17 02:00'
 labels:
   - integration
   - examples
+  - reviewed
 dependencies: []
 documentation:
   - examples/README.md

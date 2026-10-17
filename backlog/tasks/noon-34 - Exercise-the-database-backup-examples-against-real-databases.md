@@ -4,10 +4,11 @@ title: Make database backup and restore examples safe and verify them
 status: Done
 assignee: []
 created_date: '2026-10-16 22:10'
-updated_date: '2026-10-16 22:35'
+updated_date: '2026-10-17 02:00'
 labels:
   - ops
   - examples
+  - reviewed
 dependencies: []
 documentation:
   - examples/local-dev/db-backups/README.md
