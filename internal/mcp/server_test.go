@@ -147,6 +147,30 @@ func TestMCP(t *testing.T) {
 		t.Fatalf("list_jobs differs from noon list --json:\n got: %s\nwant: %s", listResult.StructuredContent, listOut.Bytes())
 	}
 
+	userProject := filepath.Join(userConfigDir, "noon")
+	if err := os.MkdirAll(filepath.Join(userProject, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userProject, "config.yaml"), []byte("jobs: {personal: {run: 'true'}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userProject, "noon.yaml"), []byte("jobs: {repository: {run: 'true'}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userProject, ".git", "noon.yaml"), []byte("jobs: {private: {run: 'true'}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	userList := callTool(t, ctx, clientSession, "list_jobs", map[string]any{"project": userProject})
+	userView := decodeObject(t, userList.StructuredContent)
+	userJobs := userView["jobs"].([]any)
+	if userList.IsError || userView["project"].(map[string]any)["path"] != userProject || len(userJobs) != 1 {
+		t.Fatalf("MCP user project jobs: %+v", userView)
+	}
+	userJob := userJobs[0].(map[string]any)
+	if userJob["name"] != "personal" || userJob["shared"] != false || userJob["approval"] != "not_required" || userJob["cwd"] != userProject {
+		t.Fatalf("MCP user job: %+v", userJob)
+	}
+
 	statusResult := callTool(t, ctx, clientSession, "status", map[string]any{})
 	if statusResult.IsError || decodeObject(t, statusResult.StructuredContent)["schema_version"] != float64(1) {
 		t.Fatalf("status result: %s", textContent(statusResult))

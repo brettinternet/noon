@@ -59,7 +59,7 @@ func TestExamplesValidate(t *testing.T) {
 		case "noon.yaml":
 			projects++
 			check(t, "-C", filepath.Dir(path))
-		case "user-config.yaml", "jobs.yaml":
+		case "user-config.yaml", "config.yaml", "jobs.yaml":
 			check(t, "--config", path)
 		}
 		return nil

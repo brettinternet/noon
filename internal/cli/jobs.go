@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/brettinternet/noon/internal/app"
+	"github.com/brettinternet/noon/internal/config"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -32,6 +33,9 @@ func inspectJobs(cmd *urfave.Command) error {
 		return emit(cmd, map[string]any{"project": view.Project, "jobs": view.Jobs})
 	}
 	style := styleFor(cmd, cmd.Writer)
+	if config.IsUserProject(view.Project.Path, values.UserConfigDir) {
+		fmt.Fprintf(cmd.Writer, "user · %s\n", view.Project.Path)
+	}
 	fmt.Fprintf(cmd.Writer, "Scheduler %s\n", style.render(view.Project.Scheduler, view.Project.Scheduler))
 	if view.Project.ConfigError != "" {
 		fmt.Fprintf(cmd.Writer, "%s %s\n", style.render("Config error:", "failed"), cell(view.Project.ConfigError, 240))

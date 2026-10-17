@@ -79,6 +79,40 @@ func TestImportWrite(t *testing.T) {
 	}
 }
 
+func TestImportWriteUserConfig(t *testing.T) {
+	root := sandbox(t)
+	crontabPath := filepath.Join(root, "crontab.txt")
+	if err := os.WriteFile(crontabPath, []byte("0 8 * * * /usr/local/bin/digest\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, result := invoke(t, "--json", "--user", "import", "crontab", crontabPath, "--write")
+	if code != 0 || result["written"] != true {
+		t.Fatalf("user import: exit=%d result=%+v", code, result)
+	}
+	userProject, err := config.UserProjectDir(os.Getenv("XDG_CONFIG_HOME"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configFile := filepath.Join(userProject, "config.yaml")
+	for path, want := range map[string]os.FileMode{userProject: 0o700, configFile: 0o600} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != want {
+			t.Fatalf("%s mode=%o, want %o", path, info.Mode().Perm(), want)
+		}
+	}
+	cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: os.Getenv("XDG_CONFIG_HOME"), User: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, exists := cfg.Jobs["digest"]
+	if !exists || job.Shared || job.CWD != userProject || job.Schedule.String() != "0 8 * * *" {
+		t.Fatalf("imported user job: %+v exists=%v", job, exists)
+	}
+}
+
 func TestImportWriteExplicitConfig(t *testing.T) {
 	root := sandbox(t)
 	custom := filepath.Join(root, "custom.yaml")

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/config"
 	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/store"
@@ -93,6 +94,97 @@ func TestServeConfigSelectionRecovery(t *testing.T) {
 	fixture.stop(t)
 	if runs := fixture.runs(t); len(runs) != 1 {
 		t.Fatalf("restored checkout runs: %+v", runs)
+	}
+}
+
+func TestServeUserProjectIsolationAndLastGoodReload(t *testing.T) {
+	fixture := newServeFixture(t, "jobs: {regular: {run: 'true'}}\n")
+	fixture.stop(t)
+
+	userProject, err := config.UserProjectDir(fixture.userConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(userProject, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(fixture.root, "user-cwd")
+	command := "pwd >> " + shellQuote(marker)
+	userConfig := filepath.Join(userProject, "config.yaml")
+	userManifest := fmt.Sprintf("jobs:\n  personal:\n    schedule: every 1m\n    run: %s\n", strconv.Quote(command))
+	if err := os.WriteFile(userConfig, []byte(userManifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userProject, "noon.yaml"), []byte("jobs: {tree: {schedule: every 1m, run: 'touch tree-ran'}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userProject, ".git", "noon.yaml"), []byte("jobs: {private: {schedule: every 1m, run: 'touch private-ran'}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := config.Input{CWD: fixture.root, UserConfigDir: fixture.userConfig, Project: &userProject, StateDirDefault: fixture.stateDir}
+	userConfigSnapshot, err := config.Load(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := app.Enable(userConfigSnapshot, serveTestStart); err != nil {
+		t.Fatalf("enable user project: %v", err)
+	}
+	fixture.start(t)
+	fixture.step(t, serveTestStart)
+
+	regular, err := app.ListJobs(config.Input{CWD: fixture.project, UserConfigDir: fixture.userConfig, StateDirDefault: fixture.stateDir}, serveTestStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, job := range regular.Jobs {
+		if job.Name == "personal" || job.Name == "tree" || job.Name == "private" {
+			t.Fatalf("user/repository job appeared in regular list: %+v", regular.Jobs)
+		}
+	}
+
+	fixture.step(t, serveTestStart.Add(time.Minute))
+	waitFor(t, func() bool {
+		data, err := os.ReadFile(marker)
+		return err == nil && strings.TrimSpace(string(data)) == userProject
+	})
+	broken := "jobs: {personal: {schedule: every day, run: 'true'}}\n"
+	if err := os.WriteFile(userConfig, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.step(t, serveTestStart.Add(time.Minute+2*time.Second))
+	state, err := store.OpenExisting(fixture.stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, _, err := state.ProjectConfigError(userProject)
+	_ = state.Close()
+	if err != nil || !strings.Contains(message, "config.yaml") || !strings.Contains(message, "every day") {
+		t.Fatalf("broken user config error=%q err=%v", message, err)
+	}
+	fixture.step(t, serveTestStart.Add(2*time.Minute))
+	waitFor(t, func() bool {
+		data, err := os.ReadFile(marker)
+		return err == nil && strings.Count(string(data), "\n") == 2
+	})
+	data, err := os.ReadFile(marker)
+	if err != nil || strings.TrimSpace(string(data)) != userProject+"\n"+userProject {
+		t.Fatalf("last-good user schedule output=%q err=%v", data, err)
+	}
+	fixture.stop(t)
+
+	state, err = store.OpenExisting(fixture.stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userRuns, err := state.RunsForProject(userProject, "", 50)
+	if err != nil {
+		_ = state.Close()
+		t.Fatal(err)
+	}
+	regularRuns, err := state.RunsForProject(fixture.project, "", 50)
+	_ = state.Close()
+	if err != nil || len(userRuns) != 2 || len(regularRuns) != 0 || userRuns[0].Job != "personal" || userRuns[1].Job != "personal" {
+		t.Fatalf("user/regular runs: user=%+v regular=%+v err=%v", userRuns, regularRuns, err)
 	}
 }
 

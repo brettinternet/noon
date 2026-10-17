@@ -2,14 +2,17 @@
 
 ## Files
 
-Later sources override earlier ones, one setting at a time:
+For repository projects, later sources override earlier ones, one setting at a time:
 
 1. Built-in defaults
-2. User config: `$XDG_CONFIG_HOME/noon/config.yaml`, else `~/.config/noon/config.yaml`
+2. User settings: `$XDG_CONFIG_HOME/noon/config.yaml`, else `~/.config/noon/config.yaml`
 3. `noon.yaml` in the project (shared, committed)
 4. `.git/noon.yaml` in the project's Git directory (private, can't be committed)
 5. Environment variables
 6. CLI flags
+
+Select the separate user project with `--user`; its jobs come only from the user config's
+`jobs:` mapping. A normal project validates user config but never imports those jobs.
 
 ```console
 $ noon config
@@ -29,9 +32,11 @@ CLI flags override environment variables; both override files.
 `noon config check` validates the same files without printing them. Neither checks that job
 commands or agent CLIs exist; `noon doctor` does.
 
-`--config FILE` (or `NOON_CONFIG`) replaces all three files. The file must exist. Defaults,
-environment, and flags still apply. This keeps CI and container runs reproducible. It doesn't
-change which project is selected; use `-C` for that.
+`--config FILE` (or `NOON_CONFIG`) replaces all three repository files. The file must exist.
+Defaults, environment, and flags still apply. This keeps CI and container runs reproducible. It
+doesn't change which project is selected; use `-C` for that. Every normal load still validates the
+user config, including when `--config` is selected, but it never imports user jobs into a repository
+project.
 
 ```sh
 NOON_TIMEZONE=UTC noon config
@@ -44,7 +49,7 @@ Neither overwrites an existing file.
 
 ### Private config
 
-Private jobs run unattended without approval, so only a file that repository content can't supply
+Repository-private jobs run unattended without approval, so only a file that repository content can't supply
 is private. That file is `noon.yaml` inside the project's Git directory. Git refuses to commit or
 check out paths there, so no branch or pull request can add or replace it. A linked worktree uses
 the main checkout's Git directory, so one `.git/noon.yaml` applies to the main checkout and every
@@ -78,7 +83,7 @@ Use the comment, not a `$schema` YAML key, which Noon rejects as an unknown fiel
 | Key | User config | `noon.yaml` | `.git/noon.yaml` |
 | --- | --- | --- | --- |
 | `version`, `timezone` | yes | yes | yes |
-| `jobs` | no | yes | yes |
+| `jobs` | yes | yes | yes |
 | `default_agent` | yes | no | yes |
 | `state_dir`, `agents`, `on_success`, `on_failure` | yes | no | no |
 
@@ -102,6 +107,27 @@ Paths:
 - Job `cwd` and `prompt_file` are relative to the project root.
 - Flag and environment paths are relative to where you ran the command.
 - YAML never expands `~` or `$VARS`. `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` must be absolute.
+
+## User project
+
+The user project is the canonical directory `$XDG_CONFIG_HOME/noon`, else `~/.config/noon`.
+Its only job source is `config.yaml` in that directory. Noon never imports a `noon.yaml`,
+`.git/noon.yaml`, or config above it, even when those files exist there. Select it with
+`noon --user`; passing that directory to `-C` selects the same project and the same config
+rules. Its identity is the absolute directory path.
+
+User jobs are yours: they have `shared: false`, require no approval, and run with the user project
+as their default `cwd`. Relative `cwd`, `prompt_file`, and command paths are based there. YAML
+never expands `~`. `noon --user add` creates the directory with mode 0700 and `config.yaml` with
+mode 0600; `remove` and `import crontab --write` edit that file. `add` rejects `--shared` and
+`--local`. A scheduled or queued `add` enables this project. Use `noon --user enable` to opt in
+explicitly; the normal `noon serve` / service runs it like any other enabled project.
+
+`--user` conflicts with `-C`/`--project`, `NOON_PROJECT`, and `--config`/`NOON_CONFIG`; it is
+not supported by `serve`, `service`, `init`, or `shell`. Selecting the user directory with `-C`
+also conflicts with `--config`. Read-only `noon --user` works when no config exists: it shows an
+empty `user` project and suggests `noon --user add` without creating files. Invalid user jobs are
+still validated on every normal project load, but valid user jobs never appear in repository jobs.
 
 ## Project discovery
 
@@ -212,8 +238,10 @@ noon resume tests                                      # restart from now, no ca
 ```
 
 `add` writes the private `.git/noon.yaml` by default and edits lines in place, keeping comments and formatting.
-Unusual `jobs` layouts must be edited by hand. `add`, `remove`, and `import --write` refuse to edit
-a `--config` file. If a name exists in both files, `remove` needs `--shared` or `--local`.
+Unusual `jobs` layouts must be edited by hand. With `--user`, `add`, `remove`, and
+`import crontab --write` edit the user project's `config.yaml` instead. `add` rejects
+`--shared`/`--local` in that scope. `add`, `remove`, and `import --write` refuse to edit
+a `--config` file. If a name exists in both repository files, `remove` needs `--shared` or `--local`.
 
 `add` enables the project when the job has a schedule or queued run, and approves only that job.
 Paused jobs still run with `noon run`.
@@ -246,7 +274,7 @@ explicitly present, so jobs that omit it keep their existing digest and approval
 description doesn't require re-approval. Agent profile commands and user-config hook defaults are
 yours and excluded. **The digest doesn't cover the contents of referenced scripts or prompt files.**
 
-`noon enable` records the checkout's canonical path and its config selection (automatic files or
+`noon enable` records the project's canonical path and its config selection (automatic files or
 the absolute `--config` path), then approves every current shared job. Re-running it keeps
 existing approval times. `noon disable` revokes opt-in and approvals without reading project
 files, so a broken edit can't block it. If user config is broken too, pass `--state-dir`.

@@ -75,6 +75,47 @@ func invoke(t *testing.T, args ...string) (int, map[string]any) {
 	return code, value
 }
 
+func TestUserFlagConflicts(t *testing.T) {
+	root := sandbox(t)
+	repo := t.TempDir()
+	configFile := filepath.Join(root, "settings.yaml")
+	if err := os.WriteFile(configFile, []byte("version: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"--json", "--user", "-C", repo, "list"},
+		{"--json", "--user", "--config", configFile, "list"},
+		{"--json", "--user", "add", "x", "--shared", "--", "true"},
+		{"--json", "--user", "serve"},
+		{"--json", "--user", "init"},
+		{"--json", "--user", "shell", "init", "bash"},
+	} {
+		code, result := invoke(t, args...)
+		if code != 2 || result["error"].(map[string]any)["code"] != "usage" {
+			t.Fatalf("%v: exit=%d result=%+v", args, code, result)
+		}
+	}
+
+	t.Setenv("NOON_PROJECT", repo)
+	code, result := invoke(t, "--json", "--user", "list")
+	if code != 2 || result["error"].(map[string]any)["code"] != "usage" {
+		t.Fatalf("NOON_PROJECT conflict: exit=%d result=%+v", code, result)
+	}
+	t.Setenv("NOON_PROJECT", "")
+	if err := os.Unsetenv("NOON_PROJECT"); err != nil {
+		t.Fatal(err)
+	}
+
+	userProject := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "noon")
+	if err := os.MkdirAll(userProject, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	code, result = invoke(t, "--json", "-C", userProject, "--config", configFile, "list")
+	if code != 2 || result["error"].(map[string]any)["code"] != "usage" {
+		t.Fatalf("user directory config conflict: exit=%d result=%+v", code, result)
+	}
+}
+
 func TestInitPreservesExistingConfig(t *testing.T) {
 	root := sandbox(t)
 	code, result := invoke(t, "--json", "init")

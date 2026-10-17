@@ -370,6 +370,78 @@ func TestAddJobs(t *testing.T) {
 	})
 }
 
+func TestUserJobEditingAndEnablement(t *testing.T) {
+	root := sandbox(t)
+	userConfigDir := filepath.Join(root, "user")
+	userProject, err := config.UserProjectDir(userConfigDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, added, stderr := invokeText(t, "--user", "add", "where", "every day at 8am", "--", "pwd")
+	if code != 0 {
+		t.Fatalf("user add: exit=%d stdout=%s stderr=%s", code, added, stderr)
+	}
+	configFile := filepath.Join(userProject, "config.yaml")
+	for path, want := range map[string]os.FileMode{userProject: 0o700, configFile: 0o600} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != want {
+			t.Fatalf("%s mode=%o, want %o", path, info.Mode().Perm(), want)
+		}
+	}
+	if !strings.Contains(added, "noon --user run where") {
+		t.Fatalf("copyable user guidance lost --user: %s", added)
+	}
+
+	values := config.Input{CWD: root, UserConfigDir: userConfigDir, User: true}
+	cfg, err := config.Load(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Project != userProject || cfg.Jobs["where"].Shared || cfg.Jobs["where"].CWD != userProject {
+		t.Fatalf("user config: %+v", cfg)
+	}
+	state, err := store.OpenExisting(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, err := state.ApprovalForProject(cfg.Project)
+	_ = state.Close()
+	if err != nil || !approval.Enabled || len(approval.Approvals) != 0 {
+		t.Fatalf("user schedule was not enabled without repository approvals: %+v %v", approval, err)
+	}
+
+	listed, result := invoke(t, "--user", "list", "--json")
+	if listed != 0 {
+		t.Fatalf("user list: exit=%d result=%+v", listed, result)
+	}
+	jobs := result["jobs"].([]any)
+	job := jobs[0].(map[string]any)
+	if job["name"] != "where" || job["shared"] != false || job["approval"] != "not_required" || result["project"].(map[string]any)["path"] != userProject {
+		t.Fatalf("user job list: %+v", result)
+	}
+
+	code, output, stderr := invokeText(t, "--user", "run", "where")
+	if code != 0 || strings.TrimSpace(output) != userProject {
+		t.Fatalf("user run: exit=%d stdout=%q stderr=%s", code, output, stderr)
+	}
+	code, output, stderr = invokeText(t, "--user", "run", "where", "--detach")
+	if code != 0 || !strings.Contains(output, "noon --user logs ") {
+		t.Fatalf("detached user guidance: exit=%d stdout=%s stderr=%s", code, output, stderr)
+	}
+	code, _, stderr = invokeText(t, "--user", "remove", "where")
+	if code != 0 {
+		t.Fatalf("user remove: exit=%d stderr=%s", code, stderr)
+	}
+	cfg, err = config.Load(values)
+	if err != nil || len(cfg.Jobs) != 0 {
+		t.Fatalf("user job remains after remove: %+v err=%v", cfg.Jobs, err)
+	}
+}
+
 func TestRemoveJobs(t *testing.T) {
 	root := sandbox(t)
 	sharedPath, localPath := filepath.Join(root, "noon.yaml"), filepath.Join(root, ".git", "noon.yaml")

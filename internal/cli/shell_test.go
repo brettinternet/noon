@@ -187,7 +187,7 @@ func TestShellCompletion(t *testing.T) {
 		}
 	}
 	write(filepath.Join(root, "noon.yaml"), "jobs:\n  local-job:\n    run: [touch, EXECUTED]\n")
-	write(filepath.Join(root, "user", "noon", "config.yaml"), "agents:\n  reviewer:\n    command: [agent]\n")
+	write(filepath.Join(root, "user", "noon", "config.yaml"), "agents:\n  reviewer:\n    command: [agent]\njobs:\n  personal-job: {run: 'true'}\n")
 	other := filepath.Join(root, "other $(touch INJECTED)")
 	write(filepath.Join(other, "noon.yaml"), "jobs:\n  other-job:\n    run: 'true'\n")
 	explicit := filepath.Join(root, "explicit config.yaml")
@@ -314,6 +314,9 @@ func TestShellCompletion(t *testing.T) {
 	}
 	if got := complete("-C", root, "run", ""); !reflect.DeepEqual(got, []string{"local-job"}) {
 		t.Fatal(got)
+	}
+	if got := complete("--user", "run", ""); !reflect.DeepEqual(got, []string{"personal-job"}) {
+		t.Fatalf("user completion: %v", got)
 	}
 	_ = os.Unsetenv("NOON_PROJECT")
 	// Real Bash COMP_WORDS retains quote syntax and splits --flag=value.

@@ -70,7 +70,12 @@ func TestLoadJobs(t *testing.T) {
 			}
 		}},
 		{name: "orphan toggle", local: "jobs: {tests: {enabled: false}}", want: "enabled-only override requires a shared job"},
-		{name: "user jobs", user: "jobs: {}", want: "allowed only in noon.yaml, .git/noon.yaml, or --config"},
+		{name: "user jobs are validated but not imported", user: "jobs: {tests: {run: hi}}", check: func(t *testing.T, c config.Config) {
+			if _, exists := c.Jobs["tests"]; exists {
+				t.Fatalf("user job leaked into regular project: %+v", c.Jobs)
+			}
+		}},
+		{name: "invalid user job", user: "jobs: {tests: {schedule: every day, run: hi}}", want: "config.yaml"},
 		{name: "project hook defaults", shared: "on_success: [notify]\njobs: {tests: {run: hi}}", want: "allowed only in user config or --config files"},
 		{name: "name", shared: "jobs:\n  1tests: {run: hi}", want: "noon.yaml:2: jobs.1tests:"},
 		{name: "unknown field", shared: "jobs:\n  tests:\n    run: hi\n    typo: nope", want: "noon.yaml:4: jobs.tests.typo: unknown field"},

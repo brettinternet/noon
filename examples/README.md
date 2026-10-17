@@ -1,7 +1,9 @@
 # Examples
 
-Each directory is a self-contained Noon project: a `noon.yaml`, the scripts it runs, and a README
-explaining the scenario. Copy what you need into your repository, or inspect one in place:
+Most directories are self-contained Noon projects: a `noon.yaml`, the scripts it runs, and a README
+explaining the scenario. [Machine housekeeping](local-dev/housekeeping/) is the user-project example:
+copy its `config.yaml` and scripts into `$XDG_CONFIG_HOME/noon` (else `~/.config/noon`) and use
+`noon --user`. Copy what you need into your repository, or inspect a repository project in place:
 
 ```sh
 noon -C examples/basics/hello list
@@ -33,7 +35,7 @@ is validated by `integration/examples_test.go`.
 | --- | --- | --- |
 | [go-project](local-dev/go-project/) | intermediate | test/race/vet/vulncheck cadence, cache warming, `cooldown` |
 | [bun-app](local-dev/bun-app/) | intermediate | quick checks vs nightly e2e, a bundle-size budget gate |
-| [housekeeping](local-dev/housekeeping/) | intermediate | machine-wide chores from one personal project: fetch all repos, Docker prune, disk alerts |
+| [housekeeping](local-dev/housekeeping/) | intermediate | user-project chores: fetch all repos, Docker prune, disk alerts |
 | [db-backups](local-dev/db-backups/) | intermediate | Postgres/SQLite backups, retention, weekly restore drills, catch-up after sleep |
 | [git-hooks](local-dev/git-hooks/) | intermediate | post-commit/merge/checkout queueing, idempotency keys, event payloads |
 | [shell-entry](local-dev/shell-entry/) | intermediate | a check-in job when you `cd` into a project, with failure notifications |

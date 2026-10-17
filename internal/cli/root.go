@@ -28,12 +28,13 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 	root := &urfave.Command{
 		Name:        "noon",
 		Usage:       "Repo-local scheduling, without a platform",
-		Description: "With no command, show the project dashboard without running jobs, starting services, or opening listeners. Background runs require explicit enablement and a scheduler.\n\nExamples:\n  noon\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon run tests\n  noon history -s failed\n  noon logs tests -n 50",
+		Description: "With no command, show the project dashboard without running jobs, starting services, or opening listeners. Background runs require explicit enablement and a scheduler. Use --user to select personal jobs in your Noon user config.\n\nExamples:\n  noon\n  noon --user\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon run tests\n  noon history -s failed\n  noon logs tests -n 50",
 		Version:     fmt.Sprintf("%s (%.7s, built %s)", build.Version, build.Commit, build.BuildTime),
 		Writer:      out, ErrWriter: errOut,
 		EnableShellCompletion: true,
 		ExitErrHandler:        func(context.Context, *urfave.Command, error) {},
 		Flags: []urfave.Flag{
+			&urfave.BoolFlag{Name: "user", Usage: "Use personal jobs from $XDG_CONFIG_HOME/noon/config.yaml (else ~/.config/noon/config.yaml)"},
 			&urfave.StringFlag{Name: "project", Aliases: []string{"C"}, Usage: "Use project `DIR` instead of discovery", Sources: urfave.EnvVars("NOON_PROJECT")},
 			&urfave.StringFlag{Name: "config", Usage: "Read only `FILE` (relative to invocation directory)", Sources: urfave.EnvVars("NOON_CONFIG")},
 			&urfave.StringFlag{Name: "timezone", Usage: "Override timezone with `TZ` (default Local)", Sources: urfave.EnvVars("NOON_TIMEZONE")},
@@ -80,9 +81,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.IntFlag{Name: "limit-bytes", Aliases: []string{"b"}, Usage: "Cap emitted log text at `BYTES`"},
 				&urfave.StringSliceFlag{Name: "status", Aliases: []string{"s"}, Usage: "Filter by `STATUS`; repeat or comma-separate values"},
 			}, Action: runLogs},
-			{Name: "enable", Usage: "Enable this checkout and approve current shared job definitions", Action: enableProject},
-			{Name: "disable", Usage: "Disable this checkout and revoke approvals; keep history", Action: disableProject},
-			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks and an authenticated API with --listen", Description: "Runs in the foreground until stopped. Uses each enabled project's recorded configuration. Accepts --state-dir, --listen, and --api-token-file; rejects --project, --config, --timezone, and --json. No HTTP listener starts by default. --api-token-file requires --listen.\n\nExamples:\n  noon serve\n  noon serve --listen 127.0.0.1:8080\n  noon serve --listen 127.0.0.1:8080 --api-token-file /run/secrets/noon-api-token", Flags: []urfave.Flag{
+			{Name: "enable", Usage: "Enable this project and approve current shared job definitions", Action: enableProject},
+			{Name: "disable", Usage: "Disable this project and revoke approvals; keep history", Action: disableProject},
+			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks and an authenticated API with --listen", Description: "Runs in the foreground until stopped. Uses each enabled project's recorded configuration, including the user project. Accepts --state-dir, --listen, and --api-token-file; rejects --user, --project, --config, --timezone, and --json. No HTTP listener starts by default. --api-token-file requires --listen.\n\nExamples:\n  noon serve\n  noon serve --listen 127.0.0.1:8080\n  noon serve --listen 127.0.0.1:8080 --api-token-file /run/secrets/noon-api-token", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "listen", Usage: "Listen for signed webhooks at `ADDR`; no listener starts without this flag"},
 				&urfave.StringFlag{Name: "api-token-file", Usage: "Read a bearer token from `FILE` and enable the authenticated API and MCP over HTTP; requires --listen"},
 			}, Action: serveAction(build.Version)},
@@ -100,7 +101,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "wide", Usage: "Show complete names, schedules, and commands without truncation"},
 			}, Action: listJobs},
-			{Name: "add", Usage: "Add a scheduled or manual job", Description: "Without arguments, print examples. Writes private .git/noon.yaml by default; --shared writes noon.yaml.\n\nExamples:\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon add lint --sh 'go vet ./...'\n  noon add review --agent claude --prompt \"Review changes\"", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
+			{Name: "add", Usage: "Add a scheduled or manual job", Description: "Without arguments, print examples. Writes private .git/noon.yaml by default; --shared writes noon.yaml. With --user, writes the user config.yaml and rejects --shared/--local.\n\nExamples:\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon add lint --sh 'go vet ./...'\n  noon --user add digest \"every day at 8am\" --sh 'date >> digest.txt'\n  noon add review --agent claude --prompt 'Review changes'", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "sh", Usage: "Run `STRING` through /bin/sh -c"},
 				&urfave.StringFlag{Name: "prompt", Aliases: []string{"p"}, Usage: "Create an agent-prompt job with `TEXT`"},
 				&urfave.StringFlag{Name: "prompt-file", Usage: "Read the prompt from `PATH` at run time"},
@@ -111,12 +112,12 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.StringFlag{Name: "in", Usage: "Queue a run after `DURATION`"},
 				&urfave.StringFlag{Name: "at", Usage: "Queue a run at `TIME`"},
 			}, Action: addJob},
-			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition; retain history", Description: "Without NAME, list jobs without removing anything. If both files define NAME, choose --shared or --local.\n\nExample:\n  noon remove tests --local", ArgsUsage: "[NAME]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared", Usage: "Remove from shared noon.yaml"}, &urfave.BoolFlag{Name: "local", Usage: "Remove from private .git/noon.yaml"}}, Action: removeJob},
+			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition; retain history", Description: "Without NAME, list jobs without removing anything. If both repository files define NAME, choose --shared or --local. With --user, remove edits the user config.yaml.\n\nExample:\n  noon remove tests --local\n  noon --user remove digest", ArgsUsage: "[NAME]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared", Usage: "Remove from shared noon.yaml"}, &urfave.BoolFlag{Name: "local", Usage: "Remove from private .git/noon.yaml"}}, Action: removeJob},
 			{Name: "pause", Usage: "Pause background runs of a job", ArgsUsage: "[NAME]", Action: pauseJob},
 			{Name: "resume", Usage: "Resume background runs of a job", ArgsUsage: "[NAME]", Action: resumeJob},
 			{Name: "import", Usage: "Preview or import jobs from another scheduler", Action: importers, Commands: []*urfave.Command{
 				{Name: "crontab", Usage: "Preview or import a user crontab", ArgsUsage: "FILE|-", Flags: []urfave.Flag{
-					&urfave.BoolFlag{Name: "write", Usage: "Add all imported jobs to private .git/noon.yaml"},
+					&urfave.BoolFlag{Name: "write", Usage: "Add jobs to private .git/noon.yaml, or to user config.yaml with --user"},
 				}, Action: importCrontab},
 			}},
 			{Name: "init", Usage: "Create noon.yaml without overwriting existing files", Flags: []urfave.Flag{
@@ -137,6 +138,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		action := cmd.Action
 		if action != nil {
 			cmd.Action = func(ctx context.Context, selected *urfave.Command) error {
+				if err := validateUserSelection(selected); err != nil {
+					return err
+				}
 				if len(selected.Commands) > 0 {
 					if err := noArgs(selected); err != nil {
 						return err
@@ -254,6 +258,28 @@ func outputRequested(root *urfave.Command, args []string) (bool, string) {
 	return requested, color
 }
 
+func validateUserSelection(cmd *urfave.Command) error {
+	if !cmd.Bool("user") {
+		return nil
+	}
+	if cmd.IsSet("project") || envSet("NOON_PROJECT") {
+		return usageError("--user conflicts with -C/--project and NOON_PROJECT", "Use --user alone to select personal jobs")
+	}
+	if cmd.IsSet("config") || envSet("NOON_CONFIG") {
+		return usageError("--user conflicts with --config and NOON_CONFIG", "Edit the user project's config.yaml directly")
+	}
+	name := cmd.FullName()
+	if name == "noon serve" || name == "noon service" || strings.HasPrefix(name, "noon service ") || name == "noon init" || name == "noon shell" || strings.HasPrefix(name, "noon shell ") {
+		return usageError("--user is not supported for "+name, "Use --user with personal job commands")
+	}
+	return nil
+}
+
+func envSet(name string) bool {
+	_, set := os.LookupEnv(name)
+	return set
+}
+
 func input(cmd *urfave.Command) (config.Input, error) {
 	return invocationInput(cmd, false)
 }
@@ -292,10 +318,16 @@ func invocationInput(cmd *urfave.Command, shellEntry bool) (config.Input, error)
 	} else if !filepath.IsAbs(stateHome) {
 		return config.Input{}, errors.New("XDG_STATE_HOME must be absolute")
 	}
-	values := config.Input{CWD: cwd, UserConfigDir: userDir, StateDirDefault: filepath.Join(stateHome, "noon"),
+	values := config.Input{CWD: cwd, UserConfigDir: userDir, User: cmd.Bool("user"), StateDirDefault: filepath.Join(stateHome, "noon"),
 		StateDir: setting(cmd, "state-dir")}
 	if !shellEntry {
 		values.Project, values.File, values.Timezone = setting(cmd, "project"), setting(cmd, "config"), setting(cmd, "timezone")
+		if values.File != nil && !values.User {
+			project, projectErr := config.ProjectDir(values)
+			if projectErr == nil && config.IsUserProject(project, userDir) {
+				return config.Input{}, usageError("the user project conflicts with --config", "Use the user project config.yaml without --config")
+			}
+		}
 	}
 	return values, nil
 }

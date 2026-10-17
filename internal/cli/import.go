@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 
 	"github.com/brettinternet/noon/internal/config"
@@ -108,9 +109,16 @@ func writeImportedJobs(values config.Input, before config.Config, jobs []cronimp
 	if len(jobs) == 0 {
 		return "", nil
 	}
-	file, err := privateFile(before.Project)
-	if err != nil {
-		return "", err
+	userProject := config.IsUserProject(before.Project, values.UserConfigDir)
+	var err error
+	file := ""
+	if userProject {
+		file = filepath.Join(before.Project, "config.yaml")
+	} else {
+		file, err = privateFile(before.Project)
+		if err != nil {
+			return "", err
+		}
 	}
 	source, err := os.ReadFile(file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -145,7 +153,14 @@ func writeImportedJobs(values config.Input, before config.Config, jobs []cronimp
 	if err := verifyConfigUnchangedAfterAdding(before, candidate, importedNames(jobs)); err != nil {
 		return "", editVerificationError(err.Error())
 	}
-	if err := atomicWrite(file, after, 0); err != nil {
+	if userProject {
+		if err := ensureUserConfigDir(before.Project); err != nil {
+			return "", err
+		}
+		if err := atomicWrite(file, after, 0600); err != nil {
+			return "", err
+		}
+	} else if err := atomicWrite(file, after, 0); err != nil {
 		return "", err
 	}
 	return file, nil

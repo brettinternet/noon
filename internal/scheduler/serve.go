@@ -697,6 +697,9 @@ func configSelection(project store.EnabledProject) string {
 }
 
 func configPaths(project store.EnabledProject, userConfigDir string) []string {
+	if config.IsUserProject(project.Path, userConfigDir) {
+		return []string{filepath.Join(project.Path, "config.yaml")}
+	}
 	if project.ConfigFile.Valid {
 		return []string{project.Path, project.ConfigFile.String}
 	}

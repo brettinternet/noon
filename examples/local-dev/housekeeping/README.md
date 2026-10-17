@@ -1,18 +1,26 @@
 # Machine housekeeping
 
-**Level:** intermediate · **Shows:** machine-wide chores from one personal project, report-only jobs, failure as an alert
+**Level:** intermediate · **Shows:** personal machine-wide chores, report-only jobs, failure as an alert
 
-Noon is repo-local, but one per-user scheduler runs every enabled project. Put chores that are
-about your machine rather than a codebase in a small personal repository:
+Keep machine chores in your Noon user project, not in a stand-in repository. Copy the example into
+the user config directory (`$XDG_CONFIG_HOME/noon`, else `~/.config/noon`), set `CODE_DIR` in `config.yaml`, and try a
+job before enabling schedules:
 
 ```sh
-mkdir -p ~/chores && cp -R examples/local-dev/housekeeping/. ~/chores/
-cd ~/chores && git init
-$EDITOR noon.yaml          # set CODE_DIR
-noon run disk-space        # try one
-noon enable
-noon service install       # survive logout and reboot
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+umask 077
+mkdir -p "$config_home/noon"
+chmod 700 "$config_home/noon"
+cp -R examples/local-dev/housekeeping/. "$config_home/noon/"
+chmod 600 "$config_home/noon/config.yaml"
+$EDITOR "$config_home/noon/config.yaml"  # set CODE_DIR
+noon --user run disk-space
+noon --user enable
+noon service install
 ```
+
+Scripts are relative to the user project root, so `./bin/...` resolves beside `config.yaml`.
+`noon service install` runs all enabled projects; it is intentionally used without `--user`.
 
 | Job | What it changes |
 | --- | --- |
@@ -23,5 +31,5 @@ noon service install       # survive logout and reboot
 | `disk-space` | Nothing; exits 1 above the threshold |
 
 Report-only jobs are the safe default for unattended runs. Read their output with
-`noon logs gone-branches`. For alerting jobs such as `disk-space`, set a user-level
+`noon --user logs gone-branches`. For alerting jobs such as `disk-space`, set a user-level
 `on_failure` hook from [notifications](../../integrations/notifications/).

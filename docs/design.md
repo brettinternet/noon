@@ -13,6 +13,7 @@ container, leave inspectable history, and never run unattended without your say-
 Jobs to be done:
 
 - Recurring repo work: tests, dependency and security checks, reports, cleanup.
+- Personal work with no repository: machine chores, cross-repository reports, and imported crontabs.
 - Agent prompts on a schedule: PR review, triage, "summarize what changed since the last run".
 - Event-driven runs: after a commit, when an agent stops, when CI calls a webhook.
 - Later-once work: "in 2h, check CI and fix failures".
@@ -82,6 +83,11 @@ digests are in [Configuration](configuration.md).
   never punctuation.
 - A private `.git/noon.yaml` job replaces the shared job wholesale. `{enabled: false}` alone toggles it off.
   There is no field-level merge.
+- The user project is the canonical `$XDG_CONFIG_HOME/noon` directory (else `~/.config/noon`). Its jobs come only from
+  its `config.yaml`; repository manifests, local Git config, and files above it are never loaded. `--user` and `-C` to
+  that directory select the same project. Normal repository loads validate user config but never include its jobs.
+- User jobs are private (`shared: false`, no approval), and their root/default `cwd` plus relative `cwd` and prompt paths
+  use the user project directory.
 - Durations combine `s`, `m`, `h`, and `d` (24h), as in `1h30m`.
 - Validation never executes anything or checks that commands exist; `noon doctor` does.
 - An explicit `--config` file accepts every key; its jobs are shared and need approval.
@@ -180,8 +186,9 @@ self-daemonizes and is not one process per repo.
   error on the project. A heartbeat older than five seconds reads as offline.
 - On SIGINT or SIGTERM it stops dispatch, terminates active process groups, and records their runs
   as `interrupted` before releasing the lock.
-- Each project loads with the config selection recorded by `noon enable` plus user config.
-  `--config`, `--timezone`, `--project`, `--json`, and their environment variables are usage errors.
+- Each project loads with the config selection recorded by `noon enable` plus user settings. Selecting the user project
+  loads only its `config.yaml`; it never reads repository manifests. `--config`, `--timezone`, `--project`, `--json`, and
+  their environment variables are usage errors.
 - `noon service install` registers a launchd agent or systemd user unit. It records `PATH`,
   optional `XDG_CONFIG_HOME`, and the absolute state directory, because service managers otherwise
   run with a minimal `PATH` and a different working directory. Nothing else installs services.
@@ -197,10 +204,13 @@ self-daemonizes and is not one process per repo.
 Scheduling unattended commands from repository content is a supply-chain risk, especially when
 `git pull` changes it (decision-2).
 
-- `noon enable` registers the canonical checkout and its config selection, and approves the current
+- `noon enable` registers the canonical project and its config selection, and approves the current
   definition of every shared job. It is idempotent, so a container can run
   `noon enable && exec noon serve`. Worktrees and clones are separate checkouts; none is enabled
   implicitly. `noon disable` stops background runs, cancels queued runs, and keeps history.
+- `noon --user enable` opts in the personal project. Its jobs are the user's own and need no approval;
+  a scheduled or queued `noon --user add` enables it automatically. The ordinary `noon serve` runs it
+  with other enabled projects.
 - Private `.git/noon.yaml` jobs need no approval. Jobs from `noon.yaml` or `--config` run
   unattended only while their digest matches the approved one; a changed job shows `needs approval`.
 - Privacy needs a file repository content can't supply. Git refuses paths inside its directory, so
@@ -326,7 +336,7 @@ No plugin system; commands are the integration boundary (decision-4).
 - **Crontab import** ([doc](crontab.md)): preview by default; unsupported features fail with line
   numbers.
 - Outbound HTTP is a command (`run: [curl, -fsS, …]`), not a built-in action.
-- Not implemented: user-scope jobs; attachable tmux/Herdr sessions are a draft. File watching,
+- Not implemented: attachable tmux/Herdr sessions are a draft. File watching,
   worktree lifecycles, and container-isolated agents compose existing tools instead (see
   `examples/local-dev/file-watch`, `examples/integrations/worktrunk`, `examples/ai/container-agent`).
 
@@ -337,7 +347,7 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 
 | Input | Trust | Consequence |
 | --- | --- | --- |
-| User config, `.git/noon.yaml` | Yours: Git can't commit or check out paths in its directory | Runs unattended once the project is enabled |
+| User project `config.yaml`, `.git/noon.yaml` | Yours: user config is outside the repository; Git cannot commit `.git` paths | Runs unattended once the project is enabled |
 | In-tree `.noon.yaml` | Repository content: commits can add it | Never loaded |
 | `noon.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
 | Scripts and prompt files | Not pinned | Approval covers what and when, not file contents |

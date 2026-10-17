@@ -17,6 +17,9 @@ import (
 )
 
 func addJob(_ context.Context, cmd *urfave.Command) error {
+	if cmd.Bool("user") && (cmd.Bool("shared") || cmd.Bool("local")) {
+		return usageError("--user add conflicts with --shared and --local", "Use --user to select the user config file")
+	}
 	args := cmd.Args().Slice()
 	argv, hasArgv := addArgv(cmd)
 	if hasArgv {
@@ -140,8 +143,14 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			return usageError(err.Error(), "Use --in DURATION or --at TIME")
 		}
 	}
+	userProject := config.IsUserProject(cfg.Project, values.UserConfigDir)
+	if userProject && (cmd.Bool("shared") || cmd.Bool("local")) {
+		return usageError("user jobs do not use --shared or --local", "Select the user project with --user")
+	}
 	file, kind, mode := filepath.Join(cfg.Project, "noon.yaml"), "shared", os.FileMode(0644)
-	if !cmd.Bool("shared") {
+	if userProject {
+		file, kind, mode = filepath.Join(cfg.Project, "config.yaml"), "user", 0600
+	} else if !cmd.Bool("shared") {
 		var err error
 		if file, err = privateFile(cfg.Project); err != nil {
 			return err
@@ -152,6 +161,9 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		mode = info.Mode().Perm()
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
+	}
+	if userProject {
+		mode = 0600
 	}
 	src, err := os.ReadFile(file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -201,13 +213,18 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	if err := verifyConfigUnchanged(cfg, candidate, name); err != nil {
 		return editVerificationError(err.Error())
 	}
+	if userProject {
+		if err := ensureUserConfigDir(cfg.Project); err != nil {
+			return err
+		}
+	}
 	if err = atomicWrite(file, after, mode); err != nil {
 		return err
 	}
 	loadedInput := values
 	updated := candidate
 	if job.Schedule != nil || queued {
-		addedJob.Shared = cmd.Bool("shared")
+		addedJob.Shared = cmd.Bool("shared") && !userProject
 		if err := app.EnableAddedJob(updated, addedJob, now); err != nil {
 			return stateError(err)
 		}
@@ -265,7 +282,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 				next = "noon service install"
 			}
 		}
-		return emit(cmd, map[string]any{"added": name, "file": file, "shared": cmd.Bool("shared"),
+		return emit(cmd, map[string]any{"added": name, "file": file, "shared": cmd.Bool("shared") && !userProject,
 			"schedule": scheduleText, "next_at": nextAt, "scheduling_enabled": job.Schedule != nil || queued,
 			"notes": notes, "needs_approval": needsApproval, "next": guidance(cmd, next)})
 	}
@@ -357,8 +374,14 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	if cmd.Bool("shared") && cmd.Bool("local") {
 		return usageError("--shared and --local are mutually exclusive", "Choose the definition to remove")
 	}
+	userProject := config.IsUserProject(cfg.Project, values.UserConfigDir)
+	if userProject && (cmd.Bool("shared") || cmd.Bool("local")) {
+		return usageError("user jobs do not use --shared or --local", "Select the user project with --user")
+	}
 	sharedFile, localFile := filepath.Join(cfg.Project, "noon.yaml"), ""
-	if localFile, e = config.LocalPath(cfg.Project); e != nil {
+	if userProject {
+		sharedFile = filepath.Join(cfg.Project, "config.yaml")
+	} else if localFile, e = config.LocalPath(cfg.Project); e != nil {
 		return configError(e)
 	}
 	sharedExists, localExists := hasJobInFile(values, sharedFile, args[0]), localFile != "" && hasJobInFile(values, localFile, args[0])
@@ -529,6 +552,13 @@ func validJobName(name string) bool {
 
 // privateFile returns the project's private config path. Private jobs skip
 // approval, so they live only where repository content cannot place them.
+func ensureUserConfigDir(project string) error {
+	if err := os.MkdirAll(project, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(project, 0o700)
+}
+
 func privateFile(project string) (string, error) {
 	path, err := config.LocalPath(project)
 	if err != nil {

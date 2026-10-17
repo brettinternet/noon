@@ -28,6 +28,7 @@ type BuildOpts struct {
 type Input struct {
 	CWD             string
 	UserConfigDir   string
+	User            bool
 	Project         *string
 	File            *string
 	Timezone        *string
@@ -78,6 +79,10 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	userProject := IsUserProject(project, input.UserConfigDir)
+	if userProject && input.File != nil {
+		return Config{}, errors.New("the user project cannot use an explicit --config file")
+	}
 	stateDefault := input.StateDirDefault
 	if stateDefault == "" {
 		stateHome := os.Getenv("XDG_STATE_HOME")
@@ -93,8 +98,21 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 		stateDefault = filepath.Join(stateHome, "noon")
 	}
 	cfg := Config{Project: project, Timezone: "Local", StateDir: stateDefault, Sources: []string{}, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
+	userFile := filepath.Join(input.UserConfigDir, "noon", "config.yaml")
+	if userProject {
+		userFile = filepath.Join(project, "config.yaml")
+	}
+	if !stateOnly && input.UserConfigDir != "" && !userProject {
+		if err := validateUserConfig(userFile, input.UserConfigDir, stateDefault, override); err != nil {
+			return Config{}, err
+		}
+	}
 	if stateOnly && input.StateDir != nil {
 		// The state location is explicit; no configuration file is needed.
+	} else if userProject {
+		if err := cfg.applyFile(userFile, true, "user", userFile, stateOnly, override, !stateOnly); err != nil {
+			return Config{}, err
+		}
 	} else if input.File != nil {
 		if *input.File == "" {
 			return Config{}, errors.New("config path must not be empty")
@@ -104,13 +122,13 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 			return Config{}, err
 		}
 		cfg.ConfigFile = &file
-		if err := cfg.applyFile(file, false, "explicit", filepath.Join(input.UserConfigDir, "noon", "config.yaml"), stateOnly, override); err != nil {
+		if err := cfg.applyFile(file, false, "explicit", userFile, stateOnly, override, true); err != nil {
 			return Config{}, err
 		}
 	} else {
 		var paths []string
 		if input.UserConfigDir != "" {
-			paths = append(paths, filepath.Join(input.UserConfigDir, "noon", "config.yaml"))
+			paths = append(paths, userFile)
 		}
 		paths = append(paths, filepath.Join(project, "noon.yaml"))
 		local := ""
@@ -132,7 +150,8 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 			if stateOnly && kind != "user" {
 				continue
 			}
-			if err := cfg.applyFile(path, true, kind, filepath.Join(input.UserConfigDir, "noon", "config.yaml"), stateOnly, override); err != nil {
+			includeJobs := kind != "user"
+			if err := cfg.applyFile(path, true, kind, userFile, stateOnly, override, includeJobs); err != nil {
 				return Config{}, err
 			}
 		}
@@ -155,9 +174,16 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 	return cfg, nil
 }
 
-// ProjectDir selects an explicit directory or discovers the nearest config/Git
-// boundary. A Git boundary can be a worktree .git file. No config is executed.
+// ProjectDir selects the user config directory, an explicit directory, or discovers
+// the nearest config/Git boundary. A Git boundary can be a worktree .git file.
+// No config is executed.
 func ProjectDir(input Input) (string, error) {
+	if input.User {
+		if input.Project != nil {
+			return "", errors.New("--user conflicts with --project")
+		}
+		return UserProjectDir(input.UserConfigDir)
+	}
 	start := input.CWD
 	if input.Project != nil {
 		if *input.Project == "" {
@@ -199,7 +225,75 @@ func ProjectDir(input Input) (string, error) {
 	}
 }
 
-func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath string, stateOnly bool, override *fileOverride) error {
+// UserProjectDir returns the canonical user project root without creating it.
+// UserConfigDir is the XDG config home; the project's files live in its noon child.
+func UserProjectDir(userConfigDir string) (string, error) {
+	if userConfigDir == "" {
+		userConfigDir = os.Getenv("XDG_CONFIG_HOME")
+		if userConfigDir == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			userConfigDir = filepath.Join(home, ".config")
+		}
+	}
+	if !filepath.IsAbs(userConfigDir) {
+		return "", errors.New("XDG_CONFIG_HOME must be absolute")
+	}
+	return canonicalPath(filepath.Join(userConfigDir, "noon"))
+}
+
+// IsUserProject compares a selected project with its canonical user config root.
+func IsUserProject(project, userConfigDir string) bool {
+	userProject, err := UserProjectDir(userConfigDir)
+	if err != nil {
+		return false
+	}
+	canonical, err := canonicalPath(project)
+	return err == nil && canonical == userProject
+}
+
+func canonicalPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	current := filepath.Clean(absolute)
+	var suffix []string
+	for {
+		resolved, resolveErr := filepath.EvalSymlinks(current)
+		if resolveErr == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !errors.Is(resolveErr, os.ErrNotExist) {
+			return "", resolveErr
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return filepath.Clean(absolute), nil
+		}
+		suffix = append(suffix, filepath.Base(current))
+		current = parent
+	}
+}
+
+func validateUserConfig(path, userConfigDir, stateDefault string, override *fileOverride) error {
+	project, err := UserProjectDir(userConfigDir)
+	if err != nil {
+		return err
+	}
+	validation := Config{Project: project, Timezone: "Local", StateDir: stateDefault, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
+	if err := validation.applyFile(path, true, "user", path, false, override, true); err != nil {
+		return err
+	}
+	return validation.resolveAgents()
+}
+
+func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath string, stateOnly bool, override *fileOverride, includeJobs bool) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -296,10 +390,7 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 			return err
 		}
 	}
-	if jobs, ok := values["jobs"]; ok {
-		if kind == "user" {
-			return jobError(path, jobs, "jobs", "allowed only in noon.yaml, .git/noon.yaml, or --config files")
-		}
+	if jobs, ok := values["jobs"]; ok && includeJobs {
 		if err := cfg.applyJobs(path, kind, jobs); err != nil {
 			return err
 		}

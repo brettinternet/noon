@@ -1,5 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
-# Machine-wide chores. Keep this in a small personal repo (dotfiles, ~/chores) and enable it once.
+# Machine-wide chores stored as personal jobs in the Noon user config.
 version: 1
 
 jobs:

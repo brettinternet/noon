@@ -181,7 +181,7 @@ func TestLoadExplicitFileReplacesDiscovery(t *testing.T) {
 	root := canonical(t, t.TempDir())
 	put(t, filepath.Join(root, "noon.yaml"), "invalid: configuration\n")
 	put(t, filepath.Join(root, ".git", "noon.yaml"), "also: invalid\n")
-	put(t, filepath.Join(root, "user/noon/config.yaml"), "invalid: user\n")
+	put(t, filepath.Join(root, "user/noon/config.yaml"), "timezone: UTC\njobs: {personal: {run: echo user}}\n")
 	put(t, filepath.Join(root, "settings/custom.yaml"), "state_dir: runs\n")
 	path := "settings/custom.yaml"
 	input := config.Input{CWD: root, UserConfigDir: filepath.Join(root, "user"), File: &path}
@@ -189,7 +189,7 @@ func TestLoadExplicitFileReplacesDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Sources) != 1 || cfg.StateDir != filepath.Join(root, "settings/runs") {
+	if len(cfg.Sources) != 1 || cfg.StateDir != filepath.Join(root, "settings/runs") || len(cfg.Jobs) != 0 {
 		t.Fatalf("explicit file: %+v", cfg)
 	}
 	path = "missing.yaml"
@@ -223,6 +223,65 @@ func TestLoadAcceptsEmptyFileForJobEditing(t *testing.T) {
 	put(t, filepath.Join(root, ".git", "noon.yaml"), "")
 	if _, err := config.Load(config.Input{CWD: root}); err != nil {
 		t.Fatalf("zero-byte config rejected: %v", err)
+	}
+}
+
+func TestUserProjectJobsAreIsolatedAndResolveFromUserRoot(t *testing.T) {
+	t.Parallel()
+	root := canonical(t, t.TempDir())
+	configHome := filepath.Join(root, "config-home")
+	userProject := filepath.Join(configHome, "noon")
+	repo := filepath.Join(root, "repo")
+	userFile := filepath.Join(userProject, "config.yaml")
+	put(t, userFile, "jobs:\n  personal:\n    run: [pwd]\n    cwd: scripts\n")
+	put(t, filepath.Join(userProject, "noon.yaml"), "jobs: {tree: {run: tree}}\n")
+	put(t, filepath.Join(userProject, ".git", "noon.yaml"), "jobs: {private: {run: private}}\n")
+	put(t, filepath.Join(repo, "noon.yaml"), "jobs: {repository: {run: repository}}\n")
+	put(t, filepath.Join(repo, ".git", "noon.yaml"), "jobs: {repo_private: {run: private}}\n")
+
+	regular, err := config.Load(config.Input{CWD: repo, UserConfigDir: configHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"personal", "tree", "private"} {
+		if _, leaked := regular.Jobs[name]; leaked {
+			t.Fatalf("user/tree job %q leaked into repository: %+v", name, regular.Jobs)
+		}
+	}
+
+	selected, err := config.Load(config.Input{CWD: root, UserConfigDir: configHome, Project: &userProject})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, ok := selected.Jobs["personal"]
+	if !ok || len(selected.Jobs) != 1 || selected.Project != userProject || job.Shared || job.Source != userFile || job.CWD != filepath.Join(userProject, "scripts") {
+		t.Fatalf("selected user jobs/path: config=%+v job=%+v", selected, job)
+	}
+
+	broken := "jobs: {bad: {schedule: every day, run: true}}\n"
+	put(t, userFile, broken)
+	if _, err := config.Load(config.Input{CWD: repo, UserConfigDir: configHome}); err == nil || !strings.Contains(err.Error(), userFile) {
+		t.Fatalf("broken user job was not validated for regular project: %v", err)
+	}
+}
+
+func TestUserProjectReadOnlySelectionDoesNotCreateConfig(t *testing.T) {
+	t.Parallel()
+	root := canonical(t, t.TempDir())
+	userConfigDir := filepath.Join(root, "missing-config")
+	userProject, err := config.UserProjectDir(userConfigDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: userConfigDir, User: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Project != userProject || len(cfg.Jobs) != 0 {
+		t.Fatalf("empty user selection: %+v", cfg)
+	}
+	if _, err := os.Stat(userConfigDir); !os.IsNotExist(err) {
+		t.Fatalf("read-only load created user config: %v", err)
 	}
 }
 

@@ -8,6 +8,7 @@ These work before or after the subcommand.
 
 | Flag | Environment | Effect |
 | --- | --- | --- |
+| `--user` | — | Select personal jobs from `$XDG_CONFIG_HOME/noon/config.yaml` (else `~/.config/noon/config.yaml`) |
 | `-C DIR`, `--project DIR` | `NOON_PROJECT` | Use this project instead of discovery |
 | `--config FILE` | `NOON_CONFIG` | Read only this config file |
 | `--timezone TZ` | `NOON_TIMEZONE` | Override the timezone |
@@ -15,12 +16,19 @@ These work before or after the subcommand.
 | `-j`, `--json` | — | One JSON object on stdout |
 | `--color auto\|always\|never` | `NO_COLOR`, `TERM` (in auto mode) | Control styling of human output; default `auto` |
 
+`--user` works with user-project commands including add, remove, list, run, history, logs, cancel,
+pause, resume, enable, disable, status, doctor, tui, mcp, and `import crontab --write`. It conflicts
+with `-C`/`--project`, `NOON_PROJECT`, and `--config`/`NOON_CONFIG`; it is rejected by `serve`,
+`service`, `init`, and `shell`. Passing `$XDG_CONFIG_HOME/noon` (or `~/.config/noon`) to `-C`
+selects the same user project and conflicts with `--config` too. Copyable job guidance preserves
+`--user`.
+
 `noon serve` accepts `--state-dir DIR`, optional `--listen ADDR` for signed webhooks, and
 `--api-token-file FILE` to enable the authenticated JSON API and MCP over HTTP. The token file
 requires `--listen`, must contain at least 32 bytes, and is read once at startup; a trailing newline
 is removed. Without the token-file flag, the listener serves only signed webhooks and `/healthz`.
-No listener starts without `--listen`. `serve` rejects `--project`, `--config`, `--timezone`,
-and `--json`; each project uses the config selection recorded by `noon enable`.
+No listener starts without `--listen`. `serve` rejects `--user`, `--project`, `--config`,
+`--timezone`, and `--json`; each project uses the config selection recorded by `noon enable`.
 
 ## Remote API and MCP over HTTP
 
@@ -171,7 +179,8 @@ for Bash, Zsh, and Fish. These inspections exit 0 without changing jobs or start
 Logs still default to the latest run when one exists.
 
 `noon remove NAME --shared` selects `noon.yaml`; `--local` selects `.git/noon.yaml`.
-If both files define the name, choose one explicitly. Without a name, nothing is removed.
+With `--user`, remove edits the user `config.yaml` and does not accept those scope flags.
+If both repository files define the name, choose one explicitly. Without a name, nothing is removed.
 `noon remove NAME` confirms the job and definition file removed; history remains queryable
 with `noon history NAME` and `noon logs RUN`. Its JSON result contains `removed` and `file`.
 
@@ -211,7 +220,8 @@ Next: noon service install
 
 Keys are remembered for the newest 50 finished runs per job. The payload is saved to a file
 before dispatch, and the job reads its path from `NOON_EVENT_FILE`. A job's `cooldown` applies only
-to queued requests. See [Triggers](triggers.md).
+to queued requests. `noon --user run NAME --detach` uses the user project's scheduler slot and its
+follow guidance keeps `--user`. See [Triggers](triggers.md).
 
 ## Cancel
 

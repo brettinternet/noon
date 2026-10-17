@@ -113,6 +113,39 @@ Approval covers job definitions, not the scripts or prompt files they reference.
 repositories you would run by hand. Noon ignores an in-tree `.noon.yaml`, since a commit could
 supply it.
 
+## Personal jobs
+
+Use `--user` for recurring work that belongs to no repository. Jobs live in
+`$XDG_CONFIG_HOME/noon/config.yaml`, or `~/.config/noon/config.yaml`, and run with that directory
+as their project root. Relative command, `cwd`, and prompt-file paths are based there, so scripts
+can live beside the config:
+
+```sh
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+umask 077
+mkdir -p "$config_home/noon/bin"
+chmod 700 "$config_home/noon"
+cp examples/local-dev/housekeeping/config.yaml "$config_home/noon/config.yaml"
+cp examples/local-dev/housekeeping/bin/*.sh "$config_home/noon/bin/"
+chmod 600 "$config_home/noon/config.yaml"
+$EDITOR "$config_home/noon/config.yaml"
+noon --user list
+noon --user run disk-space
+noon --user enable
+noon service install
+```
+
+The service and `noon serve` run all enabled projects; do not pass `--user` to them. User jobs are
+private to you (`shared: false`, no approval). A scheduled or queued `noon --user add` enables the
+user project; `noon --user enable` opts in explicitly. `add`, `remove`, and `import crontab --write`
+edit the user `config.yaml`; `add` rejects `--shared` and `--local`.
+
+`--user` conflicts with `-C`/`--project`, `NOON_PROJECT`, and `--config`/`NOON_CONFIG`, and is
+not supported by `serve`, `service`, `init`, or `shell`. Passing the user directory to `-C` selects
+the same user project; it cannot be combined with `--config`. Regular project loads validate user
+config but never include its jobs. An empty read-only `noon --user` shows the `user` project and
+suggests `noon --user add` without creating files.
+
 ## Commands
 
 | Command | What it does |

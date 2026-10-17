@@ -40,6 +40,9 @@ func guidance(cmd *urfave.Command, text string) string {
 				}
 			}
 		}
+		if cmd.Bool("user") && !service {
+			command = strings.Replace(command, "noon ", "noon --user ", 1)
+		}
 		for _, name := range []string{"project", "config", "state-dir", "timezone"} {
 			if service && name != "state-dir" {
 				continue

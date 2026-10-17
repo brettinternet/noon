@@ -28,13 +28,17 @@ jobs:
     timeout: none
 ```
 
-Add the jobs to the private `.git/noon.yaml` with `--write`. Use `-` for stdin:
+Add the jobs to the private `.git/noon.yaml` with `--write`, or to personal jobs with `--user`:
 
 ```sh
 crontab -l | noon import crontab - --write
+crontab -l | noon --user import crontab - --write
 ```
 
-The write is all or nothing, keeps existing comments and jobs, and is refused with `--config`.
+The write is all or nothing and keeps existing comments and jobs. In user scope it edits
+`$XDG_CONFIG_HOME/noon/config.yaml` (else `~/.config/noon/config.yaml`), creating the private
+user project directory if needed. User jobs use that directory as their root and do not need
+approval; use `noon --user enable` to schedule them. Writes are refused with `--config`.
 JSON output lists names, schedules, commands, environment keys (not values), and source lines.
 
 ## Conversion
@@ -70,5 +74,6 @@ Hint: Fix the listed crontab lines; nothing was written.
 ```
 
 Every refused line is reported at once. Import reads only the file or stdin you give it, never
-system crontabs, `/etc/cron.d`, or anacron. Jobs run in the project directory, not cron's
-environment, so check paths and variables before enabling.
+system crontabs, `/etc/cron.d`, or anacron. Jobs run in the selected project directory, not cron's
+environment; with `--user` that directory is the Noon user config directory. Check paths and
+variables before enabling.

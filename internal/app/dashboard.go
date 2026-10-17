@@ -87,9 +87,13 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 	if configError != "" {
 		view.Project.ConfigError = configError
 	}
+	projectName := filepath.Base(view.Project.Path)
+	if config.IsUserProject(view.Project.Path, input.UserConfigDir) {
+		projectName = "user"
+	}
 	result := DashboardView{
 		SchemaVersion: 1,
-		Project:       DashboardProject{Path: view.Project.Path, Name: filepath.Base(view.Project.Path), Timezone: view.Project.Timezone, Enabled: view.Project.Enabled, ConfigError: view.Project.ConfigError},
+		Project:       DashboardProject{Path: view.Project.Path, Name: projectName, Timezone: view.Project.Timezone, Enabled: view.Project.Enabled, ConfigError: view.Project.ConfigError},
 		Scheduler:     SchedulerView{State: view.Project.Scheduler}, Jobs: view.Jobs, Notices: []Notice{},
 	}
 	result.Queued, err = QueuedRuns(view.StateDir, view.Project.Path)

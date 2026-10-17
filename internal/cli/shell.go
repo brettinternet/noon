@@ -137,7 +137,7 @@ func completeShell(root, active *urfave.Command, argv []string) {
 		return
 	}
 	if pending.flag != nil {
-		completeFlagValue(active, pending, current)
+		completeFlagValue(active, pending, current, args)
 		return
 	}
 	if strings.HasPrefix(current, "-") {
@@ -148,7 +148,7 @@ func completeShell(root, active *urfave.Command, argv []string) {
 				return
 			}
 			if _, boolean := flag.(*urfave.BoolFlag); !boolean {
-				completeFlagValue(active, pendingCompletionValue{flag: flag, name: name}, value)
+				completeFlagValue(active, pendingCompletionValue{flag: flag, name: name}, value, args)
 				return
 			}
 		}
@@ -184,7 +184,7 @@ func completeShell(root, active *urfave.Command, argv []string) {
 		fmt.Fprintln(active.Writer, completionPathFile)
 		printCompletionCandidate(active, "-", current)
 	case "noon run", "noon pause", "noon resume", "noon remove", "noon history", "noon logs", "noon cancel":
-		cfg, ok := completionConfig(active)
+		cfg, ok := completionConfig(active, args)
 		if !ok {
 			return
 		}
@@ -253,7 +253,7 @@ func printCompletionCandidate(cmd *urfave.Command, candidate, prefix string) {
 	}
 }
 
-func completeFlagValue(active *urfave.Command, pending pendingCompletionValue, prefix string) {
+func completeFlagValue(active *urfave.Command, pending pendingCompletionValue, prefix string, args []string) {
 	name := pending.name
 	if names := pending.flag.Names(); len(names) != 0 {
 		name = names[0]
@@ -272,11 +272,11 @@ func completeFlagValue(active *urfave.Command, pending pendingCompletionValue, p
 	case "section":
 		completeValues(active.Writer, []string{"all", "job", "hook"}, prefix)
 	case "agent":
-		if cfg, ok := completionConfig(active); ok {
+		if cfg, ok := completionConfig(active, args); ok {
 			completeValues(active.Writer, sortedMapKeys(cfg.Agents), prefix)
 		}
 	case "on-enter":
-		if cfg, ok := completionConfig(active); ok {
+		if cfg, ok := completionConfig(active, args); ok {
 			completeValues(active.Writer, sortedMapKeys(cfg.Jobs), prefix)
 		}
 	}
@@ -300,13 +300,33 @@ func completeStatusValues(out io.Writer, prefix string) {
 	}
 }
 
-func completionConfig(cmd *urfave.Command) (config.Config, bool) {
+func completionConfig(cmd *urfave.Command, args []string) (config.Config, bool) {
 	values, err := input(cmd)
 	if err != nil {
 		return config.Config{}, false
 	}
+	if userSelectedForCompletion(args) {
+		values.User = true
+		values.Project, values.File = nil, nil
+	}
 	cfg, err := config.Load(values)
 	return cfg, err == nil
+}
+
+func userSelectedForCompletion(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "--user" {
+			return true
+		}
+		if value, ok := strings.CutPrefix(arg, "--user="); ok {
+			selected, err := strconv.ParseBool(value)
+			return err == nil && selected
+		}
+	}
+	return false
 }
 
 func sortedMapKeys[T any](values map[string]T) []string {
