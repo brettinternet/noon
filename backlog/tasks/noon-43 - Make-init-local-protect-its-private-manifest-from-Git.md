@@ -1,9 +1,10 @@
 ---
 id: NOON-43
 title: Make init local protect its private manifest from Git
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 23:22'
+updated_date: '2026-10-17 01:47'
 labels:
   - cli-ux
   - devex
@@ -38,16 +39,33 @@ Acceptance commands describe the intended implementation, not current behavior. 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run '^TestInitPreservesExistingConfig$' -count=1 -v` exits 0 after extending this existing regression for local init: preserve existing manifest and ignore contents, idempotent protection, selected project/nested checkout behavior, and an actionable ignore-write failure without a false protected-success claim.
-- [ ] #2 `task cli:build` exits 0. In a fresh temporary Git repository with isolated HOME, `bin/noon -C DIR init --local` followed by `git -C DIR check-ignore .noon.yaml` exits 0; `git -C DIR status --short --untracked-files=all` does not offer .noon.yaml for addition. A second init leaves manifest contents and effective ignore rules unchanged; record private file mode.
-- [ ] #3 Repeat local init outside Git and shared init in separate temporary fixtures: neither initializes Git or overwrites existing files; shared init does not unexpectedly alter ignore rules. `task test` and `task smoke` exit 0, with docs/help matching actual behavior.
+- [x] #1 `task cli:test -- -run '^TestInitPreservesExistingConfig$' -count=1 -v` exits 0 after extending this existing regression for local init: preserve existing manifest and ignore contents, idempotent protection, selected project/nested checkout behavior, and an actionable ignore-write failure without a false protected-success claim.
+- [x] #2 `task cli:build` exits 0. In a fresh temporary Git repository with isolated HOME, `bin/noon -C DIR init --local` followed by `git -C DIR check-ignore .noon.yaml` exits 0; `git -C DIR status --short --untracked-files=all` does not offer .noon.yaml for addition. A second init leaves manifest contents and effective ignore rules unchanged; record private file mode.
+- [x] #3 Repeat local init outside Git and shared init in separate temporary fixtures: neither initializes Git or overwrites existing files; shared init does not unexpectedly alter ignore rules. `task test` and `task smoke` exit 0, with docs/help matching actual behavior.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: task cli:test -- -run '^TestInitPreservesExistingConfig$' -count=1 -v -> exit 0; extended existing regression covers byte preservation, idempotence, selected nested checkout, effective ignores, nonregular ignore paths and tracked manifests without false success.
+AC#2: task cli:build -> exit 0. Isolated env -i HOME/XDG fixtures: bin/noon -C DIR init --local; git -C DIR check-ignore .noon.yaml -> exit 0; git status --short --untracked-files=all lists only .gitignore. Second init plus cmp confirms unchanged manifest/ignore bytes; stat reports mode 600. Fixture: /var/folders/jp/1mwx72h172955139pth4h8800000gn/T/tmp.3kCsz94jG0.
+AC#3: isolated repeated local init outside Git and shared init -> exit 0, cmp unchanged, no .git or .gitignore created. Shared init regression also preserves existing ignore rules. task test and task smoke -> exit 0. Configuration documentation now describes implemented behavior; help already promised this behavior. No design contract changed.
+Final implementation commit b134d5b56097b3a48ee900eb398d0102ce70044e: task ci passed (security, vet, Staticcheck, tests, race, smoke). Initial Staticcheck error-string finding fixed before final commit. LSP diagnostics clean. One general review of changed behavior found no additional item-scoped defects. Only allowed implementation files changed; no tests deleted, skipped or weakened. task check:staged passed. Fast-forward merged to main; unrelated NOON-42 changes preserved. No push. No remaining implementation blocker or resumable step; owned worktree cleanup follows.
+
+Cleanup complete: Worktrunk removed the verified session-owned fix/noon-43-local-ignore checkout and branch; Herdr workspace wFA disappeared. Other pre-existing worktrees were untouched.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Local init now ensures effective Git ignore protection, preserves existing files, rejects unsafe ignore paths and tracked manifests, and reports outside-Git behavior accurately. Implemented and locally merged as b134d5b; all acceptance checks and CI pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
