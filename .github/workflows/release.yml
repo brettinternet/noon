@@ -237,7 +237,7 @@ jobs:
             )"
             printf '%s\n' "$output"
             case "$output" in
-              "noon version $VERSION ("*) ;;
+              "noon $VERSION ("*) ;;
               *) echo "mise installed unexpected version for @$release: $output" >&2; exit 1 ;;
             esac
           done

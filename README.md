@@ -138,6 +138,10 @@ supply it.
 | `noon init` / `config` | Create `noon.yaml`; show or check settings |
 | `noon version` / `noon --version` | Print version, short commit SHA, and build time |
 
+Human inspection output uses bold headings and restrained status colors in terminals. Set
+`NO_COLOR=1` or use `--color=never` to disable styling; `--color=always` forces it. JSON and
+redirected output stay unstyled by default; job output and logs are left untouched.
+
 Commands that finish accept `-j` / `--json` and print one object. Everyday shortcuts include
 `logs -f`, `history -n 5 -s failed`, `run NAME -d`, and `add NAME -a claude -p "Review" -t 10m`.
 See [short flags](docs/cli.md#short-flags) for the full mapping. Commands that take a target list

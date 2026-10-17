@@ -37,6 +37,7 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"runs": runs})
 	}
+	style := styleFor(cmd, cmd.Writer)
 	if len(runs) == 0 {
 		if len(statuses) > 0 {
 			if job != "" {
@@ -45,31 +46,31 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 				fmt.Fprintf(cmd.Writer, "No runs match --status %s.\n", strings.Join(statuses, ","))
 			}
 		} else if job != "" {
-			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: %s %s\n", job, guidance(cmd, "noon run"), shellArgument(job))
+			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: %s\n", cell(job, -1), style.render(humanText(guidance(cmd, "noon run")+" "+shellArgument(job)), "heading"))
 		} else {
-			fmt.Fprintln(cmd.Writer, guidance(cmd, "No runs yet. Next: noon run (list jobs to run)"))
+			fmt.Fprintln(cmd.Writer, "No runs yet. Next: "+style.render(humanText(guidance(cmd, "noon run")), "heading")+" (list jobs to run)")
 		}
 		return nil
 	}
-	printHistory(cmd.Writer, runs, time.Now())
+	style.printHistory(cmd.Writer, runs, time.Now())
 	return nil
 }
 
-func printHistory(out io.Writer, runs []app.Run, now time.Time) {
-	rows := make([][]string, 1, len(runs)+1)
-	rows[0] = []string{"RUN", "JOB", "STATUS", "TRIGGER", "STARTED", "DURATION", "EXIT"}
+func (s humanStyle) printHistory(out io.Writer, runs []app.Run, now time.Time) {
+	rows := make([][]tableCell, 1, len(runs)+1)
+	rows[0] = []tableCell{{"RUN", "heading"}, {"JOB", "heading"}, {"STATUS", "heading"}, {"TRIGGER", "heading"}, {"STARTED", "heading"}, {"DURATION", "heading"}, {"EXIT", "heading"}}
 	for _, run := range runs {
 		exit := "—"
 		if run.ExitCode != nil {
 			exit = strconv.Itoa(*run.ExitCode)
 		}
-		row := []string{
-			strconv.FormatInt(run.ID, 10), run.Job, run.Status, run.Trigger,
-			app.RelativeTime(run.StartedAt, now), app.DurationText(run.DurationMS), exit,
+		row := []tableCell{
+			{strconv.FormatInt(run.ID, 10), ""}, {run.Job, "heading"}, {run.Status, run.Status}, {run.Trigger, ""},
+			{app.RelativeTime(run.StartedAt, now), ""}, {app.DurationText(run.DurationMS), ""}, {exit, ""},
 		}
 		rows = append(rows, row)
 	}
-	printBoundedRows(out, rows, "  ", outputWidth(out), 0, 1)
+	s.printBoundedRows(out, rows, "  ", outputWidth(out), 0, 1)
 }
 
 func runLogs(ctx context.Context, cmd *urfave.Command) error {

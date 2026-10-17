@@ -21,6 +21,33 @@ import (
 	"github.com/brettinternet/noon/internal/store"
 )
 
+// Noon's styling must never alter child bytes or become part of retained logs.
+func TestRunColorPreservesChildOutput(t *testing.T) {
+	root := sandbox(t)
+	manifest := "jobs:\n  raw:\n    run: |\n      printf '\\033[35mchild\\033[0m\\n'; exit 3\n"
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	child := "\x1b[35mchild\x1b[0m\n"
+	var out, stderr bytes.Buffer
+	code := cli.Run(context.Background(), []string{"noon", "run", "raw", "--color=always"}, config.BuildOpts{}, &out, &stderr)
+	if code != 3 || out.String() != child || !strings.Contains(stderr.String(), "\x1b[31mfailed\x1b[0m") || !strings.Contains(stderr.String(), "\x1b[36m▶\x1b[0m") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, &out, &stderr)
+	}
+	out.Reset()
+	stderr.Reset()
+	code = cli.Run(context.Background(), []string{"noon", "logs", "raw", "--section=job", "--color=always"}, config.BuildOpts{}, &out, &stderr)
+	if code != 0 || out.String() != child || strings.ContainsRune(stderr.String(), '\x1b') {
+		t.Fatalf("log bytes changed: exit=%d stdout=%q stderr=%q", code, &out, &stderr)
+	}
+	out.Reset()
+	stderr.Reset()
+	code = cli.Run(context.Background(), []string{"noon", "run", "raw", "--json", "--color=always"}, config.BuildOpts{}, &out, &stderr)
+	if code != 3 || !json.Valid(out.Bytes()) || strings.ContainsRune(out.String(), '\x1b') || strings.ContainsRune(strings.ReplaceAll(stderr.String(), child, ""), '\x1b') {
+		t.Fatalf("JSON run added styling or lost output routing: exit=%d stdout=%q stderr=%q", code, &out, &stderr)
+	}
+}
+
 func TestPromptJobs(t *testing.T) {
 	root := sandbox(t)
 	binDir := filepath.Join(root, "bin")

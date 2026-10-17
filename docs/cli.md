@@ -13,6 +13,7 @@ These work before or after the subcommand.
 | `--timezone TZ` | `NOON_TIMEZONE` | Override the timezone |
 | `--state-dir DIR` | `NOON_STATE_DIR` | Override the per-user state directory |
 | `-j`, `--json` | — | One JSON object on stdout |
+| `--color auto\|always\|never` | `NO_COLOR`, `TERM` (in auto mode) | Control styling of human output; default `auto` |
 
 `noon serve` accepts `--state-dir DIR` and optional `--listen ADDR` for signed webhooks.
 No listener starts without `--listen`. It rejects `--project`, `--config`, `--timezone`,
@@ -43,6 +44,29 @@ Other options deliberately stay long-only:
   Hidden shell plumbing flags are not interactive shortcuts.
 
 ## Output and exit codes
+
+### Terminal styling
+
+`status` (including bare `noon`), `list`, `history`, `doctor`, foreground-run headers and
+summaries, and CLI errors use restrained styling. Project/job names, table headers, and next-step
+commands are bold. Failures are red, attention states (such as needs approval, paused, disabled,
+and offline) yellow, running cyan, and success marks/status labels green. Paths, timestamps,
+durations, and ordinary text retain the terminal\'s default foreground; nothing is dimmed.
+Labels and symbols retain their meaning without color. Colors use the terminal\'s ANSI palette,
+not hard-coded RGB values, so their appearance follows your terminal theme.
+
+- `--color=auto` styles each output stream only when it is a terminal, `NO_COLOR` is empty or
+  unset, and `TERM` is not `dumb`. Redirecting stdout does not suppress terminal stderr styling.
+- `--color=always` explicitly enables styling, overriding terminal detection and those environment
+  settings. `--color=never` disables all Noon-added styling, including bold.
+- `--json` always disables Noon-added styling, even with `--color=always`.
+- Child output and stored/read logs are never recolored or stripped; any escapes emitted by a
+  child remain its own. Generated scripts, completion, help/version, and the TUI are unchanged.
+
+Tables escape untrusted controls and measure/truncate visible text before adding styling, so
+color does not change column alignment or make job identifiers ambiguous.
+
+### Errors and exits
 
 Human errors go to stderr as one line, optionally followed by a hint:
 

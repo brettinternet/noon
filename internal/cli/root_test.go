@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"reflect"
+	"regexp"
 	"slices"
 	"time"
 
@@ -237,7 +238,7 @@ func TestValueFlagsAreNotMistakenForJSON(t *testing.T) {
 	sandbox(t)
 	for _, value := range []string{"--json", "-j"} {
 		for _, args := range [][]string{
-			{"--timezone"}, {"--project"}, {"-C"}, {"--config"}, {"--state-dir"},
+			{"--timezone"}, {"--project"}, {"-C"}, {"--config"}, {"--state-dir"}, {"--color"},
 			{"add", "review", "-p"}, {"add", "review", "-a"}, {"add", "review", "-t"},
 			{"history", "-s"}, {"history", "-n"}, {"logs", "-s"},
 			{"config", "--config"}, {"config", "check", "-C"},
@@ -369,8 +370,13 @@ func TestListHumanIdentifiers(t *testing.T) {
 	for _, name := range names {
 		invokeHuman("run", name)
 	}
-	for _, args := range [][]string{{"list"}, {"list", "--wide"}, {"history"}, {}} {
+	ansi := regexp.MustCompile(`\x1b\[(0|1|31|32|33|36)m`)
+	for _, args := range [][]string{{"list"}, {"list", "--wide"}, {"history"}, {}, {"status"}} {
 		out := invokeHuman(args...)
+		styled := invokeHuman(append([]string{"--color=always"}, args...)...)
+		if !strings.Contains(styled, "\x1b[1m") || ansi.ReplaceAllString(styled, "") != out {
+			t.Fatalf("%v styling changed visible content/alignment or exposed controls: plain=%q styled=%q", args, out, styled)
+		}
 		for _, name := range names {
 			if !strings.Contains(out, name) {
 				t.Fatalf("%v lost identifier %s: %s", args, name, out)
@@ -382,6 +388,74 @@ func TestListHumanIdentifiers(t *testing.T) {
 	}
 	if out := invokeHuman("list", "--wide"); !strings.Contains(out, strings.ReplaceAll(command, "\x1b", `\x1b`)) {
 		t.Fatalf("wide command truncated or not escaped: %q", out)
+	}
+}
+
+// Explicit styling must not contaminate machine output or change flag parsing.
+func TestColorOutputBoundaries(t *testing.T) {
+	root := sandbox(t)
+	for _, tc := range []struct {
+		mode, noColor, term string
+		styled              bool
+	}{
+		{"auto", "", "xterm-256color", false}, // bytes.Buffer is not a terminal.
+		{"never", "", "xterm-256color", false},
+		{"always", "1", "dumb", true}, // Explicit choice overrides the environment.
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			t.Setenv("NO_COLOR", tc.noColor)
+			t.Setenv("TERM", tc.term)
+			for _, args := range [][]string{{"status"}, {"list"}, {"history"}, {"doctor"}, {"run", "missing"}} {
+				var out, stderr bytes.Buffer
+				argv := append(append([]string{"noon"}, args...), "--color="+tc.mode)
+				code := cli.Run(context.Background(), argv, config.BuildOpts{}, &out, &stderr)
+				if code > 1 || strings.ContainsRune(out.String()+stderr.String(), '\x1b') != tc.styled {
+					t.Fatalf("%v: exit=%d stdout=%q stderr=%q", argv, code, &out, &stderr)
+				}
+			}
+		})
+	}
+	for _, args := range [][]string{
+		{"status"}, {"list"}, {"history"}, {"doctor"}, {"run", "missing"}, {"--bogus"},
+	} {
+		var out, stderr bytes.Buffer
+		argv := append([]string{"noon", "--color=always", "--json"}, args...)
+		cli.Run(context.Background(), argv, config.BuildOpts{}, &out, &stderr)
+		if !json.Valid(out.Bytes()) || strings.ContainsRune(out.String(), '\x1b') || stderr.Len() != 0 {
+			t.Fatalf("%v contaminated JSON: stdout=%q stderr=%q", argv, &out, &stderr)
+		}
+	}
+	// Escaping printable Unicode in free-form hints silently changes copied paths.
+	project := filepath.Join(root, "café")
+	if err := os.Mkdir(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"status"}, {"list"}, {"history"}, {"run", "missing"}} {
+		var out, stderr bytes.Buffer
+		argv := append([]string{"noon", "--project", project, "--color=always"}, args...)
+		cli.Run(context.Background(), argv, config.BuildOpts{}, &out, &stderr)
+		if !strings.Contains(out.String()+stderr.String(), "--project '"+project+"'") {
+			t.Fatalf("%v lost copyable path: stdout=%q stderr=%q", argv, &out, &stderr)
+		}
+	}
+	// Usage errors may stop framework parsing before the output flags are reached.
+	for _, args := range [][]string{
+		{"--bogus", "--color=always"}, {"list", "--bogus", "--color", "always"},
+		{"--color=always", "--bogus", "--color=never"},
+		{"--bogus", "--config", "--color=always"}, {"--bogus", "--", "--color=always"},
+	} {
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)
+		wantColor := args[0] == "--bogus" && len(args) == 2 || args[0] == "list"
+		if code != 2 || out.Len() != 0 || strings.ContainsRune(stderr.String(), '\x1b') != wantColor {
+			t.Fatalf("%v: exit=%d stdout=%q stderr=%q", args, code, &out, &stderr)
+		}
+	}
+	for _, args := range [][]string{{"--color=invalid", "--json"}, {"list", "--color=invalid", "--json"}, {"--color=", "--json"}} {
+		code, result := invoke(t, args...)
+		if code != 2 || result["error"].(map[string]any)["code"] != "usage" {
+			t.Fatalf("%v: exit=%d result=%+v", args, code, result)
+		}
 	}
 }
 

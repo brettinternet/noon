@@ -31,14 +31,15 @@ func inspectJobs(cmd *urfave.Command) error {
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "jobs": view.Jobs})
 	}
-	fmt.Fprintf(cmd.Writer, "Scheduler %s\n", view.Project.Scheduler)
+	style := styleFor(cmd, cmd.Writer)
+	fmt.Fprintf(cmd.Writer, "Scheduler %s\n", style.render(view.Project.Scheduler, view.Project.Scheduler))
 	if view.Project.ConfigError != "" {
-		fmt.Fprintf(cmd.Writer, "Config error: %s\n", cell(view.Project.ConfigError, 240))
+		fmt.Fprintf(cmd.Writer, "%s %s\n", style.render("Config error:", "failed"), cell(view.Project.ConfigError, 240))
 	}
 	if len(view.Jobs) == 0 {
-		fmt.Fprintln(cmd.Writer, guidance(cmd, `No jobs. Add one with: noon add tests "weekdays at 9am" -- task test`))
+		fmt.Fprintln(cmd.Writer, "No jobs. Add one with: "+style.render(humanText(guidance(cmd, `noon add tests "weekdays at 9am" -- task test`)), "heading"))
 	} else {
-		printJobs(cmd.Writer, view.Jobs, now, cmd.Bool("wide"))
+		style.printJobs(cmd.Writer, view.Jobs, now, cmd.Bool("wide"))
 	}
 	changed, scheduled := 0, false
 	for _, job := range view.Jobs {
@@ -51,15 +52,15 @@ func inspectJobs(cmd *urfave.Command) error {
 	}
 	switch {
 	case view.Project.Enabled && changed > 0:
-		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("%d shared jobs changed since you enabled this project. Next: noon enable\n", changed)))
+		fmt.Fprintf(cmd.Writer, "%d shared jobs changed since you enabled this project. Next: %s\n", changed, style.render(humanText(guidance(cmd, "noon enable")), "heading"))
 	case !view.Project.Enabled && scheduled:
-		fmt.Fprintln(cmd.Writer, guidance(cmd, "Not enabled for background runs. Next: noon enable"))
+		fmt.Fprintln(cmd.Writer, "Not enabled for background runs. Next: "+style.render(humanText(guidance(cmd, "noon enable")), "heading"))
 	}
 	return nil
 }
 
-func printJobs(out io.Writer, jobs []app.Job, now time.Time, wide bool) {
-	rows := [][]string{{"JOB", "SCHEDULE", "NEXT", "LAST", "COMMAND"}}
+func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide bool) {
+	rows := [][]tableCell{{{"JOB", "heading"}, {"SCHEDULE", "heading"}, {"NEXT", "heading"}, {"LAST", "heading"}, {"COMMAND", "heading"}}}
 	overrides := 0
 	for _, job := range jobs {
 		scheduled, next := "manual", "-"
@@ -100,7 +101,11 @@ func printJobs(out io.Writer, jobs []app.Job, now time.Time, wide bool) {
 				command = strings.Join(quoted, " ")
 			}
 		}
-		rows = append(rows, []string{job.Name, scheduled, next, lastRunCell(job.LastRun, now), command})
+		lastRole := ""
+		if job.LastRun != nil {
+			lastRole = job.LastRun.Status
+		}
+		rows = append(rows, []tableCell{{job.Name, "heading"}, {scheduled, ""}, {next, next}, {lastRunCell(job.LastRun, now), lastRole}, {command, ""}})
 		if job.Overrides {
 			overrides++
 		}
@@ -109,7 +114,7 @@ func printJobs(out io.Writer, jobs []app.Job, now time.Time, wide bool) {
 	if wide {
 		width = 0
 	}
-	printBoundedRows(out, rows, "  ", width, 0)
+	s.printBoundedRows(out, rows, "  ", width, 0)
 	fmt.Fprintf(out, "%d jobs · %d overrides\n", len(jobs), overrides)
 }
 

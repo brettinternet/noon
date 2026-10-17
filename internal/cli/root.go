@@ -40,6 +40,12 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			&urfave.StringFlag{Name: "state-dir", Usage: "Override per-user state directory with `DIR`", Sources: urfave.EnvVars("NOON_STATE_DIR")},
 
 			&urfave.BoolFlag{Name: "json", Aliases: []string{"j"}, Usage: "Print structured JSON instead of human output"},
+			&urfave.StringFlag{Name: "color", Value: "auto", Usage: "Style human output: auto, always, or never", Validator: func(value string) error {
+				if value != "auto" && value != "always" && value != "never" {
+					return usageError("--color must be auto, always, or never", "")
+				}
+				return nil
+			}},
 		},
 		Action: status,
 		Commands: []*urfave.Command{
@@ -167,7 +173,7 @@ func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut
 	args = shellCompletionArgs(args)
 	root := NewRootCommand(build, out, errOut)
 	configureCompletion(root, args)
-	jsonOutput := jsonRequested(root, args)
+	jsonOutput, colorMode := outputRequested(root, args)
 	if err := root.Run(ctx, args); err != nil {
 		var exit runExit
 		if errors.As(err, &exit) {
@@ -180,9 +186,10 @@ func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut
 		if jsonOutput {
 			_ = json.NewEncoder(out).Encode(map[string]any{"schema_version": 1, "error": failure})
 		} else {
-			fmt.Fprintf(errOut, "noon: %s\n", failure.Message)
+			style := colorStyle(colorMode, errOut)
+			fmt.Fprintf(errOut, "%s %s\n", style.render("noon:", "failed"), humanText(failure.Message))
 			if failure.Hint != "" {
-				fmt.Fprintf(errOut, "Hint: %s\n", failure.Hint)
+				fmt.Fprintf(errOut, "Hint: %s\n", style.render(humanText(failure.Hint), "heading"))
 			}
 		}
 		if failure.Usage {
@@ -193,9 +200,9 @@ func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut
 	return 0
 }
 
-// Inspect only output mode on errors, including failures before flag parsing
-// reaches --json. Do not mistake a string flag's value for an output flag.
-func jsonRequested(root *urfave.Command, args []string) bool {
+// Inspect output modes on errors, including failures before flag parsing
+// reaches --json or --color. Do not mistake a string flag value for an output flag.
+func outputRequested(root *urfave.Command, args []string) (bool, string) {
 	valueFlags := make(map[string]bool)
 	includeFlags := func(cmd *urfave.Command) {
 		for _, flag := range cmd.Flags {
@@ -208,11 +215,11 @@ func jsonRequested(root *urfave.Command, args []string) bool {
 	selected := root
 	includeFlags(selected)
 	positional := false
-	requested := false
+	requested, color := false, "auto"
 	for i := 1; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
-			return requested
+			return requested, color
 		}
 		if !strings.HasPrefix(arg, "-") {
 			if next := selected.Command(arg); !positional && next != nil {
@@ -225,6 +232,12 @@ func jsonRequested(root *urfave.Command, args []string) bool {
 		}
 		name, value, hasValue := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-"), "=")
 		switch {
+		case name == "color":
+			if !hasValue && i+1 < len(args) {
+				i++
+				value = args[i]
+			}
+			color = value
 		case valueFlags[name]:
 			if !hasValue {
 				i++
@@ -237,7 +250,7 @@ func jsonRequested(root *urfave.Command, args []string) bool {
 			}
 		}
 	}
-	return requested
+	return requested, color
 }
 
 func input(cmd *urfave.Command) (config.Input, error) {

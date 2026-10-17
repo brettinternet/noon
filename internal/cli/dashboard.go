@@ -42,8 +42,9 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "scheduler": view.Scheduler, "service": view.Service, "jobs": view.Jobs, "queued": view.Queued, "notices": view.Notices, "next": view.Next})
 	}
-	printBoundedRows(cmd.Writer, [][]string{{view.Project.Name, view.Project.Path, "scheduler " + view.Scheduler.State, view.Project.Timezone}}, " · ", outputWidth(cmd.Writer))
-	rows := [][]string{{"JOB", "SCHEDULE", "NEXT", "LAST"}}
+	style := styleFor(cmd, cmd.Writer)
+	style.printBoundedRows(cmd.Writer, [][]tableCell{{{view.Project.Name, "heading"}, {view.Project.Path, ""}, {"scheduler " + view.Scheduler.State, view.Scheduler.State}, {view.Project.Timezone, ""}}}, " · ", outputWidth(cmd.Writer))
+	rows := [][]tableCell{{{"JOB", "heading"}, {"SCHEDULE", "heading"}, {"NEXT", "heading"}, {"LAST", "heading"}}}
 	for _, job := range view.Jobs {
 		schedule, next := "manual", "-"
 		if job.Schedule != nil {
@@ -61,13 +62,21 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 		case job.NextAt != nil:
 			next = job.NextAt.Format("Mon 15:04")
 		}
-		rows = append(rows, []string{job.Name, schedule, next, lastRunCell(job.LastRun, now)})
+		lastRole := ""
+		if job.LastRun != nil {
+			lastRole = job.LastRun.Status
+		}
+		rows = append(rows, []tableCell{{job.Name, "heading"}, {schedule, ""}, {next, next}, {lastRunCell(job.LastRun, now), lastRole}})
 	}
-	printBoundedRows(cmd.Writer, rows, "  ", outputWidth(cmd.Writer), 0)
+	style.printBoundedRows(cmd.Writer, rows, "  ", outputWidth(cmd.Writer), 0)
 	for _, notice := range view.Notices[:min(3, len(view.Notices))] {
-		fmt.Fprintln(cmd.Writer, cell(notice.Message, outputWidth(cmd.Writer)))
+		message := cell(notice.Message, outputWidth(cmd.Writer))
+		if notice.Code == "config_error" {
+			message = style.render(message, "config_error")
+		}
+		fmt.Fprintln(cmd.Writer, message)
 	}
-	fmt.Fprintln(cmd.Writer, "Next: "+view.Next)
+	fmt.Fprintln(cmd.Writer, "Next: "+style.render(humanText(view.Next), "heading"))
 	return nil
 }
 
@@ -83,11 +92,11 @@ func outputWidth(out io.Writer) int {
 
 // Shrink descriptive columns, never identifiers. A zero budget means full width.
 // Very long identifiers may exceed the budget rather than becoming ambiguous.
-func printBoundedRows(out io.Writer, rows [][]string, separator string, budget int, identifiers ...int) {
+func (s humanStyle) printBoundedRows(out io.Writer, rows [][]tableCell, separator string, budget int, identifiers ...int) {
 	widths := make([]int, len(rows[0]))
 	for _, row := range rows {
 		for i, value := range row {
-			widths[i] = max(widths[i], len([]rune(cell(value, -1))))
+			widths[i] = max(widths[i], len([]rune(cell(value.text, -1))))
 		}
 	}
 	for budget > 0 {
@@ -106,7 +115,11 @@ func printBoundedRows(out io.Writer, rows [][]string, separator string, budget i
 	for _, row := range rows {
 		cells := make([]string, len(row))
 		for i, value := range row {
-			cells[i] = fmt.Sprintf("%-*s", widths[i], cell(value, widths[i]))
+			text := cell(value.text, widths[i])
+			cells[i] = s.render(text, value.role)
+			if i < len(row)-1 {
+				cells[i] += strings.Repeat(" ", widths[i]-len([]rune(text)))
+			}
 		}
 		fmt.Fprintln(out, strings.TrimRight(strings.Join(cells, separator), " "))
 	}
@@ -130,10 +143,11 @@ func doctorAt(ctx context.Context, cmd *urfave.Command, now time.Time) error {
 			return err
 		}
 	} else {
+		style := styleFor(cmd, cmd.Writer)
 		for _, check := range result.Checks {
-			fmt.Fprintf(cmd.Writer, "%s %s: %s", check.Status, cell(check.Name, 120), cell(check.Message, 240))
+			fmt.Fprintf(cmd.Writer, "%s %s: %s", style.render(check.Status, check.Status), style.render(cell(check.Name, 120), "heading"), cell(check.Message, 240))
 			if check.Hint != "" {
-				fmt.Fprintf(cmd.Writer, " — %s", check.Hint)
+				fmt.Fprintf(cmd.Writer, " — %s", style.render(humanText(check.Hint), "heading"))
 			}
 			fmt.Fprintln(cmd.Writer)
 		}

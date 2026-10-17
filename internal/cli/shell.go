@@ -265,6 +265,8 @@ func completeFlagValue(active *urfave.Command, pending pendingCompletionValue, p
 		fmt.Fprintln(active.Writer, completionPathFile)
 	case "prompt-file":
 		fmt.Fprintln(active.Writer, completionPathFile)
+	case "color":
+		completeValues(active.Writer, []string{"auto", "always", "never"}, prefix)
 	case "status":
 		completeStatusValues(active.Writer, prefix)
 	case "section":

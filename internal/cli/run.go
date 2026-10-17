@@ -263,7 +263,9 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 			command = strings.Join(quoted, " ")
 		}
 	}
-	fmt.Fprintf(cmd.ErrWriter, "▶ %s · run %d · %s\n", name, run.ID, cell(command, 240))
+	style := styleFor(cmd, cmd.ErrWriter)
+	displayName := style.render(cell(name, -1), "heading")
+	fmt.Fprintf(cmd.ErrWriter, "%s %s · run %d · %s\n", style.render("▶", "running"), displayName, run.ID, cell(command, 240))
 	var result runner.Result
 	if startErr != nil {
 		now := time.Now()
@@ -284,15 +286,15 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		result.Cancelled = true
 		result.ExitCode = 130
 	}
-	status, summary := "succeeded", "✓ "+name+" succeeded in "
+	status, summary := "succeeded", style.render("✓", "succeeded")+" "+displayName+" succeeded in "
 	elapsed := result.FinishedAt.Sub(result.StartedAt)
 	switch {
 	case result.TimedOut:
-		status, summary = "timed_out", "✗ "+name+" timed out after "
+		status, summary = "timed_out", style.render("✗", "timed_out")+" "+displayName+" "+style.render("timed out", "timed_out")+" after "
 	case result.Cancelled:
-		status, summary = "cancelled", "✗ "+name+" cancelled after "
+		status, summary = "cancelled", style.render("✗", "cancelled")+" "+displayName+" "+style.render("cancelled", "cancelled")+" after "
 	case result.ExitCode != 0:
-		status, summary = "failed", fmt.Sprintf("✗ %s failed: exit %d after ", name, result.ExitCode)
+		status, summary = "failed", fmt.Sprintf("%s %s %s: exit %d after ", style.render("✗", "failed"), displayName, style.render("failed", "failed"), result.ExitCode)
 	}
 	detail := ""
 	if result.StartError != nil {
