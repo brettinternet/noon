@@ -1,9 +1,10 @@
 ---
 id: NOON-51
 title: Limit jobs to matching operating systems and architectures
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-17 17:30'
+updated_date: '2026-10-17 20:33'
 labels:
   - config
   - scheduler
@@ -84,18 +85,43 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose noon.yaml defines `here` (os and arch set to `go env GOOS`/`go env GOARCH`, run [true]) and `elsewhere` (os set to the other supported OS, schedule every 1h, run [noon-missing-command]): `bin/noon list --json` reports `here` platform_supported true and `elsewhere` false with its `os`; `bin/noon list` shows `elsewhere` NEXT `other platform`; `bin/noon run here` exits 0; `bin/noon run elsewhere` and `bin/noon run elsewhere --detach` exit 1 with code `unsupported_platform` (checked with --json) and `bin/noon history --json` lists only the `here` run; `bin/noon doctor` does not report noon-missing-command.
-- [ ] #2 In the same environment, `bin/noon config check` exits 1 with file, line, and YAML path for each of: `os: [macos]` (suggests darwin), `arch: [x86_64]` (suggests amd64), `arch: [aarch64]` (suggests arm64), `os: []`, `os: [linux, linux]`, `os: darwin`, `os: [windows]`. After `bin/noon enable`, changing only `elsewhere`'s os list makes `bin/noon list --json` report it `needs_approval`, while editing its description does not.
-- [ ] #3 `task cli:test PKG=./internal/scheduler -count=1` exits 0 and covers, with injected time and platform: a non-matching scheduled job never runs or catches up across a missed window, a queued run of it is cancelled at dispatch, and a matching job in the same project runs normally.
-- [ ] #4 `task cli:test PKG=./internal/config -count=1`, `task cli:test PKG=./internal/httpapi -count=1`, and `task cli:test PKG=./internal/cli -count=1` exit 0 and cover alias rejection, digest coverage of os and arch, and a signed webhook for a non-matching job returning 409 without queueing a run.
-- [ ] #5 noon.schema.json accepts the os/arch enums and rejects other values; examples/jobs.yaml uses both fields and `task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1` exits 0. Docs in scope describe only implemented behavior. `task ci` exits 0.
+- [x] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose noon.yaml defines `here` (os and arch set to `go env GOOS`/`go env GOARCH`, run [true]) and `elsewhere` (os set to the other supported OS, schedule every 1h, run [noon-missing-command]): `bin/noon list --json` reports `here` platform_supported true and `elsewhere` false with its `os`; `bin/noon list` shows `elsewhere` NEXT `other platform`; `bin/noon run here` exits 0; `bin/noon run elsewhere` and `bin/noon run elsewhere --detach` exit 1 with code `unsupported_platform` (checked with --json) and `bin/noon history --json` lists only the `here` run; `bin/noon doctor` does not report noon-missing-command.
+- [x] #2 In the same environment, `bin/noon config check` exits 1 with file, line, and YAML path for each of: `os: [macos]` (suggests darwin), `arch: [x86_64]` (suggests amd64), `arch: [aarch64]` (suggests arm64), `os: []`, `os: [linux, linux]`, `os: darwin`, `os: [windows]`. After `bin/noon enable`, changing only `elsewhere`'s os list makes `bin/noon list --json` report it `needs_approval`, while editing its description does not.
+- [x] #3 `task cli:test PKG=./internal/scheduler -- -count=1` exits 0 and covers, with injected time and platform: a non-matching scheduled job never runs or catches up across a missed window, a queued run of it is cancelled at dispatch, and a matching job in the same project runs normally.
+- [x] #4 `task cli:test PKG=./internal/config -- -count=1`, `task cli:test PKG=./internal/httpapi -- -count=1`, and `task cli:test PKG=./internal/cli -- -count=1` exit 0 and cover alias rejection, digest coverage of os and arch, and a signed webhook for a non-matching job returning 409 without queueing a run.
+- [x] #5 noon.schema.json accepts the os/arch enums and rejects other values; examples/jobs.yaml uses both fields and `task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1` exits 0. Docs in scope describe only implemented behavior. `task ci` exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Scope expansion approved: internal/httpapi/api.go must map unsupported_platform from shared app.QueueRun to HTTP 409 alongside disabled/paused/needs_approval, rather than misclassifying an expected execution rejection as HTTP 500. This preserves the existing API error mapping pattern for the new platform gate.
+
+Scope expansion: internal/tui/view.go owns Model.nextCell, the existing TUI NEXT-cell rendering and precedence. The required other platform indicator belongs there, ahead of disabled/paused/approval, rather than an unnecessary refactor into the listed internal/tui/tui.go. Executor reported this file had already been edited before requesting expansion; reviewed the location and authorized retaining the item-scoped change. Further scope expansions must be recorded before editing.
+
+Scope expansion approved before editing: internal/cli/root_test.go enumerates the exact list --json job keys. Add the required platform_supported key to that existing expectation while preserving its exact-key assertion; this aligns the regression test with the new public JSON contract without weakening it.
+
+Corrected AC#3/#4 command syntax to pass -count=1 after Task's -- separator, per docs/development.md. Original commands fail Task option parsing; test scope/outcomes unchanged. User explicitly authorized claim recovery after expiry; both children stopped and no competing claim existed. Reacquired f71117a0137ec28a41dc2d231606a6c6. Independent review: no validated findings. Commit 65f3b4f passed task check:staged and task ci.
+
+AC#1: Executor ran task cli:build and isolated bin/noon list --json, list, run here, run elsewhere --json, run elsewhere --detach --json, history --json, doctor -> matching job ran; unsupported commands exited 1 with unsupported_platform; only here recorded; doctor omitted missing command.
+AC#2: Isolated bin/noon config check for all seven listed invalid definitions -> exit 1 with file/line/path and alias suggestions; bin/noon enable and list --json -> description remained approved, OS edit required approval.
+AC#3: task cli:test PKG=./internal/scheduler -- -count=1 -> passed; injected platform/time covers missed-window exclusion, queued cancellation and matching catch-up.
+AC#4: task cli:test PKG=./internal/config -- -count=1; task cli:test PKG=./internal/httpapi -- -count=1; task cli:test PKG=./internal/cli -- -count=1 -> all passed; parsing, digest, signed webhook 409/no run covered.
+AC#5: mise exec -- go run /tmp/noon-51-schema-check.go -> valid enums accepted, invalid values rejected; task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1 -> passed; task ci -> passed both executor and parent on implementation commit 65f3b4f.
+Delivery: fast-forward merged 65f3b4f into main. No tests deleted, skipped or weakened. Docs describe implemented behavior. Removed verified session-owned worktree and branch with Worktrunk; confirmed associated Herdr workspace wG2 disappeared. No retained worktree, remaining blocker or next implementation step. No push performed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented static os/arch constraints with approval digest coverage, execution gates, scheduler cancellation, inspection visibility, schema and docs. Merged 65f3b4f locally; focused checks and CI passed; independent review found no validated defects; worktree/branch/workspace cleaned.
+<!-- SECTION:FINAL_SUMMARY:END -->
