@@ -201,4 +201,5 @@ Agent-prompt jobs run your installed `claude` or `codex` CLI, or any CLI you con
 - [Service](docs/service.md): launchd and systemd
 - [Docker](docs/docker.md)
 - [Design](docs/design.md): contracts and rationale
+- [Changelog](CHANGELOG.md): changes generated from Conventional Commits
 - [Development](docs/development.md)

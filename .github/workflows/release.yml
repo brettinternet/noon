@@ -50,6 +50,10 @@ jobs:
           COMMIT: ${{ steps.release.outputs.commit }}
           BUILD_TIME: ${{ steps.release.outputs.build_time }}
         run: task release:check VERSION="$VERSION" COMMIT="$COMMIT" BUILD_TIME="$BUILD_TIME"
+      - name: Generate changelog and release notes from the tagged history
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: task release:changelog VERSION="$VERSION"
       - name: Smoke-test the native packaged binary
         run: >-
           task release:smoke
@@ -62,6 +66,8 @@ jobs:
           path: |
             dist/release/v${{ steps.release.outputs.version }}/noon-v*.tar.gz
             dist/release/v${{ steps.release.outputs.version }}/checksums.txt
+            dist/release/v${{ steps.release.outputs.version }}/CHANGELOG.md
+            dist/release/v${{ steps.release.outputs.version }}/release-notes.md
           if-no-files-found: error
           retention-days: 7
 
@@ -186,7 +192,8 @@ jobs:
             "dist/release/noon-v${VERSION}-macos-x64.tar.gz" \
             "dist/release/noon-v${VERSION}-macos-arm64.tar.gz" \
             dist/release/checksums.txt \
-            --repo brettinternet/noon --verify-tag --generate-notes --title "$RELEASE_TAG"
+            dist/release/CHANGELOG.md \
+            --repo brettinternet/noon --verify-tag --notes-file dist/release/release-notes.md --title "$RELEASE_TAG"
 
   mise-install:
     name: mise automatic installation (${{ matrix.platform }})

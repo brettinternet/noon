@@ -1,6 +1,22 @@
 version: "3"
 
 tasks:
+  changelog:
+    desc: Generate changelog and release notes for an existing version tag
+    requires:
+      vars: [VERSION]
+    env:
+      VERSION: "{{.VERSION}}"
+    cmds:
+      - |
+        set -eu
+        release_commit="$(git rev-parse --verify "refs/tags/v${VERSION}^{commit}")"
+        mkdir -p "dist/release/v$VERSION"
+        mise exec git-cliff -- git-cliff --config cliff.toml "$release_commit" --context --output "dist/release/v$VERSION/changelog-context.json"
+        mise exec git-cliff -- git-cliff --config cliff.toml --from-context "dist/release/v$VERSION/changelog-context.json" --output "dist/release/v$VERSION/CHANGELOG.md"
+        mise exec jq -- jq '.[0:1]' "dist/release/v$VERSION/changelog-context.json" > "dist/release/v$VERSION/release-context.json"
+        mise exec git-cliff -- git-cliff --config cliff.toml --from-context "dist/release/v$VERSION/release-context.json" --strip header --output "dist/release/v$VERSION/release-notes.md"
+
   check:
     desc: Build and verify all four local release archives without publishing
     requires:
