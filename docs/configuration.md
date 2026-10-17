@@ -40,11 +40,12 @@ noon --config ./deploy.yaml config check
 ```
 
 `noon init` creates `noon.yaml`; `noon init --local` creates `.noon.yaml` with mode 0600. Neither
-overwrites an existing file. Add the private file to `.gitignore`:
-
-```gitignore
-.noon.yaml
-```
+overwrites an existing file. In a Git checkout, local init preserves effective ignore rules or
+appends `/.noon.yaml` to the selected project's `.gitignore`, preserving existing contents.
+Repeated init also protects an existing private manifest without rewriting it. If protection fails
+(or the manifest is already tracked), init reports an error; it never untracks files. Outside Git,
+it reports that ignore protection is not applicable and does not create a repository. Shared init
+does not change ignore rules. Private manifests created by other means still need ignore protection.
 
 ## Where keys are allowed
 
