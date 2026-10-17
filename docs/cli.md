@@ -220,7 +220,15 @@ Rules:
 
 Bare `noon` and `noon status` show jobs, scheduler state, queued work, up to three notices, and
 one `Next:` step. JSON has `project`, `scheduler`, `service`, `jobs`, `queued`, `notices`, and
-`next`. `noon list` shows the same jobs with commands and full next-run times.
+`next`. `noon list` shows the same jobs with commands and next-run times.
+
+Human list, history, and dashboard tables keep complete job names so similar names
+remain distinguishable and copyable. Descriptive columns shrink to the output terminal
+width (80 columns when redirected); very long names may make rows wrap.
+Use `noon list --wide` for complete names, schedules, and command text without truncation,
+including when redirected to a file. Agent jobs show a prompt summary or prompt-file path.
+Both modes escape terminal controls and omit environment values. `--json` remains the
+lossless machine interface.
 
 `noon doctor` checks config, state, enablement, approvals, the scheduler heartbeat, the service,
 each job's command, cwd, and prompt file, and whether Git ignores `.noon.yaml`:

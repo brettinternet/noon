@@ -38,7 +38,7 @@ func inspectJobs(cmd *urfave.Command) error {
 	if len(view.Jobs) == 0 {
 		fmt.Fprintln(cmd.Writer, guidance(cmd, `No jobs. Add one with: noon add tests "weekdays at 9am" -- task test`))
 	} else {
-		printJobs(cmd.Writer, view.Jobs, now)
+		printJobs(cmd.Writer, view.Jobs, now, cmd.Bool("wide"))
 	}
 	changed, scheduled := 0, false
 	for _, job := range view.Jobs {
@@ -58,9 +58,8 @@ func inspectJobs(cmd *urfave.Command) error {
 	return nil
 }
 
-func printJobs(out io.Writer, jobs []app.Job, now time.Time) {
-	rows := [][5]string{{"JOB", "SCHEDULE", "NEXT", "LAST", "COMMAND"}}
-	widths := [4]int{3, 8, 4, 4}
+func printJobs(out io.Writer, jobs []app.Job, now time.Time, wide bool) {
+	rows := [][]string{{"JOB", "SCHEDULE", "NEXT", "LAST", "COMMAND"}}
 	overrides := 0
 	for _, job := range jobs {
 		scheduled, next := "manual", "-"
@@ -101,27 +100,16 @@ func printJobs(out io.Writer, jobs []app.Job, now time.Time) {
 				command = strings.Join(quoted, " ")
 			}
 		}
-		row := [5]string{job.Name, scheduled, next, lastRunCell(job.LastRun, now), command}
-		rows = append(rows, row)
-		for i := range widths {
-			if n := len([]rune(row[i])); n > widths[i] {
-				widths[i] = n
-			}
-		}
+		rows = append(rows, []string{job.Name, scheduled, next, lastRunCell(job.LastRun, now), command})
 		if job.Overrides {
 			overrides++
 		}
 	}
-	// Bound earlier columns as well, leaving room for a command on an 80-column terminal.
-	for i, max := range [4]int{16, 20, 18, 24} {
-		if widths[i] > max {
-			widths[i] = max
-		}
+	width := outputWidth(out)
+	if wide {
+		width = 0
 	}
-	commandWidth := max(12, 80-widths[0]-widths[1]-widths[2]-widths[3]-8)
-	for _, row := range rows {
-		fmt.Fprintf(out, "%-*s  %-*s  %-*s  %-*s  %s\n", widths[0], cell(row[0], widths[0]), widths[1], cell(row[1], widths[1]), widths[2], cell(row[2], widths[2]), widths[3], cell(row[3], widths[3]), cell(row[4], commandWidth))
-	}
+	printBoundedRows(out, rows, "  ", width, 0)
 	fmt.Fprintf(out, "%d jobs · %d overrides\n", len(jobs), overrides)
 }
 
@@ -179,7 +167,7 @@ func cell(text string, width int) string {
 		}
 	}
 	runes := []rune(b.String())
-	if len(runes) > width {
+	if width >= 0 && len(runes) > width {
 		if width <= 3 {
 			return strings.Repeat(".", max(0, width))
 		}

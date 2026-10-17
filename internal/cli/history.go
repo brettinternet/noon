@@ -56,34 +56,20 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 }
 
 func printHistory(out io.Writer, runs []app.Run, now time.Time) {
-	rows := make([][7]string, 1, len(runs)+1)
-	rows[0] = [7]string{"RUN", "JOB", "STATUS", "TRIGGER", "STARTED", "DURATION", "EXIT"}
-	widths := [7]int{3, 3, 6, 7, 7, 8, 4}
+	rows := make([][]string, 1, len(runs)+1)
+	rows[0] = []string{"RUN", "JOB", "STATUS", "TRIGGER", "STARTED", "DURATION", "EXIT"}
 	for _, run := range runs {
 		exit := "—"
 		if run.ExitCode != nil {
 			exit = strconv.Itoa(*run.ExitCode)
 		}
-		row := [7]string{
+		row := []string{
 			strconv.FormatInt(run.ID, 10), run.Job, run.Status, run.Trigger,
 			app.RelativeTime(run.StartedAt, now), app.DurationText(run.DurationMS), exit,
 		}
 		rows = append(rows, row)
-		for i, value := range row {
-			if n := len([]rune(value)); n > widths[i] {
-				widths[i] = n
-			}
-		}
 	}
-	for i, maxWidth := range [7]int{8, 18, 14, 12, 12, 12, 8} {
-		widths[i] = min(widths[i], maxWidth)
-	}
-	for _, row := range rows {
-		fmt.Fprintf(out, "%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
-			widths[0], cell(row[0], widths[0]), widths[1], cell(row[1], widths[1]),
-			widths[2], cell(row[2], widths[2]), widths[3], cell(row[3], widths[3]),
-			widths[4], cell(row[4], widths[4]), widths[5], cell(row[5], widths[5]), cell(row[6], widths[6]))
-	}
+	printBoundedRows(out, rows, "  ", outputWidth(out), 1)
 }
 
 func runLogs(ctx context.Context, cmd *urfave.Command) error {

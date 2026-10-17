@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/brettinternet/noon/internal/app"
+	"github.com/charmbracelet/x/term"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -40,7 +41,7 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "scheduler": view.Scheduler, "service": view.Service, "jobs": view.Jobs, "queued": view.Queued, "notices": view.Notices, "next": view.Next})
 	}
-	printBoundedRows(cmd.Writer, [][]string{{view.Project.Name, view.Project.Path, "scheduler " + view.Scheduler.State, view.Project.Timezone}}, " · ")
+	printBoundedRows(cmd.Writer, [][]string{{view.Project.Name, view.Project.Path, "scheduler " + view.Scheduler.State, view.Project.Timezone}}, " · ", outputWidth(cmd.Writer), -1)
 	rows := [][]string{{"JOB", "SCHEDULE", "NEXT", "LAST"}}
 	for _, job := range view.Jobs {
 		schedule, next := "manual", "-"
@@ -61,31 +62,42 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 		}
 		rows = append(rows, []string{job.Name, schedule, next, lastRunCell(job.LastRun, now)})
 	}
-	printBoundedRows(cmd.Writer, rows, "  ")
+	printBoundedRows(cmd.Writer, rows, "  ", outputWidth(cmd.Writer), 0)
 	for _, notice := range view.Notices[:min(3, len(view.Notices))] {
-		fmt.Fprintln(cmd.Writer, cell(notice.Message, 80))
+		fmt.Fprintln(cmd.Writer, cell(notice.Message, outputWidth(cmd.Writer)))
 	}
 	fmt.Fprintln(cmd.Writer, "Next: "+view.Next)
 	return nil
 }
 
-// Shrink the widest column until the complete row fits, including separators.
-func printBoundedRows(out io.Writer, rows [][]string, separator string) {
+// Redirected output has a deterministic budget, independent of shell settings.
+func outputWidth(out io.Writer) int {
+	if file, ok := out.(interface{ Fd() uintptr }); ok {
+		if width, _, err := term.GetSize(file.Fd()); err == nil && width > 0 {
+			return width
+		}
+	}
+	return 80
+}
+
+// Shrink descriptive columns, never identifiers. A zero budget means full width.
+// Very long identifiers may exceed the budget rather than becoming ambiguous.
+func printBoundedRows(out io.Writer, rows [][]string, separator string, budget, identifier int) {
 	widths := make([]int, len(rows[0]))
 	for _, row := range rows {
 		for i, value := range row {
-			widths[i] = max(widths[i], len([]rune(cell(value, 10000))))
+			widths[i] = max(widths[i], len([]rune(cell(value, -1))))
 		}
 	}
-	for {
-		total, widest := (len(widths)-1)*len([]rune(separator)), 0
+	for budget > 0 {
+		total, widest := (len(widths)-1)*len([]rune(separator)), -1
 		for i, width := range widths {
 			total += width
-			if width > widths[widest] {
+			if i != identifier && width > 4 && (widest == -1 || width > widths[widest]) {
 				widest = i
 			}
 		}
-		if total <= 80 {
+		if total <= budget || widest == -1 {
 			break
 		}
 		widths[widest]--

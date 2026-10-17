@@ -78,7 +78,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			}},
 			{Name: "status", Usage: "Show the project dashboard without running anything", Action: status},
 			{Name: "doctor", Usage: "Diagnose setup with read-only checks; exit 1 if a check fails", Action: doctor},
-			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
+			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Flags: []urfave.Flag{
+				&urfave.BoolFlag{Name: "wide", Usage: "Show complete names, schedules, and commands without truncation"},
+			}, Action: listJobs},
 			{Name: "add", Usage: "Add a scheduled or manual job", Description: "Without arguments, print examples. Writes private .noon.yaml by default; --shared writes noon.yaml.\n\nExamples:\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon add lint --sh 'go vet ./...'\n  noon add review --agent claude --prompt \"Review changes\"", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "sh", Usage: "Run `STRING` through /bin/sh -c"},
 				&urfave.StringFlag{Name: "prompt", Aliases: []string{"p"}, Usage: "Create an agent-prompt job with `TEXT`"},
