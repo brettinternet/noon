@@ -128,7 +128,7 @@ supply it.
 | `noon history` | Recent runs (`--status failed`) |
 | `noon logs [NAME\|RUN]` | Read, search, page, or `--follow` a run log |
 | `noon enable` / `disable` | Opt this checkout in or out of background runs |
-| `noon serve` | Foreground scheduler for every enabled project |
+| `noon serve` | Foreground scheduler; optionally serve signed webhooks and an authenticated remote API/MCP listener |
 | `noon service install` | Run `noon serve` as a per-user launchd/systemd service |
 | `noon doctor` | Read-only setup checks |
 | `noon tui` | Keyboard-driven jobs, runs, and logs |
@@ -184,8 +184,10 @@ claude mcp add noon -- noon mcp
 codex mcp add noon -- noon mcp
 ```
 
-Agent-prompt jobs run your installed `claude` or `codex` CLI, or any CLI you configure. See
-[Agents](docs/agents.md).
+For remote API and MCP clients, run `noon serve --listen ADDR --api-token-file FILE` and use a TLS
+reverse proxy. See [Agents](docs/agents.md#remote-mcp-and-json-api) for client setup and
+[Webhooks](docs/webhooks.md) for the shared listener. Agent-prompt jobs run your installed `claude`
+or `codex` CLI, or any CLI you configure. See [Agents](docs/agents.md).
 
 ## Documentation
 

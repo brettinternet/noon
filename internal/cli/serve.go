@@ -33,6 +33,16 @@ func serveAction(version string) func(context.Context, *urfave.Command) error {
 				return usageError("--listen must not be empty", "Use --listen ADDR to start a signed webhook listener")
 			}
 		}
+		apiTokenFile := ""
+		if cmd.IsSet("api-token-file") {
+			apiTokenFile = cmd.String("api-token-file")
+			if strings.TrimSpace(apiTokenFile) == "" {
+				return usageError("--api-token-file must not be empty", "Pass a file containing a bearer token")
+			}
+			if listenAddr == "" {
+				return usageError("--api-token-file requires --listen", "Pass --listen ADDR to start the HTTP listener")
+			}
+		}
 		for _, name := range []string{"NOON_PROJECT", "NOON_CONFIG", "NOON_TIMEZONE", "NOON_JSON"} {
 			if _, exists := os.LookupEnv(name); exists {
 				return usageError("serve does not accept "+name, "Use the project and config selection recorded by noon enable")
@@ -48,7 +58,7 @@ func serveAction(version string) func(context.Context, *urfave.Command) error {
 		}
 		options := scheduler.ServeOptions{
 			StateDir: stateDir, StateDirDefault: values.StateDirDefault,
-			UserConfigDir: values.UserConfigDir, Version: version, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: listenAddr,
+			UserConfigDir: values.UserConfigDir, Version: version, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: listenAddr, APITokenFile: apiTokenFile,
 		}
 		if err := scheduler.Serve(ctx, options); err != nil {
 			var running *scheduler.SchedulerRunningError

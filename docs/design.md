@@ -186,8 +186,7 @@ self-daemonizes and is not one process per repo.
   optional `XDG_CONFIG_HOME`, and the absolute state directory, because service managers otherwise
   run with a minimal `PATH` and a different working directory. Nothing else installs services.
 - Docker runs the same process in the foreground. `noon run NAME` needs no scheduler, like `task NAME`.
-- There is no IPC socket. Clients read SQLite for scheduler status and next times. Revisit polling
-  only if latency or cost becomes a measured problem.
+- There is no local IPC socket. Local clients read SQLite for scheduler status and next times; the optional HTTP API is an adapter over shared app operations, not a second scheduler. The scheduler polls SQLite every second and config files every two seconds. Revisit polling only if latency or cost becomes a measured problem.
 - Queueing (`--detach`, `--in`, `--at`, MCP `run_job`) is one immediate SQLite transaction that
   checks retained idempotency keys, enablement and approval, cooldown, and due-run merging or the
   `requests: each` cap before inserting. The each-mode cap is 20 queued runs per job and is checked
@@ -313,16 +312,21 @@ No plugin system; commands are the integration boundary (decision-4).
 - **Webhooks** ([doc](webhooks.md)): only with `serve --listen`. `POST /hooks/{project_id}/{job}`
   needs an HMAC-SHA256 signature; the secret comes from the scheduler's startup environment.
   Delivery IDs are idempotency keys. Payloads choose data, never commands.
-- **Event files**: `schema_version`, `source` (`cli`, `mcp`, `webhook`), `received_at`, `data`, and
+- **Event files**: `schema_version`, `source` (`cli`, `mcp`, `api`, `webhook`), `received_at`, `data`, and
   allowlisted `headers` for webhooks. Signature and authorization headers are never stored.
-- **MCP** ([doc](agents.md)): stdio, official Go SDK. Tools: `status`, `list_jobs`, `run_job`,
-  `list_runs`, `get_run`, `cancel_run`. Agents can't approve, add, or edit unattended commands.
-  `noon skill` prints the shell-only fallback unchanged; it's never auto-installed.
+- **MCP** ([doc](agents.md)): stdio and stateless Streamable HTTP, official Go SDK. Tools: `status`,
+  `list_projects`, `list_jobs`, `run_job`, `list_runs`, `get_run`, `cancel_run`. HTTP MCP has no
+  default project and only reaches enabled projects. Agents can't approve, add, or edit unattended
+  commands. `noon skill` prints the shell-only fallback unchanged; it's never auto-installed.
+- **Remote JSON API** ([reference](cli.md#remote-api-and-mcp-http)): with
+  `serve --listen --api-token-file`, routes under `/v1/` expose only the inspect, queue, read, and
+  cancel operations shared with MCP. The shared bearer token is read once from a file, checked
+  before routing, and never inherited by jobs or hooks. Only enabled projects and their runs are
+  reachable; `/healthz` remains unauthenticated, and webhooks retain HMAC authentication.
 - **Crontab import** ([doc](crontab.md)): preview by default; unsupported features fail with line
   numbers.
 - Outbound HTTP is a command (`run: [curl, -fsS, …]`), not a built-in action.
-- Not implemented: a bearer-token remote API and MCP over Streamable HTTP on the same listener,
-  and user-scope jobs, are planned; attachable tmux/Herdr sessions are a draft. File watching,
+- Not implemented: user-scope jobs; attachable tmux/Herdr sessions are a draft. File watching,
   worktree lifecycles, and container-isolated agents compose existing tools instead (see
   `examples/local-dev/file-watch`, `examples/integrations/worktrunk`, `examples/ai/container-agent`).
 
@@ -337,8 +341,9 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 | In-tree `.noon.yaml` | Repository content: commits can add it | Never loaded |
 | `noon.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
 | Scripts and prompt files | Not pinned | Approval covers what and when, not file contents |
-| MCP clients | Inspect and queue approved jobs | Can't approve, add, or edit commands; identity is metadata |
-| Webhooks | Authenticated data | Never select or build commands; payload is a file |
+| MCP clients and authenticated HTTP API clients | Inspect, queue approved jobs, read logs, cancel runs | Can't add, edit, enable, disable, approve, pause, or resume jobs; identity is metadata |
+| HTTP API bearer token | One shared token read from `--api-token-file` | Required before `/v1/` and `/mcp` routing; never logged, persisted, echoed, or passed to jobs/hooks |
+| Webhooks | HMAC-authenticated data | Never select or build commands; payload is a file |
 | Job and hook output | Untrusted bytes | Stored raw and bounded; never interpreted |
 | Environment values | Secret by default | Never printed by list, status, JSON, or MCP |
 

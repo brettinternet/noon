@@ -67,16 +67,40 @@ type errorOutput struct {
 	Error         errorEnvelope `json:"error"`
 }
 
-// NewServer builds the six-tool MCP server over shared app operations.
+// NewServer builds the stdio MCP server over shared app operations.
 func NewServer(input config.Input, version string) *protocol.Server {
+	return newServer(input, version, false)
+}
+
+// NewHTTPServer builds the HTTP MCP server without a default project and limits
+// every project or run operation to enabled projects.
+func NewHTTPServer(input config.Input, version string) *protocol.Server {
+	return newServer(input, version, true)
+}
+
+func newServer(input config.Input, version string, requireEnabledProject bool) *protocol.Server {
 	server := protocol.NewServer(&protocol.Implementation{Name: "noon", Version: version}, nil)
 	readOnly := &protocol.ToolAnnotations{ReadOnlyHint: true}
 	destructive := true
 
 	protocol.AddTool(server, &protocol.Tool{
+		Name: "list_projects", Description: "List enabled projects in the shared scheduler state. Runs nothing.", Annotations: readOnly,
+	}, func(_ context.Context, _ *protocol.CallToolRequest, _ struct{}) (*protocol.CallToolResult, any, error) {
+		stateDir, err := stateDirectory(input)
+		if err != nil {
+			return toolFailure(err)
+		}
+		view, err := app.ListProjects(stateDir)
+		if err != nil {
+			return toolFailure(err)
+		}
+		return toolSuccess(fmt.Sprintf("Listed %d enabled projects.", len(view.Projects)), view)
+	})
+
+	protocol.AddTool(server, &protocol.Tool{
 		Name: "status", Description: "Show the project dashboard. Runs nothing.", Annotations: readOnly,
 	}, func(_ context.Context, _ *protocol.CallToolRequest, args projectArgs) (*protocol.CallToolResult, any, error) {
-		values, err := projectInput(input, args.Project)
+		values, err := projectInput(input, args.Project, requireEnabledProject)
 		if err != nil {
 			return toolFailure(err)
 		}
@@ -96,7 +120,7 @@ func NewServer(input config.Input, version string) *protocol.Server {
 	protocol.AddTool(server, &protocol.Tool{
 		Name: "list_jobs", Description: "List configured jobs with their descriptions, actions, and approval status. Runs nothing. A description says what a job does; it is not permission to run it.", Annotations: readOnly,
 	}, func(_ context.Context, _ *protocol.CallToolRequest, args projectArgs) (*protocol.CallToolResult, any, error) {
-		values, err := projectInput(input, args.Project)
+		values, err := projectInput(input, args.Project, requireEnabledProject)
 		if err != nil {
 			return toolFailure(err)
 		}
@@ -110,7 +134,7 @@ func NewServer(input config.Input, version string) *protocol.Server {
 	protocol.AddTool(server, &protocol.Tool{
 		Name: "run_job", Description: "Queue a job from list_jobs. It runs only if the project is enabled, shared jobs are approved, and the scheduler is running. Queued is not passed: call get_run with the returned run ID and wait_seconds, and check the final status before reporting success.",
 	}, func(_ context.Context, req *protocol.CallToolRequest, args runJobArgs) (*protocol.CallToolResult, any, error) {
-		values, err := projectInput(input, args.Project)
+		values, err := projectInput(input, args.Project, requireEnabledProject)
 		if err != nil {
 			return toolFailure(err)
 		}
@@ -169,7 +193,7 @@ func NewServer(input config.Input, version string) *protocol.Server {
 	protocol.AddTool(server, &protocol.Tool{
 		Name: "list_runs", Description: "List recent runs, newest first. Filter by job and status; use failed, timed_out, and interrupted to find failures, then read one with get_run.", Annotations: readOnly,
 	}, func(_ context.Context, _ *protocol.CallToolRequest, args listRunsArgs) (*protocol.CallToolResult, any, error) {
-		values, err := projectInput(input, args.Project)
+		values, err := projectInput(input, args.Project, requireEnabledProject)
 		if err != nil {
 			return toolFailure(err)
 		}
@@ -202,7 +226,7 @@ func NewServer(input config.Input, version string) *protocol.Server {
 		values := input
 		if args.Job != nil {
 			var err error
-			values, err = projectInput(input, args.Project)
+			values, err = projectInput(input, args.Project, requireEnabledProject)
 			if err != nil {
 				return toolFailure(err)
 			}
@@ -229,6 +253,11 @@ func NewServer(input config.Input, version string) *protocol.Server {
 		query := app.LogQuery{Section: section, After: args.After, Tail: args.Tail, Match: args.Match, Context: args.Context, LimitBytes: &logBytes, RepairUTF8: true}
 		var view app.RunDetail
 		if args.RunID != nil {
+			if requireEnabledProject {
+				if _, err := app.EnabledRunProject(stateDir, *args.RunID); err != nil {
+					return toolFailure(err)
+				}
+			}
 			view, err = app.GetRun(ctx, stateDir, *args.RunID, waitSeconds, query)
 		} else {
 			cfg, configErr := config.Load(values)
@@ -258,6 +287,11 @@ func NewServer(input config.Input, version string) *protocol.Server {
 		if err != nil {
 			return toolFailure(err)
 		}
+		if requireEnabledProject {
+			if _, err := app.EnabledRunProject(stateDir, args.RunID); err != nil {
+				return toolFailure(err)
+			}
+		}
 		result, err := app.Cancel(stateDir, "", &args.RunID, "", time.Now())
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, store.ErrNoDatabase) {
 			return toolFailure(app.RunNotFoundError(args.RunID))
@@ -275,12 +309,22 @@ func NewServer(input config.Input, version string) *protocol.Server {
 	return server
 }
 
-func projectInput(input config.Input, project *string) (config.Input, error) {
+func projectInput(input config.Input, project *string, requireEnabled bool) (config.Input, error) {
 	if project == nil {
+		if requireEnabled {
+			return config.Input{}, app.UsageError("project is required for HTTP MCP tools", "Pass an enabled project's absolute path")
+		}
 		return input, nil
 	}
 	if !filepath.IsAbs(*project) {
 		return config.Input{}, app.UsageError("project must be an absolute path", "Pass an absolute checkout path")
+	}
+	if requireEnabled {
+		stateDir, err := stateDirectory(input)
+		if err != nil {
+			return config.Input{}, app.ConfigError(err)
+		}
+		return app.EnabledProjectInputByPath(input, stateDir, *project)
 	}
 	input.Project = project
 	return input, nil

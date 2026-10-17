@@ -20,8 +20,10 @@ import (
 	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/config"
 	"github.com/brettinternet/noon/internal/httpapi"
+	noonmcp "github.com/brettinternet/noon/internal/mcp"
 	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/store"
+	protocol "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sys/unix"
 )
 
@@ -37,6 +39,7 @@ type ServeOptions struct {
 	KillGrace       time.Duration
 	Logger          io.Writer
 	ListenAddr      string
+	APITokenFile    string
 	IgnoreSignals   bool
 	OnTick          func()
 }
@@ -88,6 +91,17 @@ func (r *runControl) stopStatus() string {
 
 // Serve supervises every enabled project's approved schedules until cancelled.
 func Serve(ctx context.Context, options ServeOptions) error {
+	var apiToken []byte
+	if options.APITokenFile != "" {
+		if options.ListenAddr == "" {
+			return errors.New("API token file requires an HTTP listener")
+		}
+		var err error
+		apiToken, err = readAPITokenFile(options.APITokenFile)
+		if err != nil {
+			return err
+		}
+	}
 	if options.Now == nil {
 		options.Now = time.Now
 	}
@@ -175,12 +189,24 @@ func Serve(ctx context.Context, options ServeOptions) error {
 			return err
 		}
 		webhookHandler = httpapi.NewHandler(projects)
+		var listenerHandler http.Handler = webhookHandler
+		if len(apiToken) > 0 {
+			apiInput := config.Input{CWD: options.StateDir, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, StateDir: &options.StateDir}
+			apiHandler := httpapi.NewAPIHandler(apiInput, options.StateDir)
+			mcpHandler := protocol.NewStreamableHTTPHandler(
+				func(*http.Request) *protocol.Server { return noonmcp.NewHTTPServer(apiInput, options.Version) },
+				// Bearer authentication protects this endpoint against DNS rebinding.
+				// Permit the public Host preserved by a reverse proxy on loopback.
+				&protocol.StreamableHTTPOptions{Stateless: true, MaxRequestBodyBytes: httpapi.MaxAPIRequestBytes, DisableLocalhostProtection: true},
+			)
+			listenerHandler = httpapi.NewListenerHandler(webhookHandler, apiHandler, mcpHandler, apiToken)
+		}
 		listener, err := net.Listen("tcp", options.ListenAddr)
 		if err != nil {
 			return fmt.Errorf("listen for webhooks on %q: %w", options.ListenAddr, err)
 		}
 		address := httpapi.ListenerAddress(listener)
-		httpServer = httpapi.NewServer(webhookHandler)
+		httpServer = httpapi.NewServer(listenerHandler)
 		done := make(chan struct{})
 		failures := make(chan error, 1)
 		go func() {
@@ -190,9 +216,17 @@ func Serve(ctx context.Context, options ServeOptions) error {
 			close(done)
 		}()
 		httpErrors = failures
-		logger.event("webhook listener listening address=%s", address)
+		if len(apiToken) > 0 {
+			logger.event("webhook and API listener listening address=%s", address)
+		} else {
+			logger.event("webhook listener listening address=%s", address)
+		}
 		if !httpapi.IsLoopbackAddress(address) {
-			logger.event("WARNING: webhook listener uses a non-loopback address; requests still require signatures")
+			if len(apiToken) > 0 {
+				logger.event("WARNING: API/webhook listener uses a non-loopback address; API requests need a bearer token and webhooks need signatures")
+			} else {
+				logger.event("WARNING: webhook listener uses a non-loopback address; requests still require signatures")
+			}
 		}
 		var stopOnce sync.Once
 		stopHTTP = func() {
@@ -277,7 +311,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		case <-serveContext.Done():
 			goto shutdown
 		case err := <-httpErrors:
-			return fmt.Errorf("webhook HTTP server: %w", err)
+			return fmt.Errorf("HTTP listener server: %w", err)
 		case _, ok := <-ticks:
 			if !ok {
 				goto shutdown
@@ -438,6 +472,23 @@ type schedulerLogger struct {
 	writer io.Writer
 	now    func() time.Time
 	mu     sync.Mutex
+}
+
+func readAPITokenFile(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read API token file %q: %w", path, err)
+	}
+	value := string(data)
+	if strings.HasSuffix(value, "\r\n") {
+		value = strings.TrimSuffix(value, "\r\n")
+	} else {
+		value = strings.TrimSuffix(value, "\n")
+	}
+	if len([]byte(value)) < 32 {
+		return nil, errors.New("API token must be at least 32 bytes")
+	}
+	return []byte(value), nil
 }
 
 func (l *schedulerLogger) event(format string, args ...any) {

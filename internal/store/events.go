@@ -32,7 +32,7 @@ func (s *Store) writeEvent(runID int64, source string, receivedAt time.Time, dat
 	}
 	var headers map[string]string
 	switch source {
-	case "cli", "mcp":
+	case "cli", "mcp", "api":
 		if len(data) > MaxEventBytes || !json.Valid(data) {
 			return "", errors.New("event data must be valid JSON of at most 256 KiB")
 		}

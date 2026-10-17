@@ -145,7 +145,7 @@ func waitForListenerAddress(t *testing.T, done <-chan error, stderr *lockedBuffe
 	defer ticker.Stop()
 	for {
 		for _, line := range strings.Split(stderr.String(), "\n") {
-			if _, address, ok := strings.Cut(line, "webhook listener listening address="); ok {
+			if _, address, ok := strings.Cut(line, "listener listening address="); ok {
 				address = strings.TrimSpace(address)
 				if _, _, err := net.SplitHostPort(address); err == nil {
 					return address

@@ -11,7 +11,7 @@ claude mcp add noon -- noon mcp
 codex mcp add noon -- noon mcp
 ```
 
-Any other client:
+Any other local client:
 
 ```json
 {
@@ -22,10 +22,52 @@ Any other client:
 ```
 
 Start the server in the checkout you want, or pass an absolute `project` to job-based tools.
+
+## Remote MCP and JSON API
+
+Start `serve` with a token file mounted as a secret. The file is read once at startup, must contain
+at least 32 bytes, and may end in a newline. The token is not placed in the scheduler environment
+that jobs and hooks inherit:
+
+```sh
+noon serve --listen 127.0.0.1:8787 --api-token-file /run/secrets/noon-api-token
+```
+
+Use a TLS reverse proxy for remote access; Noon does not provide TLS or CORS. `/healthz` remains
+unauthenticated, while every `/v1/` and `/mcp` request requires `Authorization: Bearer TOKEN`.
+Without `--api-token-file`, the listener continues to serve only webhooks and health checks.
+
+Remote MCP has no default project. Call `list_projects`, then pass the absolute path of an enabled
+project to `status`, `list_jobs`, `run_job`, or `list_runs`. `get_run` by ID and `cancel_run` are
+also restricted to runs belonging to enabled projects. Disabled and unknown projects or runs are
+reported as `not_found`. The server has no add, edit, enable, disable, approve, pause, or resume
+tools. See the [JSON API route reference](cli.md#remote-api-and-mcp-http).
+
+Provision the same token separately on the client host; the examples use a protected local secret
+file at `/secure/path/noon-api-token`.
+
+Client examples (checked against the installed `claude mcp add --help` and `codex mcp add --help`):
+
+```sh
+# Claude Code stores the configured HTTP header in its MCP configuration.
+claude mcp add --transport http --scope user \
+  --header "Authorization: Bearer $(cat /secure/path/noon-api-token)" \
+  noon https://noon.example.com/mcp
+
+# Codex reads the bearer token from this variable when connecting.
+export NOON_API_TOKEN="$(cat /secure/path/noon-api-token)"
+codex mcp add noon --url https://noon.example.com/mcp \
+  --bearer-token-env-var NOON_API_TOKEN
+```
+
+Keep the Claude MCP configuration file private because it contains the expanded header. For Codex,
+set `NOON_API_TOKEN` only in the client process environment. Neither client variable is inherited
+by Noon jobs running on the remote scheduler.
 Each worktree is its own project. Run IDs are global.
 
 | Tool | Does |
 | --- | --- |
+| `list_projects` | Enabled projects in the shared scheduler state |
 | `status` | Project dashboard |
 | `list_jobs` | Jobs with descriptions, schedules, approval state |
 | `run_job` | Queue a job; optional JSON `data` |

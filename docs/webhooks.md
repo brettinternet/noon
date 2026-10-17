@@ -1,7 +1,9 @@
-# Signed webhooks
+# HTTP listener: signed webhooks and remote API
 
-A signed HTTP request can queue a job. The request picks a project and job by URL and supplies
-data; it can never choose a command.
+A signed webhook can queue a job. The request picks a project and job by URL and supplies data; it
+can never choose a command. The same `serve --listen` listener can optionally expose an authenticated
+JSON API and MCP over HTTP. Without `--api-token-file`, it serves only webhooks and `/healthz` as
+before. See the [remote route reference](cli.md#remote-api-and-mcp-http) and [agent setup](agents.md#remote-mcp-and-json-api).
 
 ## 1. Configure the job
 
@@ -33,8 +35,14 @@ export NOON_GITHUB_WEBHOOK_SECRET='the-secret-you-gave-github'
 noon serve --listen 127.0.0.1:8787
 ```
 
-There is no listener without `--listen`. The secret is read once at startup; if it's missing or
-empty, that endpoint is off and `noon status` and `noon doctor` report a config error.
+To also enable the remote API and MCP, use the API token file with the same listener instead:
+
+```sh
+noon serve --listen 127.0.0.1:8787 --api-token-file /run/secrets/noon-api-token
+```
+
+There is no listener without `--listen`. The webhook secret is read once at startup; if it's
+missing or empty, that endpoint is off and `noon status` and `noon doctor` report a config error.
 
 ## 4. Add the GitHub webhook
 
@@ -68,7 +76,9 @@ curl --fail-with-body -i \
 | 413 | Body over 1 MiB |
 | 429 | `{"error":"job queue is full"}` for a due-now request at the `requests: each` cap |
 
-`GET /healthz` returns `{"status":"ok"}` while the scheduler is healthy.
+`GET /healthz` returns `{"status":"ok"}` while the scheduler is healthy and does not require a
+bearer token. When configured, `/v1/` and `/mcp` require the token from `--api-token-file`; webhook
+requests still require their HMAC signatures. The API token is never passed to jobs or hooks.
 
 ## Request handling
 
@@ -87,7 +97,9 @@ curl --fail-with-body -i \
   for queue expiry and handling guidance.
 - Cooldown and merging into an already-due run work as for [CLI requests](triggers.md); cooldown
   cannot be configured with `requests: each`.
-- Limits: 1 MiB body, 16 KiB headers, 5s to read headers, 10s to read and write.
+- Webhook limits remain: 1 MiB body, 16 KiB headers, 5s to read headers, 10s to read and write.
+  The optional JSON API limits request bodies to 512 KiB (`data` to 256 KiB) and permits
+  `wait_seconds` up to 60 by extending API response write deadlines; webhook time limits are unchanged.
 
 The job's `$NOON_EVENT_FILE` has `source: "webhook"`, the parsed JSON body as `data` (a string if
 it isn't JSON), and only these headers: `content-type`, `user-agent`, `x-github-event`,
@@ -95,7 +107,7 @@ it isn't JSON), and only these headers: `content-type`, `user-agent`, `x-github-
 
 ## TLS reverse proxy
 
-Noon doesn't do TLS. Keep it on loopback behind a reverse proxy:
+Noon doesn't do TLS or CORS. Keep it on loopback behind a reverse proxy for webhook and remote API access:
 
 ```caddyfile
 hooks.example.com {
@@ -103,8 +115,8 @@ hooks.example.com {
 }
 ```
 
-Binding a non-loopback address logs a warning; requests still need a valid signature. Don't
-expose the listener to the internet without TLS in front.
+Binding a non-loopback address logs a warning. API requests need a bearer token and webhook
+requests need signatures. Don't expose the listener to the internet without TLS in front.
 
 ## Docker
 

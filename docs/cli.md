@@ -15,9 +15,58 @@ These work before or after the subcommand.
 | `-j`, `--json` | — | One JSON object on stdout |
 | `--color auto\|always\|never` | `NO_COLOR`, `TERM` (in auto mode) | Control styling of human output; default `auto` |
 
-`noon serve` accepts `--state-dir DIR` and optional `--listen ADDR` for signed webhooks.
-No listener starts without `--listen`. It rejects `--project`, `--config`, `--timezone`,
+`noon serve` accepts `--state-dir DIR`, optional `--listen ADDR` for signed webhooks, and
+`--api-token-file FILE` to enable the authenticated JSON API and MCP over HTTP. The token file
+requires `--listen`, must contain at least 32 bytes, and is read once at startup; a trailing newline
+is removed. Without the token-file flag, the listener serves only signed webhooks and `/healthz`.
+No listener starts without `--listen`. `serve` rejects `--project`, `--config`, `--timezone`,
 and `--json`; each project uses the config selection recorded by `noon enable`.
+
+## Remote API and MCP over HTTP
+
+Start the listener with a secret file, never an environment variable:
+
+```sh
+noon serve --listen 127.0.0.1:8787 --api-token-file /run/secrets/noon-api-token
+```
+
+The token is shared, compared in constant time, and required before routing every `/v1/` and `/mcp`
+request. Missing or invalid credentials receive `401` with `WWW-Authenticate: Bearer` and an empty
+body. `/healthz` is unauthenticated; webhooks continue to use HMAC signatures. The token is not
+logged, stored, echoed, or passed to jobs or hooks. Put remote access behind a TLS reverse proxy;
+Noon does not provide TLS or CORS.
+
+| Method and route | Operation |
+| --- | --- |
+| `GET /v1/projects` | List enabled projects as `{id,name,path}` |
+| `GET /v1/projects/{id}` | Project status (`noon status --json` shape) |
+| `GET /v1/projects/{id}/jobs` | Jobs (`noon list --json` shape) |
+| `GET /v1/projects/{id}/runs?job=&status=&limit=` | Recent project runs |
+| `POST /v1/projects/{id}/jobs/{name}/runs` | Queue an approved job; optional body `{key,in,at,data}` |
+| `GET /v1/runs/{id}?wait_seconds=&log_bytes=&after=&tail=&match=&context=&section=` | Run and bounded log |
+| `POST /v1/runs/{id}/cancel` | Cancel a queued or running run |
+
+Responses use the same `schema_version: 1` objects as MCP structured output and CLI JSON. Queueing
+returns `202` for a new run and `200` when it returns an existing run. The request body is at most
+512 KiB; `data` is valid JSON of at most 256 KiB. `wait_seconds` is 0–60; `log_bytes` is 0–65536.
+`requested_by` on API-created runs is `api:REMOTE_ADDR` metadata, not authorization.
+
+| Status | Meaning |
+| --- | --- |
+| 400 | Invalid arguments or query |
+| 401 | Missing or invalid bearer token |
+| 404 | Unknown route, project, or run; disabled projects and their runs are also hidden |
+| 405 | Wrong method; `Allow` names the supported method |
+| 409 | Project/job disabled, paused, needs approval, or recursion refused |
+| 413 | Request body exceeds 512 KiB |
+| 429 | Per-job queue is full |
+| 500 | Other operational error |
+
+The API has no add, edit, enable, disable, approve, pause, or resume endpoints. It accepts project
+IDs, not arbitrary filesystem paths. MCP over Streamable HTTP is at `/mcp`; it has the stdio tools
+plus `list_projects`, but no default project. Pass an enabled project's absolute `project` path to
+project-scoped tools. `get_run` by ID and `cancel_run` are limited to enabled projects. For verified
+client setup examples, see [Agents](agents.md#remote-mcp-and-json-api).
 
 ## Short flags
 

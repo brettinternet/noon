@@ -26,6 +26,8 @@ func TestServeCLIRestrictionsAndStatus(t *testing.T) {
 		{"serve", "--config", "custom.yaml"},
 		{"--timezone", "UTC", "serve"},
 		{"serve", "--project", root},
+		{"serve", "--api-token-file", "secret"},
+		{"serve", "--api-token-file="},
 	} {
 		var out, stderr bytes.Buffer
 		code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)

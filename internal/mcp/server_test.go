@@ -29,7 +29,10 @@ import (
 const defaultTestLogLimit = 16_384
 
 func TestMCP(t *testing.T) {
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Chdir(root)
 	t.Setenv("HOME", root)
 	for _, key := range []string{"NOON_PROJECT", "NOON_JOB", "NOON_DEPTH", "NOON_EVENT_FILE", "NOON_STATE_DIR"} {
@@ -54,6 +57,21 @@ func TestMCP(t *testing.T) {
 		t.Fatalf("enable fixture project: %v", err)
 	}
 	writeManifest(t, root, strings.Replace(manifest, "shared: {run: 'true'}", "shared: {run: 'false'}", 1))
+	disabledProject := filepath.Join(root, "disabled")
+	if err := os.Mkdir(disabledProject, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectState, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectState.RegisterProject(disabledProject, time.Now()); err != nil {
+		_ = projectState.Close()
+		t.Fatal(err)
+	}
+	if err := projectState.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx := context.Background()
 	server := noonmcp.NewServer(input, "test")
@@ -85,7 +103,7 @@ func TestMCP(t *testing.T) {
 		byName[tool.Name] = tool
 	}
 	slices.Sort(toolNames)
-	wantTools := []string{"cancel_run", "get_run", "list_jobs", "list_runs", "run_job", "status"}
+	wantTools := []string{"cancel_run", "get_run", "list_jobs", "list_projects", "list_runs", "run_job", "status"}
 	if !reflect.DeepEqual(toolNames, wantTools) {
 		t.Fatalf("tools/list names = %v, want %v", toolNames, wantTools)
 	}
@@ -97,10 +115,16 @@ func TestMCP(t *testing.T) {
 	if err := json.Unmarshal(cliOut.Bytes(), &usage); err != nil || usage["error"].(map[string]any)["code"] != "usage" {
 		t.Fatalf("mcp --json did not produce the CLI usage error: %s err=%v", &cliOut, err)
 	}
-	for _, name := range []string{"status", "list_jobs", "list_runs", "get_run"} {
+	for _, name := range []string{"status", "list_jobs", "list_projects", "list_runs", "get_run"} {
 		if byName[name].Annotations == nil || !byName[name].Annotations.ReadOnlyHint {
 			t.Errorf("%s missing readOnlyHint", name)
 		}
+	}
+	projectsResult := callTool(t, ctx, clientSession, "list_projects", map[string]any{})
+	projectsValue := decodeObject(t, projectsResult.StructuredContent)
+	projects := projectsValue["projects"].([]any)
+	if projectsResult.IsError || projectsValue["schema_version"] != float64(1) || len(projects) != 1 || projects[0].(map[string]any)["path"] != root {
+		t.Fatalf("list_projects did not return only enabled projects: %+v", projectsValue)
 	}
 	if byName["cancel_run"].Annotations == nil || byName["cancel_run"].Annotations.DestructiveHint == nil || !*byName["cancel_run"].Annotations.DestructiveHint {
 		t.Error("cancel_run missing destructiveHint")
@@ -518,6 +542,49 @@ func TestMCP(t *testing.T) {
 	}
 }
 
+func TestHTTPMCPRequiresAnEnabledProject(t *testing.T) {
+	input, _, runID := stdioFixture(t)
+	server := noonmcp.NewHTTPServer(input, "test")
+	ctx := context.Background()
+	clientTransport, serverTransport := protocol.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := protocol.NewClient(&protocol.Implementation{Name: "mcp-http-test", Version: "1"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = clientSession.Close()
+		if err := serverSession.Wait(); err != nil {
+			t.Errorf("HTTP MCP server session: %v", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		args map[string]any
+		code string
+	}{
+		{name: "missing project", args: map[string]any{}, code: "usage"},
+		{name: "unknown project", args: map[string]any{"project": filepath.Join(input.CWD, "unknown")}, code: "not_found"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := callTool(t, ctx, clientSession, "list_jobs", test.args)
+			failure := decodeObject(t, result.StructuredContent)["error"].(map[string]any)
+			if !result.IsError || failure["code"] != test.code {
+				t.Fatalf("HTTP MCP %s result: %+v", test.name, result)
+			}
+		})
+	}
+	valid := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": runID})
+	if valid.IsError || decodeObject(t, valid.StructuredContent)["run"].(map[string]any)["status"] != "queued" {
+		t.Fatalf("HTTP MCP could not inspect an enabled project's run: %+v", valid)
+	}
+}
+
 func TestServeStdioCanonicalIDsAndEOFDrain(t *testing.T) {
 	input, _, _ := stdioFixture(t)
 	server := noonmcp.NewServer(input, "test")
@@ -542,7 +609,7 @@ func TestServeStdioCanonicalIDsAndEOFDrain(t *testing.T) {
 		t.Fatalf("initialize response did not canonicalize escaped id: %s", output)
 	}
 	list := responseForID(responses, float64(2))
-	if list == nil || len(list["result"].(map[string]any)["tools"].([]any)) != 6 {
+	if list == nil || len(list["result"].(map[string]any)["tools"].([]any)) != 7 {
 		t.Fatalf("tools/list response was not drained: %s", output)
 	}
 }

@@ -54,6 +54,34 @@ container from writing; it doesn't stop changes on the host.
 - Run `noon init` on the host. In the container it refuses the image's `NOON_STATE_DIR` and can't
   write the read-only mount.
 
+## Remote API and MCP
+
+Mount a high-entropy bearer token as a secret file, then pass only its path to `serve`. The token
+is not put in the container environment inherited by jobs and hooks. Add these settings to the
+`noon` service from the Compose example:
+
+```yaml
+services:
+  noon:
+    ports:
+      - "127.0.0.1:8787:8787"
+    secrets:
+      - noon_api_token
+    entrypoint:
+      - /bin/sh
+      - -c
+      - noon enable && exec noon serve --listen 0.0.0.0:8787 --api-token-file /run/secrets/noon_api_token
+
+secrets:
+  noon_api_token:
+    file: ./secrets/noon-api-token
+```
+
+Keep the host secret file private and ensure the mounted file is readable by the container's
+`noon` user (UID 10001). The published listener is bound to host loopback; use a TLS reverse proxy
+for remote clients. `noon service install` does not support these listener flags: run `noon serve`
+directly or under Docker.
+
 ## Tools and credentials
 
 The image has no Git or agent CLI. Extend it for your jobs:
