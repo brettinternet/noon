@@ -134,10 +134,10 @@ checks the local binary by default; to exercise a release artifact, pass
 `BINARY=dist/release/v1.2.3/native-noon VERSION=1.2.3`.
 
 The release workflow runs on a `v*` tag push. It smoke-tests the same archives on four native
-runners, verifies successful `ci.yaml` for the exact tagged commit, uses the `release` environment
-as its publication gate, and refuses to overwrite an existing GitHub release. Configure required
-approval for that environment in repository settings. `workflow_dispatch` accepts an existing tag
-for validation only and never publishes. Neither local validation nor a tap update publishes a
+runners, verifies successful `ci.yaml` for the exact tagged commit, records publication in the `release`
+environment, and refuses to overwrite an existing GitHub release. Like Worklease, the environment
+has no required reviewers: publication proceeds automatically after the checks pass.
+`workflow_dispatch` accepts an existing tag for validation only and never publishes. Neither local validation nor a tap update publishes a
 release. A stable tag push is the explicit publication action.
 
 After an authorized release is actually published, generate the tap formula only from its real
