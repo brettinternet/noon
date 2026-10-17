@@ -38,8 +38,10 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 			fmt.Fprintln(cmd.Writer, guidance(cmd, "No active runs. Next: noon run (list jobs to run)"))
 			return nil
 		}
+		style := styleFor(cmd, cmd.Writer)
 		for _, run := range runs {
-			fmt.Fprintf(cmd.Writer, "run %d · %s · %s", run.ID, run.Job, run.Status)
+			status := runDisplayStatus(run)
+			fmt.Fprintf(cmd.Writer, "run %d · %s · %s", run.ID, run.Job, style.render(status, status))
 			if run.Status == "queued" {
 				fmt.Fprintf(cmd.Writer, " · %s", queuedRunDue(run.ScheduledAt, time.Now(), cfg.Timezone))
 			}

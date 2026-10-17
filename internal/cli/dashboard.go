@@ -66,12 +66,18 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 		}
 		lastRole := ""
 		if job.LastRun != nil {
-			lastRole = job.LastRun.Status
+			lastRole = runDisplayStatus(*job.LastRun)
 		}
 		rows = append(rows, []tableCell{{job.Name, "heading"}, {schedule, ""}, {next, next}, {lastRunCell(job.LastRun, now), lastRole}})
 	}
 	style.printBoundedRows(cmd.Writer, rows, "  ", outputWidth(cmd.Writer), 0)
 	for _, notice := range view.Notices[:min(3, len(view.Notices))] {
+		if notice.Code == "orphaned" {
+			for _, line := range wrapCell(notice.Message, outputWidth(cmd.Writer)) {
+				fmt.Fprintln(cmd.Writer, style.render(line, "orphaned"))
+			}
+			continue
+		}
 		message := cell(notice.Message, outputWidth(cmd.Writer))
 		if notice.Code == "config_error" {
 			message = style.render(message, "config_error")
@@ -83,6 +89,36 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 }
 
 // Redirected output has a deterministic budget, independent of shell settings.
+func wrapCell(text string, width int) []string {
+	width = max(1, width)
+	words := strings.Fields(cell(text, -1))
+	var lines []string
+	line := ""
+	for _, word := range words {
+		for len([]rune(word)) > width {
+			if line != "" {
+				lines = append(lines, line)
+				line = ""
+			}
+			runes := []rune(word)
+			lines = append(lines, string(runes[:width]))
+			word = string(runes[width:])
+		}
+		if line != "" && len([]rune(line))+1+len([]rune(word)) > width {
+			lines = append(lines, line)
+			line = ""
+		}
+		if line != "" {
+			line += " "
+		}
+		line += word
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
 func outputWidth(out io.Writer) int {
 	if file, ok := out.(interface{ Fd() uintptr }); ok {
 		if width, _, err := term.GetSize(file.Fd()); err == nil && width > 0 {

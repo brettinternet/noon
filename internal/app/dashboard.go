@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -100,6 +101,17 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 	if err != nil {
 		return DashboardView{}, err
 	}
+	active, err := ActiveRuns(view.StateDir, view.Project.Path)
+	if err != nil {
+		return DashboardView{}, err
+	}
+	var orphanedRuns []Run
+	for _, run := range active {
+		if run.Status == "running" && run.Orphaned {
+			orphanedRuns = append(orphanedRuns, run)
+		}
+	}
+	sort.Slice(orphanedRuns, func(i, j int) bool { return orphanedRuns[i].ID < orphanedRuns[j].ID })
 	state, err := store.OpenExisting(view.StateDir)
 	if err != nil && !errors.Is(err, store.ErrNoDatabase) {
 		return DashboardView{}, err
@@ -147,6 +159,13 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 	if result.Project.Enabled && result.Scheduler.State == "offline" {
 		add("scheduler_offline", "Scheduler offline; background work will wait.")
 	}
+	if len(orphanedRuns) > 0 {
+		runs := make([]string, 0, len(orphanedRuns))
+		for _, run := range orphanedRuns {
+			runs = append(runs, fmt.Sprintf("#%d %s (noon cancel %d)", run.ID, run.Job, run.ID))
+		}
+		add("orphaned", fmt.Sprintf("Orphaned runs %s block background runs in this project.", strings.Join(runs, ", ")))
+	}
 	if len(result.Queued) > 0 {
 		jobs := make([]string, 0, len(result.Queued))
 		for _, run := range result.Queued {
@@ -164,6 +183,8 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 		if result.Service.Installed || service.IsUnsupported(err) {
 			result.Next = "noon serve"
 		}
+	case len(orphanedRuns) > 0:
+		result.Next = fmt.Sprintf("noon cancel %d", orphanedRuns[0].ID)
 	default:
 		result.Next = "noon add"
 		for _, job := range result.Jobs {

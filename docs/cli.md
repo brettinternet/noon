@@ -107,7 +107,7 @@ Other options deliberately stay long-only:
 `status` (including bare `noon`), `list`, `history`, `doctor`, foreground-run headers and
 summaries, and CLI errors use restrained styling. Project/job names, table headers, and next-step
 commands are bold. Failures are red, attention states (such as needs approval, paused, disabled,
-and offline) yellow, running cyan, and success marks/status labels green. Noops are dimmed. Paths,
+offline, and orphaned) yellow, running cyan, and success marks/status labels green. Noops are dimmed. Paths,
 timestamps, durations, and ordinary text retain the terminal\'s default foreground.
 Labels and symbols retain their meaning without color. Colors use the terminal\'s ANSI palette,
 not hard-coded RGB values, so their appearance follows your terminal theme.
@@ -237,7 +237,9 @@ noon cancel tests  # cancel every active run of tests
 ```
 
 Queued runs are cancelled immediately. Running ones get the same TERM-then-KILL sequence.
-`noon disable` also cancels the project's queued runs.
+A run whose recorded owner is no longer live is listed as `orphaned`; `noon cancel ID` records it
+as cancelled and signals only an identity-matched process group. Inspection never changes run
+state. `noon disable` also cancels the project's queued runs.
 
 ## History
 
@@ -250,8 +252,10 @@ noon history -s noop                     # only no-op polls
 
 Statuses: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`, `interrupted`,
 `skipped`, `missed`, `expired`. A noop is not a success or failure and does not run hooks. Repeat
-`--status` or comma-separate values. `history NAME` and
-`logs NAME` still work after a job is removed.
+`--status` or comma-separate values. Human history displays an orphaned running run as
+`orphaned`; its stored and JSON `status` remains `running`, with JSON `orphaned: true`. Hook-only
+orphans keep the main run's status label. `history NAME` and `logs NAME` still work after a job is
+removed.
 
 ## Logs
 
@@ -312,8 +316,14 @@ Rules:
 
 Bare `noon` and `noon status` show jobs, scheduler state, queued work, up to three notices, and
 one `Next:` step. JSON has `project`, `scheduler`, `service`, `jobs`, `queued`, `notices`, and
-`next`. `noon list` shows the same jobs with commands and next-run times; its `LAST` value ignores
-noops, so a poll does not replace the latest result.
+`next`. Notices rank config errors, scheduled projects not enabled, pending approvals, an offline
+enabled scheduler, orphaned runs, then queued work. An orphaned notice names each orphaned running
+run ID and job and says it blocks background runs in the project. `Next:` prioritizes config check,
+enablement, `noon service install` (or `noon serve` if installed), `noon cancel ID` for the lowest
+orphaned ID, then a runnable job or `noon add`. Scheduler startup takes precedence because it
+recovers orphans. `noon list` shows the same jobs with commands and next-run times; its `LAST` value
+ignores noops, so a poll does not replace the latest result. A stale running last run is shown as
+`orphaned` with its elapsed time; the stored status remains `running`.
 
 Human list, history, and dashboard tables keep complete job names so similar names
 remain distinguishable and copyable. Descriptive columns shrink to the output terminal

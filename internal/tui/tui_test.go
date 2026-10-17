@@ -411,8 +411,18 @@ func TestTUIModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	content = screen(orphanModel)
+	if !strings.Contains(content, "orphaned") {
+		t.Fatalf("orphaned job list omitted the orphan label:\n%s", content)
+	}
 	orphanModel = press(t, orphanModel, "j")
 	orphanModel = press(t, orphanModel, "j")
+	orphanModel = press(t, orphanModel, "enter")
+	content = screen(orphanModel)
+	if !strings.Contains(content, "orphaned") {
+		t.Fatalf("orphaned run list omitted the orphan label:\n%s", content)
+	}
+	orphanModel = press(t, orphanModel, "esc")
 	orphanModel = press(t, orphanModel, "l")
 	content = screen(orphanModel)
 	if !strings.Contains(content, fmt.Sprintf("run %d's owner process exited without recording a result", orphanID)) || !strings.Contains(content, fmt.Sprintf("noon cancel %d", orphanID)) {

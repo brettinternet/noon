@@ -186,7 +186,8 @@ func QueuedRuns(stateDir, project string) ([]Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mapRuns(state, stored), nil
+	runs, err := mapRuns(state, stored)
+	return runs, err
 }
 
 // ActiveRuns lists queued and running work for a project without creating state.
@@ -203,15 +204,19 @@ func ActiveRuns(stateDir, project string) ([]Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mapRuns(state, stored), nil
+	return mapRuns(state, stored)
 }
 
-func mapRuns(state *store.Store, stored []store.Run) []Run {
+func mapRuns(state *store.Store, stored []store.Run) ([]Run, error) {
 	runs := make([]Run, len(stored))
 	for i, run := range stored {
-		runs[i] = RunFromStore(state, run)
+		mapped, err := inspectAndMapRun(state, run)
+		if err != nil {
+			return nil, err
+		}
+		runs[i] = mapped
 	}
-	return runs
+	return runs, nil
 }
 
 type CancelResult struct {
@@ -265,7 +270,11 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 			}
 		}
 		if len(pendingIDs) == 0 {
-			return CancelResult{SchemaVersion: 1, Runs: mapRuns(state, stored), AlreadyFinished: alreadyFinished}, nil
+			runs, err := mapRuns(state, stored)
+			if err != nil {
+				return CancelResult{}, err
+			}
+			return CancelResult{SchemaVersion: 1, Runs: runs, AlreadyFinished: alreadyFinished}, nil
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -284,7 +293,11 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 				}
 				pending = pending || stored[i].Status == "running"
 			}
-			return CancelResult{SchemaVersion: 1, Runs: mapRuns(state, stored), Pending: pending, AlreadyFinished: alreadyFinished}, nil
+			runs, err := mapRuns(state, stored)
+			if err != nil {
+				return CancelResult{}, err
+			}
+			return CancelResult{SchemaVersion: 1, Runs: runs, Pending: pending, AlreadyFinished: alreadyFinished}, nil
 		}
 		budget := min(remaining-100*time.Millisecond, 10*time.Second)
 		if budget <= 0 {

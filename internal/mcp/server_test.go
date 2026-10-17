@@ -545,8 +545,38 @@ func TestMCP(t *testing.T) {
 			waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
 			result := callTool(t, waitCtx, clientSession, "get_run", map[string]any{"run_id": run.ID, "wait_seconds": 10})
-			if result.IsError || decodeObject(t, result.StructuredContent)["orphaned"] != true {
+			if result.IsError {
 				t.Fatalf("orphan detail: %+v", result)
+			}
+			detail := decodeObject(t, result.StructuredContent)
+			detailRun := detail["run"].(map[string]any)
+			if detail["orphaned"] != true || detailRun["orphaned"] != detail["orphaned"] {
+				t.Fatalf("top-level and run orphan fields disagree: %+v", detail)
+			}
+			listed := callTool(t, waitCtx, clientSession, "list_runs", map[string]any{"job": run.Job})
+			if listed.IsError {
+				t.Fatalf("list orphan run: %+v", listed)
+			}
+			listedRuns := decodeObject(t, listed.StructuredContent)["runs"].([]any)
+			if len(listedRuns) != 1 || listedRuns[0].(map[string]any)["orphaned"] != true {
+				t.Fatalf("list_runs omitted orphan status: %+v", listedRuns)
+			}
+			if !hook {
+				dashboard := callTool(t, waitCtx, clientSession, "status", map[string]any{})
+				if dashboard.IsError {
+					t.Fatalf("status with orphan: %+v", dashboard)
+				}
+				notices := decodeObject(t, dashboard.StructuredContent)["notices"].([]any)
+				foundOrphan := false
+				for _, notice := range notices {
+					if notice.(map[string]any)["code"] == "orphaned" {
+						message := notice.(map[string]any)["message"].(string)
+						foundOrphan = strings.Contains(message, run.Job) && strings.Contains(message, fmt.Sprintf("#%d", run.ID))
+					}
+				}
+				if !foundOrphan {
+					t.Fatalf("status omitted orphan run notice: %+v", notices)
+				}
 			}
 			stored, err := state.RunByID(run.ID)
 			if err != nil || (!hook && stored.Status != "running") || (hook && stored.HookStatus.String != "running") {

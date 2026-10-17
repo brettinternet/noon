@@ -64,8 +64,9 @@ func (s humanStyle) printHistory(out io.Writer, runs []app.Run, now time.Time) {
 		if run.ExitCode != nil {
 			exit = strconv.Itoa(*run.ExitCode)
 		}
+		status := runDisplayStatus(run)
 		row := []tableCell{
-			{strconv.FormatInt(run.ID, 10), ""}, {run.Job, "heading"}, {run.Status, run.Status}, {run.Trigger, ""},
+			{strconv.FormatInt(run.ID, 10), ""}, {run.Job, "heading"}, {status, status}, {run.Trigger, ""},
 			{app.RelativeTime(run.StartedAt, now), ""}, {app.DurationText(run.DurationMS), ""}, {exit, ""},
 		}
 		rows = append(rows, row)

@@ -44,7 +44,7 @@ func (s humanStyle) render(text, role string) string {
 		code = "1"
 	case "failed", "timed_out", "fail", "config_error":
 		code = "31"
-	case "warn", "needs approval", "paused", "disabled", "cancelled", "offline", "other platform":
+	case "warn", "needs approval", "paused", "disabled", "cancelled", "offline", "other platform", "orphaned":
 		code = "33"
 	case "running":
 		code = "36"
@@ -69,6 +69,8 @@ func (s humanStyle) render(text, role string) string {
 		}
 	} else if role == "running" && strings.HasPrefix(text, "running ") {
 		text, suffix = "running", strings.TrimPrefix(text, "running")
+	} else if role == "orphaned" && strings.HasPrefix(text, "orphaned ") {
+		text, suffix = "orphaned", strings.TrimPrefix(text, "orphaned")
 	}
 	return prefix + "\x1b[" + code + "m" + text + "\x1b[0m" + suffix
 }

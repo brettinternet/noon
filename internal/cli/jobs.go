@@ -109,7 +109,7 @@ func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide
 		}
 		lastRole := ""
 		if job.LastRun != nil {
-			lastRole = job.LastRun.Status
+			lastRole = runDisplayStatus(*job.LastRun)
 		}
 		rows = append(rows, []tableCell{{job.Name, "heading"}, {scheduled, ""}, {next, next}, {lastRunCell(job.LastRun, now), lastRole}, {command, ""}})
 		if job.Overrides {
@@ -130,24 +130,25 @@ func lastRunCell(run *app.Run, now time.Time) string {
 	}
 	relative := app.RelativeTime(run.StartedAt, now)
 	if run.Status == "running" {
+		status := runDisplayStatus(*run)
 		if run.StartedAt == nil {
-			return "running"
+			return status
 		}
 		started, err := time.Parse(time.RFC3339Nano, *run.StartedAt)
 		if err != nil {
-			return "running"
+			return status
 		}
 		elapsed := max(time.Duration(0), now.Sub(started))
 		if elapsed < time.Minute {
-			return fmt.Sprintf("running %ds", max(0, int(elapsed.Round(time.Second)/time.Second)))
+			return fmt.Sprintf("%s %ds", status, max(0, int(elapsed.Round(time.Second)/time.Second)))
 		}
 		if elapsed < time.Hour {
-			return fmt.Sprintf("running %dm", int(elapsed/time.Minute))
+			return fmt.Sprintf("%s %dm", status, int(elapsed/time.Minute))
 		}
 		if elapsed < 24*time.Hour {
-			return fmt.Sprintf("running %dh", int(elapsed/time.Hour))
+			return fmt.Sprintf("%s %dh", status, int(elapsed/time.Hour))
 		}
-		return fmt.Sprintf("running %dd", int(elapsed/(24*time.Hour)))
+		return fmt.Sprintf("%s %dd", status, int(elapsed/(24*time.Hour)))
 	}
 	if run.Status == "succeeded" {
 		return "✓ " + relative + " (" + app.DurationText(run.DurationMS) + ")"
@@ -156,6 +157,13 @@ func lastRunCell(run *app.Run, now time.Time) string {
 		return fmt.Sprintf("✗ exit %d · %s", *run.ExitCode, relative)
 	}
 	return "✗ " + run.Status + " · " + relative
+}
+
+func runDisplayStatus(run app.Run) string {
+	if run.Status == "running" && run.Orphaned {
+		return "orphaned"
+	}
+	return run.Status
 }
 
 // Render control and non-ASCII characters as escapes so terminal controls and

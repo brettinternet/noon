@@ -198,6 +198,8 @@ func TestDashboard(t *testing.T) {
 		{"recorded config error", true, true, []string{"config_error"}, "noon config check"},
 		{"invalid config", false, false, []string{"config_error"}, "noon config check"},
 		{"queued", true, true, []string{"queued"}, "noon run t"},
+		{"orphaned", true, true, []string{"orphaned"}, "noon cancel 1"},
+		{"offline orphan", true, false, []string{"scheduler_offline", "orphaned", "queued"}, "noon service install"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := diagnosticSandbox(t)
@@ -217,9 +219,16 @@ func TestDashboard(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if tc.name == "queued" {
+				if tc.name == "queued" || tc.name == "offline orphan" {
 					if _, err := state.QueueRun(store.QueueRunInput{ProjectID: id, Job: "t", Digest: cfg.Jobs["t"].Digest, JobExists: true, JobEnabled: true, JobShared: true, Now: diagnosticNow, DueAt: diagnosticNow}); err != nil {
 						t.Fatal(err)
+					}
+				}
+				if tc.name == "orphaned" || tc.name == "offline orphan" {
+					for _, name := range []string{"removed-low", "removed-high"} {
+						if _, err := state.CreateRun(store.NewRun{ProjectID: id, Job: name, Trigger: "manual", Digest: "test", Now: diagnosticNow, OwnerPID: os.Getpid(), OwnerStart: "stale-owner-identity"}); err != nil {
+							t.Fatal(err)
+						}
 					}
 				}
 				if err := state.Close(); err != nil {
@@ -265,9 +274,22 @@ func TestDashboard(t *testing.T) {
 			if code != 0 || result.SchemaVersion != 1 || !reflect.DeepEqual(codes, tc.notices) || result.Next != tc.next {
 				t.Fatalf("exit %d: %s", code, out)
 			}
+			if tc.name == "orphaned" {
+				message := result.Notices[0].Message
+				for _, part := range []string{"#1 removed-low", "#2 removed-high", "noon cancel 1", "block background runs in this project"} {
+					if !strings.Contains(message, part) {
+						t.Fatalf("orphan notice omitted %q: %s", part, message)
+					}
+				}
+			}
 			_, human := diagnosticCommand(t, false, false)
 			if strings.Count(human, "Next:") != 1 {
 				t.Fatal(human)
+			}
+			if tc.name == "orphaned" {
+				if !strings.Contains(human, "removed-low") || !strings.Contains(human, "removed-high") || !strings.Contains(human, "Next: noon cancel 1") {
+					t.Fatalf("orphaned dashboard omitted removed jobs or cancel guidance:\n%s", human)
+				}
 			}
 			for _, line := range strings.Split(human, "\n") {
 				if len([]rune(line)) > 80 {

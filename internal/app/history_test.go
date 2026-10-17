@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/store"
 )
 
@@ -240,6 +241,65 @@ func TestReadRunLogSelectionUncommittedHook(t *testing.T) {
 	_, selected, err := ReadRunLogSelection(stateDir, run.ID, LogQuery{Section: "job"})
 	if err != nil || string(selected.Bytes) != "job-error" || selected.Next != logBytes {
 		t.Fatalf("uncommitted hook selection = %+v, err=%v", selected, err)
+	}
+}
+
+func TestRunsReportOrphansWithoutChangingStoredStatus(t *testing.T) {
+	stateDir := t.TempDir()
+	state, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	projectPath, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	projectID, err := state.RegisterProject(projectPath, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveIdentity, err := runner.ProcessStartIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: "stale", Trigger: "manual", Digest: "test", Now: now, OwnerPID: os.Getpid(), OwnerStart: "stale-owner-identity"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: "live", Trigger: "manual", Digest: "test", Now: now.Add(time.Second), OwnerPID: os.Getpid(), OwnerStart: liveIdentity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: "terminal", Trigger: "manual", Digest: "test", Now: now.Add(2 * time.Second), OwnerPID: os.Getpid(), OwnerStart: liveIdentity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.FinishRun(terminal.ID, projectID, terminal.Job, store.Outcome{Status: "succeeded", FinishedAt: now.Add(3 * time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := RunsWithStatuses(stateDir, projectPath, "", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[int64]Run, len(runs))
+	for _, run := range runs {
+		byID[run.ID] = run
+	}
+	if run := byID[stale.ID]; run.Status != "running" || !run.Orphaned {
+		t.Fatalf("stale owner mapping = %+v; want running and orphaned", run)
+	}
+	if run := byID[live.ID]; run.Status != "running" || run.Orphaned {
+		t.Fatalf("live owner mapping = %+v; want running and not orphaned", run)
+	}
+	if run := byID[terminal.ID]; run.Status != "succeeded" || run.Orphaned {
+		t.Fatalf("terminal mapping = %+v; want succeeded and not orphaned", run)
+	}
+	stored, err := state.RunByID(stale.ID)
+	if err != nil || stored.Status != "running" {
+		t.Fatalf("inspection mutated stale run: %+v err=%v", stored, err)
 	}
 }
 

@@ -477,8 +477,8 @@ func (m *Model) lastRunCells(run *app.Run, now time.Time) ([]span, []span) {
 	if run == nil {
 		return []span{{"never", t.faint}}, nil
 	}
-	icon, tone := m.statusIcon(run.Status)
-	return []span{{icon + " " + statusLabel(run.Status), tone}}, []span{{runWhen(*run, now), t.muted}}
+	icon, tone, label := m.runListStatus(*run)
+	return []span{{icon + " " + label, tone}}, []span{{runWhen(*run, now), t.muted}}
 }
 
 func (m *Model) jobDetail(job app.Job) []string {
@@ -551,7 +551,7 @@ func (m *Model) runsBody(now time.Time) []string {
 
 func (m *Model) runCells(run app.Run, now time.Time) [][]span {
 	t := m.theme
-	icon, tone := m.statusIcon(run.Status)
+	icon, tone, label := m.runListStatus(run)
 	started := sinceText(run.StartedAt, now)
 	if run.Status == "queued" {
 		started = "due " + app.RelativeTime(dueAt(run), now)
@@ -562,12 +562,21 @@ func (m *Model) runCells(run app.Run, now time.Time) [][]span {
 	}
 	return [][]span{
 		{{"#" + strconv.FormatInt(run.ID, 10), t.text}},
-		{{icon + " " + statusLabel(run.Status), tone}},
+		{{icon + " " + label, tone}},
 		{{run.Trigger, t.muted}},
 		{{started, t.muted}},
 		{duration},
 		m.exitCell(run),
 	}
+}
+
+func (m *Model) runListStatus(run app.Run) (string, style, string) {
+	icon, tone := m.statusIcon(run.Status)
+	label := statusLabel(run.Status)
+	if run.Status == "running" && run.Orphaned {
+		return "✗", m.theme.failure, "orphaned"
+	}
+	return icon, tone, label
 }
 
 func (m *Model) exitCell(run app.Run) []span {

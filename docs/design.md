@@ -59,9 +59,11 @@ The CLI is the product.
 - No inference: one job is not "the" job, and a schedule string is never guessed.
 
 Dashboard notices are prioritized: config errors, scheduled projects not enabled, pending
-approvals, enabled projects with an offline scheduler, then queued work. It fits 80 columns and
-shows at most three. The `Next:` step follows the same order: `noon config check`, `noon enable`,
-`noon service install` (or `noon serve` if installed), then a runnable job or `noon add`.
+approvals, enabled projects with an offline scheduler, orphaned runs, then queued work. An
+orphaned notice names every orphaned running run and job and says they block background runs in
+the project; it fits 80 columns and shows at most three notices. The `Next:` step follows the same
+order: `noon config check`, `noon enable`, `noon service install` (or `noon serve` if installed),
+`noon cancel ID` for the lowest orphaned run ID, then a runnable job or `noon add`.
 
 `noon doctor` never executes jobs, repairs, migrates, or creates absent state. SQLite WAL/SHM
 sidecars for an existing database are allowed; application data stays read-only.
@@ -270,11 +272,20 @@ Log reading ([Command reference](cli.md#logs)):
   cut on a UTF-8 boundary). Cursors are absolute file offsets.
 - The separator newline before a hook marker belongs to the job section. Before a hook is appended,
   `job` is everything so far and `hook` is empty.
+- Every shared run object includes `orphaned`. It is true when a run or its hook is active and the
+  recorded owner PID/start identity no longer matches a live, non-zombie process. Inspection uses
+  the same read-only owner check as `logs --follow` and re-reads after a failed identity check so a
+  normal finish is not called orphaned. Queued and fully terminal runs are false; hook stdin is
+  false because its owner is alive. Stored status is unchanged (`running` for a run-level orphan,
+  possibly terminal for a hook-only orphan); human output keeps a hook-only run's status label.
+  Inspection never recovers, signals, or writes. `get_run`'s top-level flag agrees with `run.orphaned`.
 - `--follow` waits for a queued run, printing one stderr notice. It checks the owner's PID and start
   identity on each poll, re-reading status after a failed check to avoid racing a normal finish. If
   still active, it prints remaining bytes and exits 1 with `orphaned` and hint
   `Record it: noon cancel ID`. MCP `get_run` returns `orphaned` and ends `wait_seconds` early.
-  Inspection never recovers runs, signals processes, or changes state.
+  Dashboard, list, history, cancel, and TUI inspection show orphaned runs and point to
+  `noon cancel ID`; that command records the run cancelled and only signals an identity-matched
+  process group.
 - A queued snapshot fails with `not_found` and suggests `--follow`. A terminal run that never
   started says so. Only a missing log for a started run gets the retention hint.
 
@@ -301,7 +312,7 @@ worktrees, and lets one scheduler see every enabled project.
   `cancel_requested_at` is a durable stop request. `depth` is the request's recursion depth
   (scheduled runs start at 0). `requested_by` is claimed identity, metadata only.
 - Shared run JSON (CLI history/logs/run, MCP, `last_run`, hook stdin): `id`, `project`, `job`,
-  `status`, `trigger`, `digest`, `scheduled_at`, `created_at`, `started_at`, `finished_at`,
+  `status`, `orphaned`, `trigger`, `digest`, `scheduled_at`, `created_at`, `started_at`, `finished_at`,
   `duration_ms`, `exit_code`, `signal`, `error`, `requested_by`, `idempotency_key`, `due_at`,
   `cancel_requested_at`, `event_file`, `depth`, `log` (`path`, `bytes`, `truncated`, `available`,
   `hook_offset`), and `hook`. Paths are absolute; absent values are null.

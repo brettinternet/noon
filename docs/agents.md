@@ -68,10 +68,10 @@ Each worktree is its own project. Run IDs are global.
 | Tool | Does |
 | --- | --- |
 | `list_projects` | Enabled projects in the shared scheduler state |
-| `status` | Project dashboard |
+| `status` | Project dashboard, including orphaned-run blockers and the cancel remedy |
 | `list_jobs` | Jobs with descriptions, schedules, approval state |
 | `run_job` | Queue a job; optional JSON `data` |
-| `list_runs` | Recent runs; optional `status` array |
+| `list_runs` | Recent runs; optional `status` array; each run reports `orphaned` |
 | `get_run` | One run and a bounded log read, by `run_id` or `job` |
 | `cancel_run` | Cancel a run |
 
@@ -182,8 +182,11 @@ returns at once:
 {"log":"","next":18898,"size":18898,"truncated":false,"orphaned":false}
 ```
 
-A queued run has no output until it starts. `orphaned: true` means the run's owner exited without
-recording a result; the call returns early. Shell-only agents take repeated bounded snapshots.
+A queued run has no output until it starts. `orphaned: true` means an active run or hook has an
+owner PID/start identity that no longer matches a live, non-zombie process; the call returns early.
+`get_run`'s top-level flag agrees with `run.orphaned`. Inspection is read-only and leaves stored
+status unchanged. Use `noon cancel RUN_ID` to record a run orphan as cancelled; it terminates only
+an identity-matched process group. Shell-only agents take repeated bounded snapshots.
 
 ## Run fields
 
@@ -192,6 +195,7 @@ CLI JSON and MCP share one run object.
 | Field | Meaning |
 | --- | --- |
 | `project` | Canonical checkout path; check it before acting on a run ID |
+| `orphaned` | Read-only owner identity check; true for an active run/hook whose owner is no longer live; cancel with `noon cancel RUN_ID` |
 | `event_file` | Absolute path of the trigger payload, or null |
 | `requested_by` | Claimed client identity; not authorization |
 | `idempotency_key` | Key that deduplicates requests for this project and job |

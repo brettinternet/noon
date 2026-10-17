@@ -24,6 +24,7 @@ type Run struct {
 	Project           string     `json:"project"`
 	Job               string     `json:"job"`
 	Status            string     `json:"status"`
+	Orphaned          bool       `json:"orphaned"`
 	Trigger           string     `json:"trigger"`
 	Digest            string     `json:"digest"`
 	RequestedBy       *string    `json:"requested_by"`
@@ -74,8 +75,18 @@ type RunDetail struct {
 	MatchedLines  *int   `json:"matched_lines"`
 }
 
-// RunFromStore maps persisted state to the client-independent run JSON shape.
+// RunFromStore maps persisted state to the client-independent run JSON shape and inspects its owner.
 func RunFromStore(state *store.Store, run store.Run) Run {
+	current, orphaned, err := inspectStoredRun(state, run.ID)
+	if err == nil {
+		run = current
+	}
+	result := mapRunFromStore(state, run)
+	result.Orphaned = orphaned
+	return result
+}
+
+func mapRunFromStore(state *store.Store, run store.Run) Run {
 	result := Run{
 		ID: run.ID, Project: run.ProjectPath, Job: run.Job, Status: run.Status, Trigger: run.Trigger,
 		Digest: run.Digest, Depth: run.Depth, CreatedAt: run.CreatedAt,
@@ -174,7 +185,11 @@ func RunsWithStatuses(stateDir, project, job string, statuses []string, limit in
 	}
 	runs := make([]Run, len(stored))
 	for i, run := range stored {
-		runs[i] = RunFromStore(state, run)
+		mapped, err := inspectAndMapRun(state, run)
+		if err != nil {
+			return nil, err
+		}
+		runs[i] = mapped
 	}
 	return runs, nil
 }
@@ -199,7 +214,11 @@ func LatestRun(stateDir, project, job string, statuses []string) (Run, bool, err
 	if len(stored) == 0 {
 		return Run{}, false, nil
 	}
-	return RunFromStore(state, stored[0]), true, nil
+	run, err := inspectAndMapRun(state, stored[0])
+	if err != nil {
+		return Run{}, false, err
+	}
+	return run, true, nil
 }
 
 // ListRuns returns the CLI JSON history view for one project.
@@ -258,7 +277,11 @@ func WithLastRuns(view Inspection, stateDir string) (Inspection, error) {
 	}
 	latest := make(map[string]Run, len(stored))
 	for _, run := range stored {
-		latest[run.Job] = RunFromStore(state, run)
+		mapped, err := inspectAndMapRun(state, run)
+		if err != nil {
+			return Inspection{}, err
+		}
+		latest[run.Job] = mapped
 	}
 	for i := range view.Jobs {
 		if run, ok := latest[view.Jobs[i].Name]; ok {
@@ -279,7 +302,7 @@ func RunByID(stateDir string, id int64) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	return RunFromStore(state, stored), nil
+	return inspectAndMapRun(state, stored)
 }
 
 // ReadRunLog retrieves a run and its exact stored bytes without modifying state.
@@ -293,8 +316,12 @@ func ReadRunLog(stateDir string, id int64) (Run, []byte, error) {
 	if err != nil {
 		return Run{}, nil, err
 	}
+	mapped, err := inspectAndMapRun(state, stored)
+	if err != nil {
+		return Run{}, nil, err
+	}
 	data, err := state.ReadRunLog(stored)
-	return RunFromStore(state, stored), data, err
+	return mapped, data, err
 }
 
 // GetRun optionally waits for a terminal status and returns one bounded log selection.
@@ -364,6 +391,17 @@ func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds int, que
 	if err := ctx.Err(); err != nil {
 		return RunDetail{}, err
 	}
+	run, orphaned, err = inspectStoredRun(state, id)
+	if err != nil {
+		if IsMissingRun(err) || NoDatabase(err) {
+			return RunDetail{}, RunNotFoundError(id)
+		}
+		return RunDetail{}, StateError(err)
+	}
+	logInfo := view.Log
+	view = mapRunFromStore(state, run)
+	view.Log = logInfo
+	view.Orphaned = orphaned
 	return RunDetail{
 		SchemaVersion: 1, Run: view, Orphaned: orphaned, Log: ValidLogText(selection.Bytes), Next: selection.Next,
 		Size: selection.Size, Truncated: selection.Truncated, MatchedLines: selection.MatchedLines,
@@ -489,6 +527,20 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 			}
 		}
 	}
+}
+
+// inspectAndMapRun adds the read-only owner check to a stored run.
+func inspectAndMapRun(state *store.Store, run store.Run) (Run, error) {
+	current, orphaned, err := inspectStoredRun(state, run.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return mapRunFromStore(state, run), nil
+	}
+	if err != nil {
+		return Run{}, err
+	}
+	mapped := mapRunFromStore(state, current)
+	mapped.Orphaned = orphaned
+	return mapped, nil
 }
 
 // inspectStoredRun checks the same owner identity as recovery, but never writes.
