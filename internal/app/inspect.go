@@ -19,29 +19,32 @@ type Project struct {
 
 // Job exposes environment names, never their values.
 type Job struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Schedule    *string    `json:"schedule"`
-	NextAt      *time.Time `json:"next_at"`
-	Run         any        `json:"run"`
-	Prompt      *string    `json:"prompt"`
-	PromptFile  *string    `json:"prompt_file"`
-	Agent       string     `json:"agent,omitempty"`
-	CWD         string     `json:"cwd"`
-	EnvKeys     []string   `json:"env_keys"`
-	Timeout     string     `json:"timeout"`
-	Overlap     string     `json:"overlap"`
-	Missed      string     `json:"missed"`
-	Enabled     bool       `json:"enabled"`
-	Paused      bool       `json:"paused"`
-	LastRun     *Run       `json:"last_run"`
-	Source      string     `json:"source"`
-	Shared      bool       `json:"shared"`
-	Overrides   bool       `json:"overrides"`
-	Digest      string     `json:"digest"`
-	Approval    string     `json:"approval"`
-	WebhookPath string     `json:"webhook_path,omitempty"`
-	HasWebhook  bool       `json:"-"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	Schedule          *string    `json:"schedule"`
+	NextAt            *time.Time `json:"next_at"`
+	Run               any        `json:"run"`
+	Prompt            *string    `json:"prompt"`
+	PromptFile        *string    `json:"prompt_file"`
+	Agent             string     `json:"agent,omitempty"`
+	CWD               string     `json:"cwd"`
+	EnvKeys           []string   `json:"env_keys"`
+	Timeout           string     `json:"timeout"`
+	Overlap           string     `json:"overlap"`
+	Missed            string     `json:"missed"`
+	Enabled           bool       `json:"enabled"`
+	OS                []string   `json:"os,omitempty"`
+	Arch              []string   `json:"arch,omitempty"`
+	PlatformSupported bool       `json:"platform_supported"`
+	Paused            bool       `json:"paused"`
+	LastRun           *Run       `json:"last_run"`
+	Source            string     `json:"source"`
+	Shared            bool       `json:"shared"`
+	Overrides         bool       `json:"overrides"`
+	Digest            string     `json:"digest"`
+	Approval          string     `json:"approval"`
+	WebhookPath       string     `json:"webhook_path,omitempty"`
+	HasWebhook        bool       `json:"-"`
 }
 
 type Inspection struct {
@@ -70,7 +73,7 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 	slices.Sort(names)
 	for _, name := range names {
 		job := cfg.Jobs[name]
-		view := Job{Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, Agent: job.Agent, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
+		view := Job{Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, Agent: job.Agent, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, OS: job.OS, Arch: job.Arch, PlatformSupported: job.MatchesPlatform(cfg.Platform), Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
 		view.Approval = "not_required"
 		if job.Shared {
 			view.Approval = "needs_approval"
@@ -82,7 +85,7 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 		if job.Schedule != nil {
 			text := job.Schedule.String()
 			view.Schedule = &text
-			if job.Enabled {
+			if job.Enabled && view.PlatformSupported {
 				next := job.Schedule.Next(now, loc).In(loc)
 				if !next.IsZero() {
 					view.NextAt = &next

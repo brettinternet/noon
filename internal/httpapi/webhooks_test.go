@@ -47,16 +47,18 @@ func TestWebhooks(t *testing.T) {
 	largeJob := config.Job{Name: "large", Run: []string{"true"}, Enabled: true, Digest: "sha256:large", Webhook: &config.Webhook{SecretEnv: "NOON_TEST_SECRET"}}
 	cooldownJob := config.Job{Name: "cooldown", Run: []string{"true"}, Enabled: true, Digest: "sha256:cooldown", Cooldown: time.Minute, Webhook: &config.Webhook{SecretEnv: "NOON_TEST_SECRET"}}
 	missingSecretJob := config.Job{Name: "no-secret", Run: []string{"true"}, Enabled: true, Digest: "sha256:no-secret", Webhook: &config.Webhook{SecretEnv: "MISSING_SECRET"}}
+	unsupported := config.Job{Name: "unsupported", Run: []string{"true"}, Enabled: true, OS: []string{"darwin"}, Digest: "sha256:unsupported", Webhook: &config.Webhook{SecretEnv: "NOON_TEST_SECRET"}}
 	project := WebhookProject{
-		ID: projectID, Config: config.Config{Project: root, StateDir: stateDir, Jobs: map[string]config.Job{"hooks": definition, "each": eachDefinition, "plain": plain, "text": textJob, "large": largeJob, "cooldown": cooldownJob, "no-secret": missingSecretJob}},
+		ID: projectID, Config: config.Config{Project: root, StateDir: stateDir, Platform: config.Platform{OS: "linux", Arch: "amd64"}, Jobs: map[string]config.Job{"hooks": definition, "each": eachDefinition, "plain": plain, "text": textJob, "large": largeJob, "cooldown": cooldownJob, "no-secret": missingSecretJob, "unsupported": unsupported}},
 		Enabled: true, Jobs: map[string]WebhookJob{
-			"hooks":     {Definition: definition, Secret: secret, Approved: true},
-			"each":      {Definition: eachDefinition, Secret: secret, Approved: true},
-			"plain":     {Definition: plain, Approved: true},
-			"text":      {Definition: textJob, Secret: secret, Approved: true},
-			"large":     {Definition: largeJob, Secret: secret, Approved: true},
-			"cooldown":  {Definition: cooldownJob, Secret: secret, Approved: true},
-			"no-secret": {Definition: missingSecretJob, Approved: true},
+			"hooks":       {Definition: definition, Secret: secret, Approved: true},
+			"each":        {Definition: eachDefinition, Secret: secret, Approved: true},
+			"plain":       {Definition: plain, Approved: true},
+			"text":        {Definition: textJob, Secret: secret, Approved: true},
+			"large":       {Definition: largeJob, Secret: secret, Approved: true},
+			"cooldown":    {Definition: cooldownJob, Secret: secret, Approved: true},
+			"no-secret":   {Definition: missingSecretJob, Approved: true},
+			"unsupported": {Definition: unsupported, Secret: secret, Approved: true},
 		},
 	}
 	handler := NewHandler([]WebhookProject{project})
@@ -119,6 +121,17 @@ func TestWebhooks(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(oversized))))
 	if response.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized body status = %d, want 413", response.Code)
+	}
+	unsupportedPath := fmt.Sprintf("/hooks/%d/unsupported", projectID)
+	unsupportedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(unsupportedResponse, signedRequest(http.MethodPost, unsupportedPath, body, secret, "X-Hub-Signature-256"))
+	var unsupportedResult map[string]string
+	if err := json.Unmarshal(unsupportedResponse.Body.Bytes(), &unsupportedResult); err != nil || unsupportedResponse.Code != http.StatusConflict || unsupportedResult["code"] != "unsupported_platform" {
+		t.Fatalf("unsupported platform webhook: status=%d body=%s err=%v", unsupportedResponse.Code, unsupportedResponse.Body, err)
+	}
+	unsupportedRuns, err := state.RunsForJob(projectID, "unsupported")
+	if err != nil || len(unsupportedRuns) != 0 {
+		t.Fatalf("unsupported webhook queued a run: runs=%+v err=%v", unsupportedRuns, err)
 	}
 	unauthorizedRuns, err := state.RunsForJob(projectID, "hooks")
 	if err != nil || len(unauthorizedRuns) != 0 {

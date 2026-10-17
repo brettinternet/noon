@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,15 @@ type BuildOpts struct {
 	BuildTime string `json:"build_time"`
 }
 
+// Platform is the binary's operating system and architecture.
+type Platform struct {
+	OS   string
+	Arch string
+}
+
+// CurrentPlatform is the only place that reads the runtime platform.
+func CurrentPlatform() Platform { return Platform{OS: runtime.GOOS, Arch: runtime.GOARCH} }
+
 // Input contains invocation context and already-resolved flag/environment values.
 // Nil means absent; an explicitly empty value is an error. Paths are not expanded
 // through a shell. UserConfigDir is the directory containing the noon directory.
@@ -34,6 +44,7 @@ type Input struct {
 	Timezone        *string
 	StateDir        *string
 	StateDirDefault string
+	Platform        *Platform
 }
 
 // Config is a read-only snapshot. Sources are ordered from lowest to highest priority.
@@ -46,6 +57,7 @@ type Config struct {
 	Jobs         map[string]Job          `json:"-"`
 	Agents       map[string]AgentProfile `json:"-"`
 	DefaultAgent string                  `json:"default_agent"`
+	Platform     Platform                `json:"-"`
 	OnSuccess    any                     `json:"-"`
 	OnFailure    any                     `json:"-"`
 }
@@ -97,7 +109,11 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 		}
 		stateDefault = filepath.Join(stateHome, "noon")
 	}
-	cfg := Config{Project: project, Timezone: "Local", StateDir: stateDefault, Sources: []string{}, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
+	platform := CurrentPlatform()
+	if input.Platform != nil {
+		platform = *input.Platform
+	}
+	cfg := Config{Project: project, Timezone: "Local", StateDir: stateDefault, Sources: []string{}, Jobs: make(map[string]Job), Agents: BuiltInAgents(), Platform: platform}
 	userFile := filepath.Join(input.UserConfigDir, "noon", "config.yaml")
 	if userProject {
 		userFile = filepath.Join(project, "config.yaml")

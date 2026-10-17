@@ -454,6 +454,8 @@ func (m *Model) jobCells(job app.Job, now time.Time) [][]span {
 func (m *Model) nextCell(job app.Job, now time.Time) []span {
 	t := m.theme
 	switch {
+	case !job.PlatformSupported:
+		return []span{{"other platform", t.warning}}
 	case !job.Enabled:
 		return []span{{"disabled", t.faint}}
 	case job.Paused:

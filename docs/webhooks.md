@@ -72,7 +72,7 @@ curl --fail-with-body -i \
 | 202 | Queued: `{"run_id":7,"created":true}` |
 | 200 | Matched an existing run (redelivery, cooldown, or an already-due request in merge mode) |
 | 401 | Missing or wrong signature |
-| 409 | Project or job disabled, job paused, or job needs approval |
+| 409 | Project or job disabled, job paused, job needs approval, or the job's platform constraints don't match (code `unsupported_platform`) |
 | 413 | Body over 1 MiB |
 | 429 | `{"error":"job queue is full"}` for a due-now request at the `requests: each` cap |
 

@@ -71,7 +71,9 @@ func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide
 		if job.Schedule != nil {
 			scheduled = *job.Schedule
 		}
-		if job.Paused {
+		if !job.PlatformSupported {
+			next = "other platform"
+		} else if job.Paused {
 			next = "paused"
 		} else if job.Approval == "needs_approval" {
 			next = "needs approval"

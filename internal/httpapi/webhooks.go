@@ -119,6 +119,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if !job.Definition.MatchesPlatform(project.Config.Platform) {
+		failure := app.UnsupportedPlatformError(job.Definition, project.Config.Platform)
+		writeJSON(w, http.StatusConflict, map[string]string{"code": failure.Code, "error": failure.Message, "hint": failure.Hint})
+		return
+	}
 	if reason := inactiveReason(project, job); reason != "" {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": reason})
 		return

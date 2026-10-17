@@ -83,6 +83,10 @@ digests are in [Configuration](configuration.md).
   never punctuation.
 - A private `.git/noon.yaml` job replaces the shared job wholesale. `{enabled: false}` alone toggles it off.
   There is no field-level merge.
+- Optional `os` and `arch` lists constrain execution to supported Go platforms (`darwin`/`linux`,
+  `amd64`/`arm64`). Both fields participate in approval digests. A nonmatching job stays visible but
+  is inert: it has no schedule or dispatch eligibility, and foreground and queued requests fail
+  with `unsupported_platform`.
 - The user project is the canonical `$XDG_CONFIG_HOME/noon` directory (else `~/.config/noon`). Its jobs come only from
   its `config.yaml`; repository manifests, local Git config, and files above it are never loaded. `--user` and `-C` to
   that directory select the same project. Normal repository loads validate user config but never include its jobs.
@@ -217,7 +221,7 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   a branch can't add or replace `.git/noon.yaml`. A filename in the tree is never private: a commit
   can add `.noon.yaml` despite ignore rules, so Noon never loads it.
 - The digest covers what runs and when (schedule, action, agent, cwd, env, timeout, overlap, missed,
-  cooldown, hooks, webhook, and `requests` when explicitly set), not the description, and not
+  cooldown, hooks, webhook, `os`, `arch`, and `requests` when explicitly set), not the description, and not
   referenced file contents. Omitting `requests` preserves existing job digests.
 - `noon add` enables the project when the new job has a schedule or queued run, and approves only
   that job. Foreground `noon run NAME` is explicit and needs no approval; anything the scheduler

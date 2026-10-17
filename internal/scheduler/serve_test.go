@@ -27,6 +27,7 @@ type serveFixture struct {
 	root, project, stateDir, userConfig string
 	stateDirDefault                     string
 	listenAddr                          string
+	platform                            *config.Platform
 	environment                         []string
 	logger                              io.Writer
 	clock                               atomic.Int64
@@ -219,6 +220,72 @@ func TestServeLifecycleHooks(t *testing.T) {
 	stored := fixture.runs(t)[0]
 	if stored.Status != "succeeded" || stored.HookStatus.String != "ok" || !stored.HookExitCode.Valid || stored.HookExitCode.Int64 != 0 {
 		t.Fatalf("scheduled hook result: %+v", stored)
+	}
+}
+
+func TestServePlatformEligibility(t *testing.T) {
+	mismatchMarker := filepath.Join(t.TempDir(), "unsupported-ran")
+	matchMarker := filepath.Join(t.TempDir(), "supported-ran")
+	manifest := fmt.Sprintf("jobs:\n  elsewhere:\n    os: [darwin]\n    schedule: every 1m\n    run: [touch, %q]\n  here:\n    os: [linux]\n    arch: [amd64]\n    schedule: every 1m\n    run: [touch, %q]\n", mismatchMarker, matchMarker)
+	fixture := newServeFixture(t, manifest)
+	defer fixture.stop(t)
+	fixture.stop(t)
+	fixture.platform = &config.Platform{OS: "linux", Arch: "amd64"}
+	fixture.start(t)
+
+	fixture.step(t, serveTestStart)
+	states := fixture.states(t)
+	if len(states) != 1 || states[0].Job != "here" {
+		t.Fatalf("platform-ineligible job got schedule state: %+v", states)
+	}
+
+	state, err := store.Open(fixture.stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := state.QueueRun(store.QueueRunInput{
+		ProjectID: fixture.projectID(t), Job: "elsewhere", Digest: "test", RequestedBy: "test",
+		DueAt: serveTestStart, Now: serveTestStart, JobExists: true, JobEnabled: true,
+	})
+	_ = state.Close()
+	if err != nil || !queued.Created {
+		t.Fatalf("seed previously queued nonmatching run: %+v err=%v", queued, err)
+	}
+
+	fixture.step(t, serveTestStart.Add(5*time.Minute))
+	waitFor(t, func() bool {
+		for _, run := range fixture.runs(t) {
+			if run.Job == "here" && run.Status == "succeeded" {
+				return true
+			}
+		}
+		return false
+	})
+	fixture.stop(t)
+
+	if _, err := os.Stat(mismatchMarker); !os.IsNotExist(err) {
+		t.Fatalf("platform-ineligible job ran: %v", err)
+	}
+	if _, err := os.Stat(matchMarker); err != nil {
+		t.Fatalf("matching job did not run: %v", err)
+	}
+	runs := fixture.runs(t)
+	if len(runs) != 2 {
+		t.Fatalf("runs = %+v; want one cancelled queued run and one catch-up", runs)
+	}
+	statuses := map[string]store.Run{}
+	for _, run := range runs {
+		statuses[run.Job] = run
+	}
+	if statuses["elsewhere"].Status != "cancelled" {
+		t.Fatalf("queued nonmatching job was not cancelled: %+v", statuses["elsewhere"])
+	}
+	if statuses["here"].Status != "succeeded" || statuses["here"].Trigger != "catch_up" {
+		t.Fatalf("matching job failed to catch up normally: %+v", statuses["here"])
+	}
+	states = fixture.states(t)
+	if len(states) != 1 || states[0].Job != "here" {
+		t.Fatalf("post-dispatch schedule state = %+v", states)
 	}
 }
 
@@ -479,7 +546,7 @@ func (f *serveFixture) start(t *testing.T) {
 	go func() {
 		f.done <- Serve(ctx, ServeOptions{
 			StateDir: f.stateDir, StateDirDefault: stateDirDefault, UserConfigDir: f.userConfig, Version: "test",
-			Environment: environment, ListenAddr: f.listenAddr,
+			Environment: environment, ListenAddr: f.listenAddr, Platform: f.platform,
 			Now: func() time.Time { return time.Unix(0, f.clock.Load()).UTC() }, Ticks: f.ticks,
 			KillGrace: 20 * time.Millisecond, Logger: logger, IgnoreSignals: true, OnTick: func() { f.ack <- struct{}{} },
 		})

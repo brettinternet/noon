@@ -127,6 +127,9 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	if !ok {
 		return app.MissingJobError(name, "run", cfg.Jobs)
 	}
+	if !job.MatchesPlatform(cfg.Platform) {
+		return app.UnsupportedPlatformError(job, cfg.Platform)
+	}
 	if !job.Enabled {
 		return &Error{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
 	}

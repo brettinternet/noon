@@ -168,9 +168,13 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `requests` | `merge` | `merge` due-now requests or queue `each` as a separate run ([Triggers](triggers.md)) |
 | `missed` | `run_once` | `run_once` or `skip`: what to do after sleep or downtime |
 | `enabled` | `true` | `false` disables the job |
+| `os` | — | Non-empty list from `darwin`, `linux` |
+| `arch` | — | Non-empty list from `amd64`, `arm64` |
 | `cooldown` | — | Minimum gap between queued requests; incompatible with `requests: each` ([Triggers](triggers.md)) |
 | `on_success`, `on_failure` | user default | Hook command; `[]` disables the default ([Hooks](hooks.md)) |
 | `webhook` | — | `{secret_env: NAME}` ([Webhooks](webhooks.md)) |
+
+A job's optional `os` and `arch` lists must be non-empty, duplicate-free, and use the exact supported Go `GOOS`/`GOARCH` values shown above. Aliases such as `macos`, `x86_64`, and `aarch64` are rejected with a suggestion. Every declared field must match the running binary; an omitted field matches any value. A nonmatching job stays visible as `other platform`, but isn't scheduled, caught up, dispatched, or runnable by `noon run` or any queueing interface. `list --json` includes the declared lists and `platform_supported`; `doctor` skips command and working-directory checks for nonmatching jobs.
 
 Unknown fields, duplicate keys, nulls, aliases, wrong types, multiple documents, and files over
 1 MiB fail with the file, line, and YAML path:
@@ -269,7 +273,7 @@ the one `noon enable` approved. Private jobs need no approval. A local `enabled:
 the shared job's approval requirement.
 
 The digest is a SHA-256 of the job's execution fields: schedule, action, agent name, cwd, env,
-timeout, overlap, missed, cooldown, hooks, and webhook. `requests` joins the digest only when
+timeout, overlap, missed, cooldown, hooks, webhook, and platform constraints (`os` and `arch`). `requests` joins the digest only when
 explicitly present, so jobs that omit it keep their existing digest and approval. Changing the
 description doesn't require re-approval. Agent profile commands and user-config hook defaults are
 yours and excluded. **The digest doesn't cover the contents of referenced scripts or prompt files.**

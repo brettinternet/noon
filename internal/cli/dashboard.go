@@ -51,6 +51,8 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 			schedule = *job.Schedule
 		}
 		switch {
+		case !job.PlatformSupported:
+			next = "other platform"
 		case job.Paused:
 			next = "paused"
 		case !job.Enabled:

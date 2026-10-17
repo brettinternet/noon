@@ -48,6 +48,8 @@ type Job struct {
 	Overlap      string
 	Missed       string
 	Enabled      bool
+	OS           []string
+	Arch         []string
 	Source       string
 	Shared       bool
 	Overrides    bool
@@ -57,6 +59,8 @@ type Job struct {
 
 var jobName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var supportedOS = []string{"darwin", "linux"}
+var supportedArch = []string{"amd64", "arm64"}
 
 func jobError(file string, node *yaml.Node, path, message string) error {
 	// YAML keys and source filenames are untrusted terminal input. Escape
@@ -91,6 +95,63 @@ func jobString(file, path string, node *yaml.Node) (string, error) {
 		return "", jobError(file, node, path, "must be a string (quote numbers)")
 	}
 	return node.Value, nil
+}
+
+func (job Job) MatchesPlatform(platform Platform) bool {
+	return (len(job.OS) == 0 || slices.Contains(job.OS, platform.OS)) &&
+		(len(job.Arch) == 0 || slices.Contains(job.Arch, platform.Arch))
+}
+
+func (job Job) PlatformHint(current Platform) string {
+	var allowed []string
+	if len(job.OS) > 0 {
+		allowed = append(allowed, "OS: "+strings.Join(job.OS, ", "))
+	}
+	if len(job.Arch) > 0 {
+		allowed = append(allowed, "architecture: "+strings.Join(job.Arch, ", "))
+	}
+	return fmt.Sprintf("Allowed %s; current platform: %s/%s.", strings.Join(allowed, "; allowed "), current.OS, current.Arch)
+}
+
+func parsePlatformList(file, path string, node *yaml.Node, supported []string) ([]string, error) {
+	if node.Kind != yaml.SequenceNode || node.Tag != "!!seq" || len(node.Content) == 0 {
+		return nil, jobError(file, node, path, "must be a non-empty list of strings")
+	}
+	values := make([]string, 0, len(node.Content))
+	seen := make(map[string]bool, len(node.Content))
+	for _, item := range node.Content {
+		value, err := jobString(file, path, item)
+		if err != nil {
+			return nil, err
+		}
+		if seen[value] {
+			return nil, jobError(file, item, path, "must not contain duplicates")
+		}
+		seen[value] = true
+		if !slices.Contains(supported, value) {
+			detail := "must be one of " + strings.Join(supported, ", ")
+			if suggestion := platformAlias(value); suggestion != "" {
+				detail = fmt.Sprintf("unsupported value %q; use %s", value, suggestion)
+			}
+			return nil, jobError(file, item, path, detail)
+		}
+		values = append(values, value)
+	}
+	slices.Sort(values)
+	return values, nil
+}
+
+func platformAlias(value string) string {
+	switch strings.ToLower(value) {
+	case "macos":
+		return "darwin"
+	case "x86_64", "x64":
+		return "amd64"
+	case "aarch64":
+		return "arm64"
+	default:
+		return ""
+	}
 }
 
 func hasCommand(command any) bool {
@@ -372,6 +433,21 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 			}
 			job.Webhook = webhook
 			execution[key] = map[string]string{"secret_env": webhook.SecretEnv}
+		case "os", "arch":
+			supported := supportedOS
+			if key == "arch" {
+				supported = supportedArch
+			}
+			platforms, err := parsePlatformList(file, field, value, supported)
+			if err != nil {
+				return Job{}, err
+			}
+			if key == "os" {
+				job.OS = platforms
+			} else {
+				job.Arch = platforms
+			}
+			execution[key] = platforms
 		case "requests":
 			text, err := jobString(file, field, value)
 			if err != nil {

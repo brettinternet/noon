@@ -48,6 +48,75 @@ func TestRunColorPreservesChildOutput(t *testing.T) {
 	}
 }
 
+func TestRunRejectsUnsupportedPlatform(t *testing.T) {
+	root := sandbox(t)
+	platform := config.CurrentPlatform()
+	otherOS := "darwin"
+	if platform.OS == "darwin" {
+		otherOS = "linux"
+	}
+	manifest := fmt.Sprintf("jobs:\n  here:\n    os: [%s]\n    arch: [%s]\n    run: [\"true\"]\n  elsewhere:\n    os: [%s]\n    schedule: every 1h\n    run: [noon-missing-command]\n", platform.OS, platform.Arch, otherOS)
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, listed := invoke(t, "list", "--json")
+	if code != 0 {
+		t.Fatalf("list: %d %+v", code, listed)
+	}
+	jobs := listed["jobs"].([]any)
+	platformSupport := map[string]bool{}
+	for _, raw := range jobs {
+		job := raw.(map[string]any)
+		platformSupport[job["name"].(string)] = job["platform_supported"].(bool)
+		if job["name"] == "elsewhere" && job["os"].([]any)[0] != otherOS {
+			t.Fatalf("nonmatching job OS not exposed: %+v", job)
+		}
+	}
+	if !platformSupport["here"] || platformSupport["elsewhere"] {
+		t.Fatalf("platform support = %+v", platformSupport)
+	}
+
+	var out, stderr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "list"}, config.BuildOpts{Version: "test"}, &out, &stderr); code != 0 || !strings.Contains(out.String(), "other platform") {
+		t.Fatalf("human list did not identify nonmatching job: exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	out.Reset()
+	stderr.Reset()
+	if code := cli.Run(context.Background(), []string{"noon", "status"}, config.BuildOpts{Version: "test"}, &out, &stderr); code != 0 || !strings.Contains(out.String(), "other platform") {
+		t.Fatalf("dashboard did not identify nonmatching job: exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	var runOut, runErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "run", "here"}, config.BuildOpts{Version: "test"}, &runOut, &runErr); code != 0 {
+		t.Fatalf("matching run: code=%d stdout=%q stderr=%q", code, runOut.String(), runErr.String())
+	}
+	for _, args := range [][]string{{"run", "elsewhere", "--json"}, {"run", "elsewhere", "--detach", "--json"}} {
+		code, result := invoke(t, args...)
+		failure, ok := result["error"].(map[string]any)
+		if code != 1 || !ok || failure["code"] != "unsupported_platform" || !strings.Contains(failure["hint"].(string), platform.OS+"/"+platform.Arch) {
+			t.Fatalf("unsupported run %v: code=%d result=%+v", args, code, result)
+		}
+	}
+	code, history := invoke(t, "history", "--json")
+	if code != 0 {
+		t.Fatalf("history: %d %+v", code, history)
+	}
+	runs := history["runs"].([]any)
+	if len(runs) != 1 || runs[0].(map[string]any)["job"] != "here" {
+		t.Fatalf("unsupported run entered history: %+v", runs)
+	}
+	code, doctor := invoke(t, "doctor", "--json")
+	if code != 0 {
+		t.Fatalf("doctor: %d %+v", code, doctor)
+	}
+	for _, raw := range doctor["checks"].([]any) {
+		check := raw.(map[string]any)
+		if strings.Contains(check["message"].(string), "noon-missing-command") {
+			t.Fatalf("doctor reported an ineligible command: %+v", check)
+		}
+	}
+}
+
 func TestPromptJobs(t *testing.T) {
 	root := sandbox(t)
 	binDir := filepath.Join(root, "bin")

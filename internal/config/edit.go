@@ -289,6 +289,12 @@ func jobFields(job Job) map[string]any {
 		if job.Missed != "" && job.Missed != "run_once" {
 			fields["missed"] = job.Missed
 		}
+		if len(job.OS) > 0 {
+			fields["os"] = job.OS
+		}
+		if len(job.Arch) > 0 {
+			fields["arch"] = job.Arch
+		}
 	}
 	if !job.Enabled {
 		fields["enabled"] = false

@@ -65,7 +65,7 @@ returns `202` for a new run and `200` when it returns an existing run. The reque
 | 401 | Missing or invalid bearer token |
 | 404 | Unknown route, project, or run; disabled projects and their runs are also hidden |
 | 405 | Wrong method; `Allow` names the supported method |
-| 409 | Project/job disabled, paused, needs approval, or recursion refused |
+| 409 | Project/job disabled, paused, needs approval, unsupported platform, or recursion refused |
 | 413 | Request body exceeds 512 KiB |
 | 429 | Per-job queue is full |
 | 500 | Other operational error |
@@ -159,6 +159,10 @@ Bare `import` lists importers; bare `config` shows effective configuration.
 | 1 | Operational error |
 | 2 | Usage error |
 | 75 | `noon serve`: the database is newer than this binary |
+
+A job whose `os` or `arch` constraints don't match this binary fails in foreground or queue mode
+with exit 1 and error code `unsupported_platform`; the hint names the allowed values and current
+platform. See [job platform constraints](configuration.md#jobs).
 
 `noon run NAME` exits with the job's own code instead:
 

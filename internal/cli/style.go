@@ -44,7 +44,7 @@ func (s humanStyle) render(text, role string) string {
 		code = "1"
 	case "failed", "timed_out", "fail", "config_error":
 		code = "31"
-	case "warn", "needs approval", "paused", "disabled", "cancelled", "offline":
+	case "warn", "needs approval", "paused", "disabled", "cancelled", "offline", "other platform":
 		code = "33"
 	case "running":
 		code = "36"

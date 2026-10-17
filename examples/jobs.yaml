@@ -16,6 +16,8 @@ jobs:
     requests: merge
     missed: run_once
     enabled: true
+    os: [linux, darwin]
+    arch: [amd64, arm64]
   report:
     description: Manual report using a shell string
     run: "git log -5 --oneline"

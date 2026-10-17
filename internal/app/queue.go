@@ -23,6 +23,14 @@ type QueueError struct {
 
 func (e *QueueError) Error() string { return e.Message }
 
+func UnsupportedPlatformError(job config.Job, platform config.Platform) *Error {
+	return &Error{
+		Code:    "unsupported_platform",
+		Message: fmt.Sprintf("job %q does not support the current platform", job.Name),
+		Hint:    job.PlatformHint(platform),
+	}
+}
+
 type QueuedRun struct {
 	SchemaVersion int    `json:"schema_version"`
 	Run           Run    `json:"run"`
@@ -69,6 +77,11 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 			return QueuedRun{}, err
 		}
 	}
+	job, exists := cfg.Jobs[name]
+	if exists && !job.MatchesPlatform(cfg.Platform) {
+		failure := UnsupportedPlatformError(job, cfg.Platform)
+		return QueuedRun{}, &QueueError{Code: failure.Code, Message: failure.Message, Hint: failure.Hint}
+	}
 	state, err := store.Open(cfg.StateDir)
 	if err != nil {
 		return QueuedRun{}, err
@@ -78,7 +91,6 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 	if err != nil {
 		return QueuedRun{}, err
 	}
-	job, exists := cfg.Jobs[name]
 	result, err := state.QueueRun(store.QueueRunInput{
 		ProjectID: projectID, Job: name, Digest: job.Digest, IdempotencyKey: key,
 		RequestedBy: requestedBy, Trigger: options.Trigger, DueAt: dueAt, Now: now, NowFunc: nowFunc,

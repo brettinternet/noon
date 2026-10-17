@@ -131,6 +131,20 @@
           "default": "run_once"
         },
         "enabled": { "type": "boolean", "default": true },
+        "os": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["darwin", "linux"] },
+          "description": "Operating systems on which this job may run."
+        },
+        "arch": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["amd64", "arm64"] },
+          "description": "Architectures on which this job may run."
+        },
         "cooldown": {
           "$ref": "#/definitions/nonBlankString",
           "description": "Minimum gap between queued requests, at least 1s; validated by noon config check. Incompatible with requests: each."

@@ -40,6 +40,21 @@ func TestLoadJobs(t *testing.T) {
 				t.Fatalf("cooldown = %s, want 2m", got)
 			}
 		}},
+		{name: "platform constraints", shared: "jobs:\n  tests:\n    run: 'true'\n    os: [linux, darwin]\n    arch: [arm64, amd64]\n", check: func(t *testing.T, c config.Config) {
+			job := c.Jobs["tests"]
+			if !reflect.DeepEqual(job.OS, []string{"darwin", "linux"}) || !reflect.DeepEqual(job.Arch, []string{"amd64", "arm64"}) {
+				t.Fatalf("platform constraints: os=%v arch=%v", job.OS, job.Arch)
+			}
+		}},
+		{name: "macos alias rejected", shared: "jobs:\n  tests:\n    run: hi\n    os: [macos]\n", want: "noon.yaml:4: jobs.tests.os: unsupported value \"macos\"; use darwin"},
+		{name: "macOS alias rejected", shared: "jobs:\n  tests:\n    run: hi\n    os: [macOS]\n", want: "noon.yaml:4: jobs.tests.os: unsupported value \"macOS\"; use darwin"},
+		{name: "x86_64 alias rejected", shared: "jobs:\n  tests:\n    run: hi\n    arch: [x86_64]\n", want: "noon.yaml:4: jobs.tests.arch: unsupported value \"x86_64\"; use amd64"},
+		{name: "x64 alias rejected", shared: "jobs:\n  tests:\n    run: hi\n    arch: [x64]\n", want: "noon.yaml:4: jobs.tests.arch: unsupported value \"x64\"; use amd64"},
+		{name: "aarch64 alias rejected", shared: "jobs:\n  tests:\n    run: hi\n    arch: [aarch64]\n", want: "noon.yaml:4: jobs.tests.arch: unsupported value \"aarch64\"; use arm64"},
+		{name: "empty os list", shared: "jobs:\n  tests:\n    run: hi\n    os: []\n", want: "noon.yaml:4: jobs.tests.os: must be a non-empty list of strings"},
+		{name: "duplicate os", shared: "jobs:\n  tests:\n    run: hi\n    os: [linux, linux]\n", want: "noon.yaml:4: jobs.tests.os: must not contain duplicates"},
+		{name: "platform scalar", shared: "jobs:\n  tests:\n    run: hi\n    os: darwin\n", want: "noon.yaml:4: jobs.tests.os: must be a non-empty list of strings"},
+		{name: "unsupported os", shared: "jobs:\n  tests:\n    run: hi\n    os: [windows]\n", want: "noon.yaml:4: jobs.tests.os: must be one of darwin, linux"},
 		{name: "requests merge", shared: "jobs: {tests: {run: 'true', requests: merge}}", check: func(t *testing.T, c config.Config) {
 			if got := c.Jobs["tests"].Requests; got != "merge" {
 				t.Fatalf("requests = %q, want merge", got)
@@ -229,16 +244,16 @@ func TestJobDigest(t *testing.T) {
 		}
 		return cfg.Jobs["tests"].Digest
 	}
-	base := "    run: echo hi\n    schedule: weekdays at 9am\n    env: {A: a, B: b}\n    cwd: subdir\n    timeout: 1h\n    cooldown: 5m\n"
+	base := "    run: echo hi\n    schedule: weekdays at 9am\n    env: {A: a, B: b}\n    cwd: subdir\n    timeout: 1h\n    cooldown: 5m\n    os: [linux]\n    arch: [amd64]\n"
 	digest := load(base, "{}")
 	if len(digest) != 71 || !strings.HasPrefix(digest, "sha256:") {
 		t.Fatal(digest)
 	}
-	equivalent := "    cooldown: 300s\n    timeout: 60m\n    cwd: subdir\n    env: {B: b, A: a}\n    schedule: WEEKDAYS AT 09:00\n    run: echo hi # comment\n    description: changed\n    enabled: false\n"
+	equivalent := "    cooldown: 300s\n    timeout: 60m\n    cwd: subdir\n    env: {B: b, A: a}\n    schedule: WEEKDAYS AT 09:00\n    os: [linux]\n    arch: [amd64]\n    run: echo hi # comment\n    description: changed\n    enabled: false\n"
 	if load(equivalent, "{}") != digest || load(base, "jobs: {tests: {enabled: false}}") != digest {
 		t.Fatal("cosmetic edits/toggle changed digest")
 	}
-	for _, change := range [][2]string{{"echo hi", "echo bye"}, {"9am", "10am"}, {"A: a", "A: changed"}, {"subdir", "other"}, {"1h", "2h"}, {"5m", "6m"}} {
+	for _, change := range [][2]string{{"echo hi", "echo bye"}, {"9am", "10am"}, {"A: a", "A: changed"}, {"subdir", "other"}, {"1h", "2h"}, {"5m", "6m"}, {"os: [linux]", "os: [darwin]"}, {"arch: [amd64]", "arch: [arm64]"}} {
 		if load(strings.Replace(base, change[0], change[1], 1), "{}") == digest {
 			t.Fatalf("%v did not change digest", change)
 		}
@@ -327,6 +342,16 @@ func TestJobDigest(t *testing.T) {
 		}
 		if loadPrompt(base) != initial {
 			t.Fatal("user-owned agent profile command changed the job digest")
+		}
+	})
+	t.Run("requested job digest preserves platform fields", func(t *testing.T) {
+		job := config.Job{Name: "tests", Run: "echo hi", OS: []string{"linux"}, Arch: []string{"amd64"}}
+		digest, err := config.DigestJobDefinition(job, config.BuiltInAgents(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := load("    run: echo hi\n    os: [linux]\n    arch: [amd64]\n", "{}"); digest != want {
+			t.Fatalf("requested platform digest = %s, want %s", digest, want)
 		}
 	})
 }

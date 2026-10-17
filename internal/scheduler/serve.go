@@ -40,6 +40,7 @@ type ServeOptions struct {
 	Logger          io.Writer
 	ListenAddr      string
 	APITokenFile    string
+	Platform        *config.Platform
 	IgnoreSignals   bool
 	OnTick          func()
 }
@@ -191,7 +192,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		webhookHandler = httpapi.NewHandler(projects)
 		var listenerHandler http.Handler = webhookHandler
 		if len(apiToken) > 0 {
-			apiInput := config.Input{CWD: options.StateDir, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, StateDir: &options.StateDir}
+			apiInput := config.Input{CWD: options.StateDir, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, StateDir: &options.StateDir, Platform: options.Platform}
 			apiHandler := httpapi.NewAPIHandler(apiInput, options.StateDir)
 			mcpHandler := protocol.NewStreamableHTTPHandler(
 				func(*http.Request) *protocol.Server { return noonmcp.NewHTTPServer(apiInput, options.Version) },
@@ -560,7 +561,7 @@ func reloadProject(state *store.Store, cached *projectConfig, options ServeOptio
 		cached.checkedAt = now
 		return nil
 	}
-	input := config.Input{CWD: cached.project.Path, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault}
+	input := config.Input{CWD: cached.project.Path, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, Platform: options.Platform}
 	project := cached.project.Path
 	input.Project = &project
 	if cached.project.ConfigFile.Valid {
@@ -654,7 +655,7 @@ func webhookProjects(state *store.Store, enabled []store.EnabledProject, configs
 				cached = &projectConfig{project: projectState, configSelection: configSelection(projectState), stamps: stamps}
 				inactive[record.ID] = cached
 				project := record.Path
-				input := config.Input{CWD: project, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, Project: &project}
+				input := config.Input{CWD: project, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, Project: &project, Platform: options.Platform}
 				if record.ConfigFile.Valid {
 					file := record.ConfigFile.String
 					input.File = &file
@@ -791,7 +792,7 @@ func makeJobInputs(snapshot store.SchedulerSnapshot, configs map[int64]*projectC
 			return nil, fmt.Errorf("load timezone %q for %q: %w", cached.config.Timezone, project.Path, err)
 		}
 		for name, job := range cached.config.Jobs {
-			active := job.Enabled && !project.Paused[name] && (!job.Shared || project.Approvals[name] == job.Digest)
+			active := job.Enabled && job.MatchesPlatform(cached.config.Platform) && !project.Paused[name] && (!job.Shared || project.Approvals[name] == job.Digest)
 			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap})
 		}
 	}

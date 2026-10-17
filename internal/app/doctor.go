@@ -123,8 +123,8 @@ func Doctor(ctx context.Context, input config.Input, now time.Time) DoctorView {
 		slices.Sort(names)
 		for _, name := range names {
 			job := cfg.Jobs[name]
-			// A disabled job cannot run, and a local tombstone has no action or cwd.
-			if !job.Enabled || job.Run == nil && job.Prompt == nil && job.PromptFile == nil {
+			// A disabled or non-matching job cannot run, and a local tombstone has no action or cwd.
+			if !job.Enabled || !job.MatchesPlatform(cfg.Platform) || job.Run == nil && job.Prompt == nil && job.PromptFile == nil {
 				continue
 			}
 			info, err := os.Stat(job.CWD)
