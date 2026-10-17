@@ -242,7 +242,8 @@ func TestServiceCommands(t *testing.T) {
 		out.Reset()
 		stderr.Reset()
 		code = cli.Run(context.Background(), []string{"noon", "--json", "--state-dir", "relative-state", "service", "install"}, config.BuildOpts{Version: "test"}, &out, &stderr)
-		if code != 1 || !strings.Contains(out.String(), `"code":"service_unsupported"`) || !strings.Contains(out.String(), "Run noon serve under your own supervisor") {
+		wantHint := "Run noon serve --state-dir " + stateDir + " under your own supervisor."
+		if code != 1 || !strings.Contains(out.String(), `"code":"service_unsupported"`) || !strings.Contains(out.String(), wantHint) {
 			t.Fatalf("unsupported manager: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
 		}
 		if _, err := os.Stat(unit.Path); !os.IsNotExist(err) {
