@@ -34,7 +34,6 @@ cat <<EOF
 class Noon < Formula
   desc "Local-first repository job scheduler"
   homepage "https://github.com/brettinternet/noon"
-  version "${version}"
   license "MIT"
 
   on_macos do

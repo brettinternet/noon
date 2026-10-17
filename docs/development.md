@@ -34,8 +34,8 @@ task cli:run -- --help                 # run from source
 
 Iterate with focused checks. Before each commit, stage only intended files and run
 `task check:staged`. Run `task ci` before pushing. Never push without being asked. GitHub Actions
-runs the gate on Linux and macOS, plus container smoke on Linux. Stable releases are not published
-yet; the explicit tagged-release workflow is described below.
+runs the gate on Linux and macOS, plus container smoke on Linux. The explicit tagged-release
+workflow is described below.
 
 ## Structure
 
@@ -149,6 +149,11 @@ checks version reporting and confirms that a bare invocation neither executes a 
 state, nor installs a per-user service. Run the same full isolated safety check against the installed
 Homebrew executable with `task release:smoke BINARY="$(brew --prefix brettinternet/tap/noon)/bin/noon" VERSION="$VERSION"`.
 Formula creation and tap publication remain separate from the Noon release workflow.
+
+Release CI installs both `latest` and the pinned version on all four native platforms using fresh
+mise cache/data/state directories. It sets `MISE_MINIMUM_RELEASE_AGE=0` only for this immediate
+post-publication check; normal installations retain the user's release-age policy. A newly published
+release may therefore require an explicit version until that policy's waiting period passes.
 
 ## Worktrees and backlog
 
