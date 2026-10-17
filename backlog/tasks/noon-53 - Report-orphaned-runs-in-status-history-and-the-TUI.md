@@ -1,9 +1,10 @@
 ---
 id: NOON-53
 title: 'Report orphaned runs in status, history, and the TUI'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-17 18:09'
+updated_date: '2026-10-17 21:35'
 labels:
   - cli
   - tui
@@ -63,18 +64,38 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose private .git/noon.yaml defines `sleeper` (`run: [sleep, "3147"]`): start `bin/noon run sleeper` in the background; while it runs, `bin/noon history --json` reports it `running` with `orphaned: false`. Send SIGKILL to that `bin/noon` process only and reap it with `wait`. Then `bin/noon status` shows `orphaned` in sleeper's LAST cell, a notice naming the run ID and `sleeper`, and `Next: noon cancel ID`; `bin/noon status --json` reports sleeper's `last_run.orphaned` true, a notice with code `orphaned`, and `next` `noon cancel ID`; `bin/noon list` LAST and `bin/noon history` STATUS show `orphaned`; bare `bin/noon cancel` lists the run as orphaned.
-- [ ] #2 In the same environment, after every command in AC #1, `bin/noon history --json` still reports the run `status: running` with `orphaned: true`, and `pgrep -f 'sleep 3147'` still finds the job process (inspection changed nothing). `bin/noon cancel ID` exits 0; then `bin/noon history --json` reports the run `cancelled` with `orphaned: false`, `pgrep -f 'sleep 3147'` finds nothing within 15 seconds, and `bin/noon status --json` has no `orphaned` notice.
-- [ ] #3 `task cli:test PKG=./internal/app -count=1` exits 0 and covers: a `running` run whose owner identity is stale maps to `orphaned: true` while the stored row stays `running`; a run owned by the live test process and a terminal run map to `orphaned: false`.
-- [ ] #4 `task cli:test PKG=./internal/cli -count=1`, `task cli:test PKG=./internal/tui -count=1`, and `task cli:test PKG=./internal/mcp -count=1` exit 0 and cover: the dashboard `orphaned` notice and `noon cancel ID` next step; the TUI job and run lists show `orphaned` for the seeded orphan; MCP `get_run` top-level `orphaned` and `run.orphaned` agree for an orphan.
-- [ ] #5 docs/design.md, docs/cli.md, and docs/agents.md describe the `orphaned` run field, the notice order, and the `Next:` order exactly as implemented. `task ci` exits 0.
+- [x] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose private .git/noon.yaml defines `sleeper` (`run: [sleep, "3147"]`): start `bin/noon run sleeper` in the background; while it runs, `bin/noon history --json` reports it `running` with `orphaned: false`. Send SIGKILL to that `bin/noon` process only and reap it with `wait`. Then `bin/noon status` shows `orphaned` in sleeper's LAST cell, a notice naming the run ID and `sleeper`, and `Next: noon cancel ID`; `bin/noon status --json` reports sleeper's `last_run.orphaned` true, a notice with code `orphaned`, and `next` `noon cancel ID`; `bin/noon list` LAST and `bin/noon history` STATUS show `orphaned`; bare `bin/noon cancel` lists the run as orphaned.
+- [x] #2 In the same environment, after every command in AC #1, `bin/noon history --json` still reports the run `status: running` with `orphaned: true`, and `pgrep -f 'sleep 3147'` still finds the job process (inspection changed nothing). `bin/noon cancel ID` exits 0; then `bin/noon history --json` reports the run `cancelled` with `orphaned: false`, `pgrep -f 'sleep 3147'` finds nothing within 15 seconds, and `bin/noon status --json` has no `orphaned` notice.
+- [x] #3 `task cli:test PKG=./internal/app -count=1` exits 0 and covers: a `running` run whose owner identity is stale maps to `orphaned: true` while the stored row stays `running`; a run owned by the live test process and a terminal run map to `orphaned: false`.
+- [x] #4 `task cli:test PKG=./internal/cli -count=1`, `task cli:test PKG=./internal/tui -count=1`, and `task cli:test PKG=./internal/mcp -count=1` exit 0 and cover: the dashboard `orphaned` notice and `noon cancel ID` next step; the TUI job and run lists show `orphaned` for the seeded orphan; MCP `get_run` top-level `orphaned` and `run.orphaned` agree for an orphan.
+- [x] #5 docs/design.md, docs/cli.md, and docs/agents.md describe the `orphaned` run field, the notice order, and the `Next:` order exactly as implemented. `task ci` exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Acceptance clarification approved by user on 2026-10-17: AC#1 allows preserved invocation selectors. With NOON_STATE_DIR set, noon cancel --state-dir PATH ID is correct; retain the existing docs/design.md safe copyable-guidance contract. All other requirements remain unchanged.
+AC#1: task cli:build and isolated live sleeper scenario in /tmp/noon53-acceptance.LXjN8m -> passed under approved selector clarification. Live owner mapped false; after SIGKILL/reap of owned noon PID 96714, status/list/history/bare cancel showed orphaned; JSON last_run.orphaned true, orphaned notice, cancel 1 guidance with state selector.
+AC#2: after each inspection, history --json remained running/orphaned and pgrep found sleep 3147. noon cancel 1 -> exit 0, cancelled/orphaned false, sleeper absent, no orphaned notice; owner process also absent.
+AC#3: task cli:test PKG=./internal/app -- -count=1 -> exit 0; stale owner, live owner, terminal run, unchanged stored state covered.
+AC#4: task cli:test PKG=./internal/cli -- -count=1; task cli:test PKG=./internal/tui -- -count=1; task cli:test PKG=./internal/mcp -- -count=1 -> all exit 0; required dashboard/TUI/MCP coverage passed.
+AC#5: docs/design.md, docs/cli.md, docs/agents.md updated; task ci -> exit 0 (security, format/vet/staticcheck, tests, race, smoke).
+Independent verifier completed the single acceptance/review pass. Its only reported failure was literal Next spelling, resolved by user-approved preservation of selectors; no source correction needed. gopls check clean. Diff stays within modified-file contract; no tests deleted, skipped, or weakened. Next: commit implementation, merge main, final-commit CI, completion and owned worktree cleanup.
+
+Delivery: implementation commit 842a1b204611dabaa6c9da381f7ab8e13725b5b6 fast-forward merged into main. task ci passed again on that final implementation commit in primary checkout. Owned worktree and branch noon-53-orphaned removed with Worktrunk after receipt verification; associated Herdr wG8 confirmed absent. No retained worktree, blocker, or next implementation step. Final task-record commit receives another task ci check before lease release.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Orphaned runs are now reported read-only across shared JSON, dashboard, CLI, TUI, and MCP with safe cancellation guidance. Critical regressions, isolated live acceptance and full CI passed. User approved selector-preserving guidance. Implementation merged locally as 842a1b2; owned worktree/branch/workspace cleaned up. No push.
+<!-- SECTION:FINAL_SUMMARY:END -->
