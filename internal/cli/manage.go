@@ -359,7 +359,7 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	}
 	job, ok := cfg.Jobs[args[0]]
 	if !ok {
-		return usageError("job not found", "")
+		return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", args[0]), Hint: "Run noon remove to list jobs"}
 	}
 	if cmd.Bool("shared") && cmd.Bool("local") {
 		return usageError("--shared and --local are mutually exclusive", "Choose the definition to remove")

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -389,15 +390,66 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 			return err
 		}
 	}
+	protection := ""
+	if cmd.Bool("local") {
+		protection = "Git ignore protection not applicable outside a Git checkout."
+		if gitWorkTree(project) {
+			if err := protectLocalConfig(project); err != nil {
+				return fmt.Errorf("cannot protect %s from Git: %w; check .gitignore and run noon init --local again", path, err)
+			}
+			protection = ".noon.yaml is ignored by Git."
+		}
+	}
 	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"path": path, "created": created})
+		result := map[string]any{"path": path, "created": created}
+		if protection != "" {
+			result["protection"] = protection
+		}
+		return emit(cmd, result)
 	}
 	if created {
 		fmt.Fprintf(cmd.Writer, "Created %s\n", path)
 	} else {
 		fmt.Fprintf(cmd.Writer, "Kept existing %s (not overwritten)\n", path)
 	}
-	fmt.Fprintln(cmd.Writer, guidance(cmd, "Ignore .noon.yaml in Git. Next: noon config check"))
+	if protection != "" {
+		fmt.Fprintln(cmd.Writer, protection)
+	}
+	fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon config check"))
+	return nil
+}
+
+func protectLocalConfig(project string) error {
+	if ignoredLocalConfig(project) {
+		return nil
+	}
+	if exec.Command("git", "-C", project, "ls-files", "--error-unmatch", "--", ".noon.yaml").Run() == nil {
+		return errors.New(".noon.yaml is already tracked; ignore rules cannot protect tracked files")
+	}
+	path := filepath.Join(project, ".gitignore")
+	mode := os.FileMode(0o644)
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s must be a regular file", path)
+		}
+		mode = info.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
+	data = append(data, []byte("/.noon.yaml\n")...)
+	if err := atomicWrite(path, data, mode); err != nil {
+		return err
+	}
+	if !ignoredLocalConfig(project) {
+		return errors.New(".noon.yaml is still not ignored; inspect Git exclude rules")
+	}
 	return nil
 }
 

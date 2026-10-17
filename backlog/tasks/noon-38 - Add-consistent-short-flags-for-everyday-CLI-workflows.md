@@ -4,10 +4,11 @@ title: Add consistent short flags for everyday CLI workflows
 status: Done
 assignee: []
 created_date: '2026-10-16 23:22'
-updated_date: '2026-10-17 00:23'
+updated_date: '2026-10-17 02:03'
 labels:
   - cli-ux
   - devex
+  - reviewed
 dependencies: []
 modified_files:
   - internal/cli/**
@@ -67,6 +68,8 @@ AC#3: task test and task smoke -> exit 0, repeated through task ci on final impl
 Validation: task check:staged passed before implementation commit; task ci passed on 97c8e32 (security, formatting, vet, Staticcheck, tests, race, smoke). LSP root.go clean. Optional task shell:smoke passed Bash and Zsh; Fish could not execute because installed mise package has no working fish binary (shim fails under isolated HOME); no shell scripts changed and public completion tests pass. No required acceptance check is blocked. Next: merge verified implementation into main, finalize task record, clean owned worktree, release claim.
 
 Delivery complete: implementation 97c8e323d7b5568f07639fc7aef41481f1f4b123 fast-forward merged into main after rebasing onto concurrent release work. Verified-owned feat/noon-short-flags worktree and branch removed with Worktrunk; its exact Herdr workspace wET disappeared. No task-owned checkout retained; unrelated release/TUI worktrees preserved. No blocker or resumable implementation step remains.
+
+Review: probed built binary (-j/-n/-s/-f/-d/-a/-p/-t, -s=/-n= forms, value flags consuming -j, -j before/after subcommands, alias subcommands); jsonRequested scoping and targeted tests pass. No defects found.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

@@ -4,10 +4,11 @@ title: Make help and usage errors command-specific and machine-safe
 status: Done
 assignee: []
 created_date: '2026-10-16 23:22'
-updated_date: '2026-10-17 01:23'
+updated_date: '2026-10-17 02:03'
 labels:
   - cli-ux
   - devex
+  - reviewed
 dependencies: []
 modified_files:
   - internal/cli/**
@@ -66,6 +67,8 @@ AC#1: task cli:build -> exit 0. Isolated built-binary import typo/config typo ->
 Delivery: f7ad4cc44b0a41c372358fa90d0e14a39c3199f3 committed after task check:staged and fast-forward merged into main. task ci passed on that final implementation commit (security, vet/staticcheck, full tests, race, smoke). Independent reviewer PASS after inherited-flag fix; no remaining validated findings. Owned worktree fix/noon-40-help and branch removed with Worktrunk; associated Herdr workspace closed by post-remove hook. No push performed, no blocker or next resumable implementation step. Backlog metadata updated only through CLI in primary checkout; existing unrelated worktrees preserved.
 
 Integrated main verification: task ci passed after one transient existing TestServeQueued/running_cancellation_kills_the_process_group EOF (PID file exists before its contents are written at internal/scheduler/queue_test.go:113). Focused TestServeQueued -count=3 and full CI rerun passed without any test changes. Completion metadata committed separately from implementation.
+
+Review: group typos (import/config/service/root), flag typo suggestions incl. inherited globals, shell --json, explicit help text, serve docs verified on built binary; singleTypo/nearbyHint logic checked. No defects found. Minor: urfave renders --stauts as -stauts in the message (library text, left as is).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

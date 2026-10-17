@@ -4,10 +4,11 @@ title: Make no-target guidance and mutation feedback consistently useful
 status: Done
 assignee: []
 created_date: '2026-10-16 23:22'
-updated_date: '2026-10-17 00:30'
+updated_date: '2026-10-17 02:03'
 labels:
   - cli-ux
   - devex
+  - reviewed
 dependencies: []
 modified_files:
   - internal/cli/**
@@ -69,6 +70,8 @@ AC#3: isolated acceptance script explicitly added/ran/removed retained; human re
 Delivery: implementation commit 7eaa80f merged fast-forward into main. task check:staged and task ci passed on that commit (security, vet, Staticcheck, full tests, race, smoke); affected Go LSP diagnostics clean. One proportional general diff review found no concrete remaining defects. Changes stay within contract plus this required backlog record. No tests deleted/skipped/weakened; existing shell expectation updated for the requested new behavior. CLI/shell docs updated; README and design already describe this safe no-target contract. No blockers or remaining implementation steps; finalize ledger commit and remove owned worktree, then release Worklease claim.
 
 Cleanup: verified creation receipt for this session/loop and Worktrunk listing; checked owned Herdr workspace wEW contained only its idle shell. wt remove fix/noon-39-guidance --foreground --format=json removed worktree and merged branch; post-remove hook closed wEW, verified absent. No owned checkout/workspace retained. Unrelated pre-existing worktrees left untouched.
+
+Review: empty/populated selectors, shell init guidance, remove confirmation verified on built binary. Fixed: remove of a missing job returned a nameless usage error (exit 2), unlike pause/resume/run's documented not_found (exit 1) with a candidate-list hint; now matches. task cli:test passes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

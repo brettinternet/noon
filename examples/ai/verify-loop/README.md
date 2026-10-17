@@ -38,7 +38,8 @@ cp examples/ai/verify-loop/scripts/verify-gate.sh scripts/ && chmod +x scripts/v
 
 The gate skips verification when the working tree is clean, runs `noon run verify` in the
 foreground (so the result is recorded in `noon history` like any run), and on failure exits 2 with
-the last 60 lines (at most 12,000 bytes) as feedback for Claude to fix the problem. The snippets are named so they do not activate
+the last 60 lines (at most 12,000 bytes) as feedback for Claude to fix the problem. Setup errors (missing `jq`, invalid `session_id`)
+exit 1, a non-blocking error, because no per-session counter could bound them. The snippets are named so they do not activate
 inside this repository; copy them to the paths shown.
 
 ## Verification (2026-10-16)

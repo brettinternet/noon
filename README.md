@@ -25,16 +25,7 @@ jobs:
 
 ## Install
 
-No release is published yet. Until the first stable release and tap formula are available, build
-from source with [mise](https://mise.jdx.dev):
-
-```sh
-mise trust && mise exec -- task init
-task cli:build        # writes bin/noon
-```
-
-Stable release archives are built for macOS and Linux on Intel/amd64 and arm64. When a release and
-its tap formula are published, install with Homebrew:
+Install on macOS or Linux (Intel/amd64 or arm64) with Homebrew:
 
 ```sh
 brew install brettinternet/tap/noon
@@ -45,9 +36,19 @@ Or use mise directly without custom asset matching:
 
 ```sh
 mise exec github:brettinternet/noon@latest -- noon --version
-mise exec github:brettinternet/noon@1.2.3 -- noon --version  # pinned version
+mise exec github:brettinternet/noon@0.1.0 -- noon --version  # pinned version
 # To add the latest version to your global mise config:
 mise use -g github:brettinternet/noon@latest
+```
+
+If mise's minimum-release-age policy hides a new release from `latest`, use the explicit version
+or wait until it becomes eligible. No custom asset matching is needed.
+
+To build from source with [mise](https://mise.jdx.dev):
+
+```sh
+mise trust && mise exec -- task init
+task cli:build        # writes bin/noon
 ```
 
 Installing a binary never installs or starts a scheduler service. Set up background scheduling

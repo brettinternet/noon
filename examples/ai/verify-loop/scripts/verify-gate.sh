@@ -1,12 +1,13 @@
 #!/bin/sh
 # Claude Code Stop hook: refuse to let the agent finish while `noon run verify` fails.
 # Exit 2 blocks the stop and feeds stderr back to the agent. After MAX_ATTEMPTS blocked stops in
-# one session, let it finish so an unfixable failure cannot loop forever.
+# one session, let it finish so an unfixable failure cannot loop forever. Setup errors exit 1
+# (non-blocking): without a session counter, blocking could never be bounded.
 set -u
 max=${MAX_ATTEMPTS:-3}
 command -v jq >/dev/null 2>&1 || {
   echo "verify-gate requires jq; install jq and ensure it is on the hook PATH." >&2
-  exit 2
+  exit 1
 }
 input=$(cat)
 
@@ -17,7 +18,7 @@ fi
 
 session=$(printf '%s' "$input" | jq -er '.session_id | select(type == "string" and test("^[A-Za-z0-9_-]+$"))') || {
   echo "verify-gate requires a valid session_id in the Stop payload." >&2
-  exit 2
+  exit 1
 }
 counter="${TMPDIR:-/tmp}/noon-verify-gate-$session"
 

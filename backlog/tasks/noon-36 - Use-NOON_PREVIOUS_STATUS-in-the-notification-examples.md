@@ -4,9 +4,10 @@ title: Use NOON_PREVIOUS_STATUS in the notification examples
 status: Done
 assignee: []
 created_date: '2026-10-16 22:10'
-updated_date: '2026-10-16 22:52'
+updated_date: '2026-10-17 02:00'
 labels:
   - examples
+  - reviewed
 dependencies:
   - NOON-31
 documentation:
