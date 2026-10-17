@@ -41,15 +41,17 @@ func TestWebhooks(t *testing.T) {
 	}
 	secret := []byte("test-webhook-secret")
 	definition := config.Job{Name: "hooks", Run: []string{"true"}, Enabled: true, Digest: "sha256:test", Webhook: &config.Webhook{SecretEnv: "NOON_TEST_SECRET"}}
+	eachDefinition := config.Job{Name: "each", Run: []string{"true"}, Requests: "each", Enabled: true, Digest: "sha256:each", Webhook: &config.Webhook{SecretEnv: "NOON_TEST_SECRET"}}
 	plain := config.Job{Name: "plain", Run: []string{"true"}, Enabled: true, Digest: "sha256:plain"}
 	textJob := config.Job{Name: "text", Run: []string{"true"}, Enabled: true, Digest: "sha256:text", Webhook: &config.Webhook{SecretEnv: "NOON_TEST_SECRET"}}
 	largeJob := config.Job{Name: "large", Run: []string{"true"}, Enabled: true, Digest: "sha256:large", Webhook: &config.Webhook{SecretEnv: "NOON_TEST_SECRET"}}
 	cooldownJob := config.Job{Name: "cooldown", Run: []string{"true"}, Enabled: true, Digest: "sha256:cooldown", Cooldown: time.Minute, Webhook: &config.Webhook{SecretEnv: "NOON_TEST_SECRET"}}
 	missingSecretJob := config.Job{Name: "no-secret", Run: []string{"true"}, Enabled: true, Digest: "sha256:no-secret", Webhook: &config.Webhook{SecretEnv: "MISSING_SECRET"}}
 	project := WebhookProject{
-		ID: projectID, Config: config.Config{Project: root, StateDir: stateDir, Jobs: map[string]config.Job{"hooks": definition, "plain": plain, "text": textJob, "large": largeJob, "cooldown": cooldownJob, "no-secret": missingSecretJob}},
+		ID: projectID, Config: config.Config{Project: root, StateDir: stateDir, Jobs: map[string]config.Job{"hooks": definition, "each": eachDefinition, "plain": plain, "text": textJob, "large": largeJob, "cooldown": cooldownJob, "no-secret": missingSecretJob}},
 		Enabled: true, Jobs: map[string]WebhookJob{
 			"hooks":     {Definition: definition, Secret: secret, Approved: true},
+			"each":      {Definition: eachDefinition, Secret: secret, Approved: true},
 			"plain":     {Definition: plain, Approved: true},
 			"text":      {Definition: textJob, Secret: secret, Approved: true},
 			"large":     {Definition: largeJob, Secret: secret, Approved: true},
@@ -300,6 +302,45 @@ func TestWebhooks(t *testing.T) {
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &duplicateResult); err != nil || response.Code != http.StatusOK || duplicateResult.RunID != created.RunID || duplicateResult.Created || duplicateResult.Reason != "duplicate" {
 		t.Fatalf("duplicate response = status %d result %+v err=%v body=%s", response.Code, duplicateResult, err, response.Body)
+	}
+
+	type eachResult struct {
+		RunID   int64  `json:"run_id"`
+		Created bool   `json:"created"`
+		Reason  string `json:"reason"`
+	}
+	eachPath := fmt.Sprintf("/hooks/%d/each", projectID)
+	deliverEach := func(n int, deliveryID string) (int, eachResult, string) {
+		body := []byte(fmt.Sprintf(`{"n":%d}`, n))
+		request := signedRequest(http.MethodPost, eachPath, body, secret, noonSignatureHeader)
+		request.Header.Set("X-GitHub-Delivery", deliveryID)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		var result eachResult
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatalf("decode each webhook response: %v: %s", err, response.Body)
+		}
+		return response.Code, result, response.Body.String()
+	}
+	firstEachStatus, firstEach, _ := deliverEach(1, "each-001")
+	secondEachStatus, secondEach, _ := deliverEach(2, "each-002")
+	if firstEachStatus != http.StatusAccepted || secondEachStatus != http.StatusAccepted || !firstEach.Created || !secondEach.Created || firstEach.RunID == secondEach.RunID {
+		t.Fatalf("each webhook deliveries: first=%d %+v second=%d %+v", firstEachStatus, firstEach, secondEachStatus, secondEach)
+	}
+	duplicateEachStatus, duplicateEach, _ := deliverEach(99, "each-001")
+	if duplicateEachStatus != http.StatusOK || duplicateEach.Created || duplicateEach.Reason != "duplicate" || duplicateEach.RunID != firstEach.RunID {
+		t.Fatalf("each webhook redelivery: status=%d result=%+v", duplicateEachStatus, duplicateEach)
+	}
+	for i := 3; i <= 20; i++ {
+		status, result, body := deliverEach(i, fmt.Sprintf("each-%03d", i))
+		if status != http.StatusAccepted || !result.Created {
+			t.Fatalf("each webhook %d: status=%d result=%+v body=%s", i, status, result, body)
+		}
+	}
+	fullEachStatus, _, fullEachBody := deliverEach(21, "each-021")
+	fullEachRuns, err := state.RunsForJob(projectID, "each")
+	if fullEachStatus != http.StatusTooManyRequests || fullEachBody != "{\"error\":\"job queue is full\"}\n" || err != nil || len(fullEachRuns) != 20 {
+		t.Fatalf("full each webhook: status=%d body=%s runs=%d err=%v", fullEachStatus, fullEachBody, len(fullEachRuns), err)
 	}
 
 	// Maximum-size non-JSON bodies and permitted headers may expand sixfold in JSON.

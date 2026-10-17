@@ -58,6 +58,15 @@
         { "required": ["prompt"] },
         { "required": ["prompt_file"] }
       ],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "requests": { "const": "each" } },
+            "required": ["requests"]
+          },
+          "then": { "not": { "required": ["cooldown"] } }
+        }
+      ],
       "if": { "required": ["run"] },
       "then": { "not": { "required": ["agent"] } },
       "properties": {
@@ -111,6 +120,11 @@
           "description": "Skip overlapping runs or keep at most one pending run.",
           "default": "skip"
         },
+        "requests": {
+          "enum": ["merge", "each"],
+          "description": "Merge due-now requests into an existing due run, or queue each separately with a per-job due-now cap of 20 queued runs.",
+          "default": "merge"
+        },
         "missed": {
           "enum": ["run_once", "skip"],
           "description": "How to handle schedules missed during sleep or downtime.",
@@ -119,7 +133,7 @@
         "enabled": { "type": "boolean", "default": true },
         "cooldown": {
           "$ref": "#/definitions/nonBlankString",
-          "description": "Minimum gap between queued requests, at least 1s; validated by noon config check."
+          "description": "Minimum gap between queued requests, at least 1s; validated by noon config check. Incompatible with requests: each."
         },
         "on_success": { "$ref": "#/definitions/hook" },
         "on_failure": { "$ref": "#/definitions/hook" },

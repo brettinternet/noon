@@ -41,8 +41,36 @@ $ noon run tests --detach
 tests is cooling down until Fri 16:59:12 (run 4)
 ```
 
-Foreground and scheduled runs ignore cooldown. It's part of the approval digest. Checks run in this
-order: idempotency key, enablement and approval, cooldown, then merging into an already-due run.
+Foreground and scheduled runs ignore cooldown. It's part of the approval digest and cannot be
+combined with `requests: each`. Checks run in this order: idempotency key, enablement and approval,
+cooldown, then merging into an already-due run or checking the per-job `each` queue cap.
+
+## Merge vs each event requests
+
+`requests: merge` is the default. For any due-now source (CLI, MCP, webhook, Git or agent hook,
+shell entry, or TUI), if the job already has a due queued run, Noon returns that run and discards
+the new request's payload and event file. This is useful when requests are wake-ups and the job
+reconciles current state.
+
+Set `requests: each` when every due-now request needs its own payload and run:
+
+```yaml
+jobs:
+  review:
+    run: [./review-event]
+    requests: each
+```
+
+Each request creates a separate queued run and event file. Idempotency keys still return the
+original run as `duplicate` while it is retained, so webhook redelivery remains safe. Due-now
+requests have a fixed cap of 20 queued runs per job; the count includes all queued runs, including
+future `--in`/`--at` one-shots. At the cap, a due-now request fails with `queue_full` before creating
+a run or event file. CLI errors suggest `noon cancel NAME`; MCP returns a tool error and webhooks
+respond with 429 `{"error":"job queue is full"}`. `--in` and `--at` one-shots stay independent and
+are not merged; their runs still count toward the due-now cap.
+
+Queued runs more than one hour overdue expire and appear as `expired`. If an event must never be
+missed, reconcile outstanding work in the job rather than relying only on queued event files.
 
 ## Git hooks
 

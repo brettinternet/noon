@@ -31,7 +31,7 @@ func TestLoadJobs(t *testing.T) {
 		}},
 		{name: "defaults", shared: "jobs: {tests: {run: 'true'}}", check: func(t *testing.T, c config.Config) {
 			j := c.Jobs["tests"]
-			if j.Run != "true" || j.Timeout != "1h" || j.Cooldown != 0 || j.Overlap != "skip" || j.Missed != "run_once" || !j.Enabled || j.CWD != c.Project || j.Schedule != nil {
+			if j.Run != "true" || j.Timeout != "1h" || j.Cooldown != 0 || j.Requests != "merge" || j.Overlap != "skip" || j.Missed != "run_once" || !j.Enabled || j.CWD != c.Project || j.Schedule != nil {
 				t.Fatalf("defaults: %+v", j)
 			}
 		}},
@@ -40,6 +40,18 @@ func TestLoadJobs(t *testing.T) {
 				t.Fatalf("cooldown = %s, want 2m", got)
 			}
 		}},
+		{name: "requests merge", shared: "jobs: {tests: {run: 'true', requests: merge}}", check: func(t *testing.T, c config.Config) {
+			if got := c.Jobs["tests"].Requests; got != "merge" {
+				t.Fatalf("requests = %q, want merge", got)
+			}
+		}},
+		{name: "requests each", shared: "jobs: {tests: {run: 'true', requests: each}}", check: func(t *testing.T, c config.Config) {
+			if got := c.Jobs["tests"].Requests; got != "each" {
+				t.Fatalf("requests = %q, want each", got)
+			}
+		}},
+		{name: "invalid requests", shared: "jobs:\n  tests:\n    run: 'true'\n    requests: newest\n", want: "noon.yaml:4: jobs.tests.requests: must be merge or each"},
+		{name: "requests each conflicts with cooldown", shared: "jobs:\n  tests:\n    run: 'true'\n    requests: each\n    cooldown: 5m\n", want: "noon.yaml:5: jobs.tests.cooldown: cannot be used with requests: each"},
 		{name: "webhook", shared: "jobs: {tests: {run: 'true', webhook: {secret_env: GITHUB_SECRET}}}", check: func(t *testing.T, c config.Config) {
 			if got := c.Jobs["tests"].Webhook; got == nil || got.SecretEnv != "GITHUB_SECRET" {
 				t.Fatalf("webhook: %+v", got)
@@ -229,6 +241,16 @@ func TestJobDigest(t *testing.T) {
 	// Unset fields must stay omitted; explicit defaults participate in approval.
 	if load("    run: hi\n", "{}") == load("    run: hi\n    timeout: 1h\n", "{}") {
 		t.Fatal("unset field included in digest")
+	}
+	legacyDigest := load("    run: 'true'\n", "{}")
+	if legacyDigest != "sha256:98dc0d61f34692d1b2b36b24bf272cbcc95c4f81aa817a971f6b700d6857c9cf" {
+		t.Fatalf("job without requests changed its pre-feature digest: %s", legacyDigest)
+	}
+	if mergeDigest := load("    run: 'true'\n    requests: merge\n", "{}"); mergeDigest == legacyDigest {
+		t.Fatal("explicit requests: merge was omitted from digest")
+	}
+	if mergeDigest := load("    run: 'true'\n    requests: merge\n", "{}"); mergeDigest == load("    run: 'true'\n    requests: each\n", "{}") {
+		t.Fatal("requests mode did not change digest")
 	}
 	hookDefinition := "    run: echo hi\n    on_success: [notify, done]\n"
 	hookDigest := load(hookDefinition, "{}")

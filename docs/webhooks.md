@@ -62,10 +62,11 @@ curl --fail-with-body -i \
 | Response | When |
 | --- | --- |
 | 202 | Queued: `{"run_id":7,"created":true}` |
-| 200 | Matched an existing run (redelivery, cooldown, or already due) |
+| 200 | Matched an existing run (redelivery, cooldown, or an already-due request in merge mode) |
 | 401 | Missing or wrong signature |
 | 409 | Project or job disabled, job paused, or job needs approval |
 | 413 | Body over 1 MiB |
+| 429 | `{"error":"job queue is full"}` for a due-now request at the `requests: each` cap |
 
 `GET /healthz` returns `{"status":"ok"}` while the scheduler is healthy.
 
@@ -76,7 +77,16 @@ curl --fail-with-body -i \
 - `X-GitHub-Delivery` or `X-Noon-Delivery` becomes the idempotency key, so redeliveries don't
   queue twice while the earlier run is retained (newest 50 per job). Without one there's no replay
   protection.
-- Cooldown and merging into an already-due run work as for [CLI requests](triggers.md).
+- With the default `requests: merge`, a delivery that finds an already-due queued run gets 200 and
+  its new payload is dropped; the existing run's event file is unchanged. `requests: each` creates
+  a separate run for each delivery, while a repeated delivery ID still gets 200 with
+  `reason: duplicate`.
+- Due-now `each` deliveries have a per-job cap of 20 queued runs, counting due and future work.
+  At the cap, a delivery gets 429 and creates neither a run nor an event file. `--in` and `--at`
+  one-shots remain independent, and their runs count toward this cap; see [Triggers](triggers.md)
+  for queue expiry and handling guidance.
+- Cooldown and merging into an already-due run work as for [CLI requests](triggers.md); cooldown
+  cannot be configured with `requests: each`.
 - Limits: 1 MiB body, 16 KiB headers, 5s to read headers, 10s to read and write.
 
 The job's `$NOON_EVENT_FILE` has `source: "webhook"`, the parsed JSON body as `data` (a string if

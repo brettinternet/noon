@@ -13,6 +13,7 @@ jobs:
       GOFLAGS: "-count=1"
     timeout: 10m
     overlap: skip
+    requests: merge
     missed: run_once
     enabled: true
   report:

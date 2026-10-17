@@ -44,6 +44,7 @@ type Job struct {
 	Env          map[string]string `json:"-"`
 	Timeout      string
 	Cooldown     time.Duration
+	Requests     string
 	Overlap      string
 	Missed       string
 	Enabled      bool
@@ -294,7 +295,7 @@ func agentNames(profiles map[string]AgentProfile) []string {
 // approval-gated explicit file; user-config defaults are the user's own and
 // must not revoke shared-job approvals when they change.
 func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node, defaultSuccess, defaultFailure any, digestDefaults bool) (Job, error) {
-	job := Job{Name: name, CWD: ".", Env: map[string]string{}, Timeout: "1h", Overlap: "skip", Missed: "run_once", Enabled: true, Source: file, OnSuccess: defaultSuccess, OnFailure: defaultFailure}
+	job := Job{Name: name, CWD: ".", Env: map[string]string{}, Timeout: "1h", Requests: "merge", Overlap: "skip", Missed: "run_once", Enabled: true, Source: file, OnSuccess: defaultSuccess, OnFailure: defaultFailure}
 	execution := make(map[string]any)
 	job.execution = execution
 	actions := 0
@@ -371,6 +372,16 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 			}
 			job.Webhook = webhook
 			execution[key] = map[string]string{"secret_env": webhook.SecretEnv}
+		case "requests":
+			text, err := jobString(file, field, value)
+			if err != nil {
+				return Job{}, err
+			}
+			if text != "merge" && text != "each" {
+				return Job{}, jobError(file, value, field, "must be merge or each")
+			}
+			job.Requests = text
+			execution[key] = text
 		case "agent":
 			text, err := jobString(file, field, value)
 			if err != nil {
@@ -464,6 +475,9 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 	}
 	if actions != 1 {
 		return Job{}, jobError(file, node, path, "exactly one of run, prompt, or prompt_file is required")
+	}
+	if job.Requests == "each" && fields["cooldown"] != nil {
+		return Job{}, jobError(file, fields["cooldown"], path+".cooldown", "cannot be used with requests: each")
 	}
 	if hasCommand(job.OnSuccess) && (digestDefaults || fields["on_success"] != nil) {
 		execution["on_success"] = job.OnSuccess
