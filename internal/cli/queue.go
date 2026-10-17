@@ -75,9 +75,9 @@ func printQueuedRun(cmd *urfave.Command, queued app.QueuedRun, now time.Time, lo
 		fmt.Fprintf(cmd.Writer, "Already requested as run %d (%s %s)\n", run.ID, run.Status, app.RelativeTime(at, now))
 	}
 	if run.Status == "queued" || run.Status == "running" {
-		fmt.Fprintf(cmd.Writer, "Follow it: noon logs %d --follow\n", run.ID)
+		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Follow it: noon logs %d --follow\n", run.ID)))
 	} else {
-		fmt.Fprintf(cmd.Writer, "Read it: noon logs %d\n", run.ID)
+		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Read it: noon logs %d\n", run.ID)))
 	}
 }
 

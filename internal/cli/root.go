@@ -122,8 +122,12 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				}
 				err := action(ctx, selected)
 				var failure *Error
-				if errors.As(err, &failure) && failure.Usage {
+				if errors.As(err, &failure) {
 					copy := *failure
+					copy.Hint = guidance(selected, copy.Hint)
+					if !failure.Usage {
+						return &copy
+					}
 					hint := commandHelp(selected)
 					if !strings.Contains(copy.Hint, hint) {
 						if copy.Hint != "" {
@@ -393,7 +397,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	} else {
 		fmt.Fprintf(cmd.Writer, "Kept existing %s (not overwritten)\n", path)
 	}
-	fmt.Fprintln(cmd.Writer, "Ignore .noon.yaml in Git. Next: noon config check")
+	fmt.Fprintln(cmd.Writer, guidance(cmd, "Ignore .noon.yaml in Git. Next: noon config check"))
 	return nil
 }
 

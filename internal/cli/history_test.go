@@ -390,7 +390,7 @@ func TestHistoryAndLogs(t *testing.T) {
 		if code := cli.Run(context.Background(), []string{"noon", "logs", "tests", "--tail", "2"}, config.BuildOpts{}, &out, &stderr); code != 0 {
 			t.Fatalf("logs --tail 2: exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
 		}
-		if out.String() != "two\nthree\n" || !strings.HasPrefix(stderr.String(), "next: noon logs 1 --after-cursor ") {
+		if out.String() != "two\nthree\n" || stderr.String() != fmt.Sprintf("next: noon logs --state-dir %s 1 --after-cursor 14\n", stateDir) {
 			t.Fatalf("tail output/cursor = stdout %q stderr %q", out.String(), stderr.String())
 		}
 		for _, args := range [][]string{

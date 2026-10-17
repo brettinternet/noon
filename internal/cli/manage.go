@@ -31,6 +31,9 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			`noon add notes --agent claude --prompt-file prompts/notes.md`,
 			`noon add check-ci --in 2h --agent claude --prompt "Check CI and fix failures"`,
 		}
+		for i := range examples {
+			examples[i] = guidance(cmd, examples[i])
+		}
 		if cmd.Bool("json") {
 			return emit(cmd, map[string]any{"examples": examples})
 		}
@@ -268,7 +271,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		}
 		return emit(cmd, map[string]any{"added": name, "file": file, "shared": cmd.Bool("shared"),
 			"schedule": scheduleText, "next_at": nextAt, "scheduling_enabled": job.Schedule != nil || queued,
-			"notes": notes, "needs_approval": needsApproval, "next": next})
+			"notes": notes, "needs_approval": needsApproval, "next": guidance(cmd, next)})
 	}
 	fmt.Fprintf(cmd.Writer, "Added %s to %s (%s) · %s", name, filepath.Base(file), kind, scheduleText)
 	if job.Schedule != nil {
@@ -304,20 +307,20 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			}
 		}
 		if view.Project.Scheduler == "running" {
-			fmt.Fprintln(cmd.Writer, "Next: noon run "+name)
+			fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon run "+name))
 		} else {
 			hint, hintErr := serviceGuidance(updated.StateDir)
 			if hintErr != nil {
 				return hintErr
 			}
 			if strings.HasPrefix(hint, "Next: noon service install") {
-				fmt.Fprintf(cmd.Writer, "Next: noon service install · noon run %s\n", name)
+				fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Next: noon service install · noon run %s\n", name)))
 			} else {
-				fmt.Fprintln(cmd.Writer, "Next: noon run "+name)
+				fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon run "+name))
 			}
 		}
 	} else {
-		fmt.Fprintln(cmd.Writer, "Next: noon run "+name)
+		fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon run "+name))
 	}
 	return nil
 }
@@ -422,12 +425,12 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 }
 func printJobCandidates(cmd *urfave.Command, names []string) {
 	if len(names) == 0 {
-		fmt.Fprintln(cmd.Writer, "No jobs. Next: noon add tests -- go test ./...")
+		fmt.Fprintln(cmd.Writer, guidance(cmd, "No jobs. Next: noon add tests -- go test ./..."))
 		return
 	}
-	fmt.Fprintf(cmd.Writer, "Choose a job: noon %s NAME\n", cmd.Name)
+	fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Choose a job: noon %s NAME\n", cmd.Name)))
 	for _, name := range names {
-		fmt.Fprintf(cmd.Writer, "  noon %s %s\n", cmd.Name, name)
+		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("  noon %s %s\n", cmd.Name, name)))
 	}
 }
 
@@ -477,7 +480,7 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 		return emit(cmd, map[string]any{"job": args[0], "paused": paused})
 	}
 	if paused {
-		fmt.Fprintf(cmd.Writer, "Paused %s. Background runs stop until noon resume %s.\n", args[0], args[0])
+		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Paused %s. Background runs stop until noon resume %s.\n", args[0], args[0])))
 	} else {
 		fmt.Fprintf(cmd.Writer, "Resumed %s. Its schedule starts from now.\n", args[0])
 	}

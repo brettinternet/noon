@@ -104,7 +104,7 @@ func serviceStatus(ctx context.Context, cmd *urfave.Command) error {
 		result := map[string]any{"service": view}
 		if view.Drift {
 			result["warning"] = driftWarning
-			result["hint"] = "noon service install"
+			result["hint"] = guidance(cmd, "noon service install")
 		}
 		return emit(cmd, result)
 	}
@@ -117,7 +117,7 @@ func serviceStatus(ctx context.Context, cmd *urfave.Command) error {
 		fmt.Fprintf(cmd.Writer, "Heartbeat:  %s\n", view.SchedulerHeartbeat.Format(time.RFC3339))
 	}
 	if view.Drift {
-		fmt.Fprintf(cmd.Writer, "Warning: service unit differs from current install settings. Next: %s\n", "noon service install")
+		fmt.Fprintf(cmd.Writer, "Warning: service unit differs from current install settings. Next: %s\n", guidance(cmd, "noon service install"))
 	}
 	return nil
 }

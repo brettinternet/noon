@@ -36,6 +36,7 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 		}
 		return stateError(err)
 	}
+	view.Next = guidance(cmd, view.Next)
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "scheduler": view.Scheduler, "service": view.Service, "jobs": view.Jobs, "queued": view.Queued, "notices": view.Notices, "next": view.Next})
 	}
@@ -108,6 +109,9 @@ func doctorAt(ctx context.Context, cmd *urfave.Command, now time.Time) error {
 		return err
 	}
 	result := app.Doctor(ctx, values, now)
+	for i := range result.Checks {
+		result.Checks[i].Hint = guidance(cmd, result.Checks[i].Hint)
+	}
 	if cmd.Bool("json") {
 		if err := emit(cmd, map[string]any{"ok": result.OK, "checks": result.Checks}); err != nil {
 			return err
@@ -116,7 +120,7 @@ func doctorAt(ctx context.Context, cmd *urfave.Command, now time.Time) error {
 		for _, check := range result.Checks {
 			fmt.Fprintf(cmd.Writer, "%s %s: %s", check.Status, cell(check.Name, 120), cell(check.Message, 240))
 			if check.Hint != "" {
-				fmt.Fprintf(cmd.Writer, " — %s", cell(check.Hint, 240))
+				fmt.Fprintf(cmd.Writer, " — %s", check.Hint)
 			}
 			fmt.Fprintln(cmd.Writer)
 		}

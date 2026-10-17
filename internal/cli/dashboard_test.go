@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -100,6 +101,88 @@ func diagnosticState(t *testing.T, cfg config.Config, fresh bool) *store.Store {
 }
 
 func TestDashboard(t *testing.T) {
+	t.Run("copy guidance across directories", func(t *testing.T) {
+		root := diagnosticSandbox(t)
+		project := filepath.Join(root, "project '$(touch injected); space")
+		state := filepath.Join(root, "state '$(touch injected); space")
+		file := filepath.Join(root, "config '$(touch injected); space.yaml")
+		if err := os.MkdirAll(project, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("jobs:\n  check:\n    run: [printf, 'keep-one\\nignore\\nkeep-two\\n']\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		invoke := func(args ...string) (string, string) {
+			t.Helper()
+			var out, stderr bytes.Buffer
+			if code := Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr); code != 0 {
+				t.Fatalf("exit %d: %s %s", code, &out, &stderr)
+			}
+			return out.String(), stderr.String()
+		}
+		selectors := []string{"-C", filepath.Base(project), "--config", filepath.Base(file), "--state-dir", filepath.Base(state), "--timezone", "UTC"}
+		invoke(append(selectors, "run", "check")...)
+		_, hint := invoke(append(selectors, "logs", "check", "--section", "job", "--match", "^keep|noon run", "--context", "0", "--after-cursor", "0", "--limit-bytes", "11")...)
+		command := strings.TrimSuffix(strings.TrimPrefix(hint, "next: "), "\n")
+		other := filepath.Join(root, "other")
+		if err := os.Mkdir(other, 0700); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(other)
+		// A shell function captures the actual argv after shell expansion, then
+		// the public CLI executes those exact arguments from the new cwd.
+		shell := exec.Command("sh", "-c", "noon() { printf '%s\\000' \"$@\"; }; "+command)
+		argv, err := shell.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := strings.Split(strings.TrimSuffix(string(argv), "\x00"), "\x00")
+		out, _ := invoke(args...)
+		if out != "3:keep-two\n" {
+			t.Fatalf("resumed wrong selection: %q; command %s", out, command)
+		}
+		for _, dir := range []string{root, other, project} {
+			if _, err := os.Stat(filepath.Join(dir, "injected")); !os.IsNotExist(err) {
+				t.Fatalf("shell metacharacters executed in %s: %v", dir, err)
+			}
+		}
+		t.Chdir(root)
+		for _, pair := range [][2]string{{"NOON_PROJECT", project}, {"NOON_CONFIG", file}, {"NOON_STATE_DIR", state}, {"NOON_TIMEZONE", "UTC"}} {
+			t.Setenv(pair[0], pair[1])
+		}
+		invoke("enable")
+		out, _ = invoke("--json")
+		var dashboard struct{ Next string }
+		if err := json.Unmarshal([]byte(out), &dashboard); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(dashboard.Next, "env -u NOON_PROJECT -u NOON_CONFIG -u NOON_TIMEZONE noon service install --state-dir ") || strings.Contains(dashboard.Next, "--project") || strings.Contains(dashboard.Next, "--config") || strings.Contains(dashboard.Next, "--timezone") {
+			t.Fatalf("unsupported service selectors: %s", dashboard.Next)
+		}
+		// Verify the environment-clearing command through the same shell, but
+		// replace noon with a harmless executable that records argv.
+		bin := filepath.Join(root, "bin")
+		if err := os.Mkdir(bin, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bin, "noon"), []byte("#!/bin/sh\nprintf '%s\\000' \"$@\"\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		argv, err = exec.Command("sh", "-c", dashboard.Next+" --print").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"NOON_PROJECT", "NOON_CONFIG", "NOON_TIMEZONE"} {
+			if err := os.Unsetenv(key); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, _ = invoke(strings.Split(strings.TrimSuffix(string(argv), "\x00"), "\x00")...)
+		if !strings.Contains(out, "serve") {
+			t.Fatalf("not a printed service unit: %s", out)
+		}
+	})
 	for _, tc := range []struct {
 		name           string
 		enabled, fresh bool

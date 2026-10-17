@@ -260,7 +260,7 @@ func TestRunRecordsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	duplicateError := duplicateResult["error"].(map[string]any)
-	if code != 1 || duplicateError["code"] != "already_running" || duplicateError["hint"] != fmt.Sprintf("Follow it: noon logs %d --follow", activeRunID) {
+	if code != 1 || duplicateError["code"] != "already_running" || duplicateError["hint"] != fmt.Sprintf("Follow it: noon logs --state-dir %s %d --follow", stateDir, activeRunID) {
 		t.Fatalf("concurrent duplicate exit=%d stdout=%s stderr=%s", code, duplicateOut.String(), duplicateErr.String())
 	}
 	select {

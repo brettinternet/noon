@@ -232,6 +232,11 @@ Log reading ([Command reference](cli.md#logs)):
 
 - Snapshots read one file state. Unflagged CLI reads include an active unterminated line; bounded
   CLI and MCP reads omit it so `next` stays on a line boundary.
+- CLI copyable guidance preserves explicit invocation selectors (including environment overrides)
+  with absolute shell-quoted paths. Service suggestions use only state selection and clear
+  unsupported selector environment variables. Log resume commands retain section/filter/byte-limit
+  selection, pin the run and cursor, and drop tail/status selection; JSON keeps numeric `next`
+  and adds a copyable `resume` command.
 - Order: section range ∩ `[after, size)`, then match and context, then `--tail`, then
   `--limit-bytes` (newest whole lines without a cursor, earliest with one; a single oversized line is
   cut on a UTF-8 boundary). Cursors are absolute file offsets.

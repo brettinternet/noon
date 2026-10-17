@@ -35,7 +35,11 @@ func inspectJobs(cmd *urfave.Command) error {
 	if view.Project.ConfigError != "" {
 		fmt.Fprintf(cmd.Writer, "Config error: %s\n", cell(view.Project.ConfigError, 240))
 	}
-	printJobs(cmd.Writer, view.Jobs, now)
+	if len(view.Jobs) == 0 {
+		fmt.Fprintln(cmd.Writer, guidance(cmd, `No jobs. Add one with: noon add tests "weekdays at 9am" -- task test`))
+	} else {
+		printJobs(cmd.Writer, view.Jobs, now)
+	}
 	changed, scheduled := 0, false
 	for _, job := range view.Jobs {
 		if job.Approval == "needs_approval" {
@@ -47,18 +51,14 @@ func inspectJobs(cmd *urfave.Command) error {
 	}
 	switch {
 	case view.Project.Enabled && changed > 0:
-		fmt.Fprintf(cmd.Writer, "%d shared jobs changed since you enabled this project. Next: noon enable\n", changed)
+		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("%d shared jobs changed since you enabled this project. Next: noon enable\n", changed)))
 	case !view.Project.Enabled && scheduled:
-		fmt.Fprintln(cmd.Writer, "Not enabled for background runs. Next: noon enable")
+		fmt.Fprintln(cmd.Writer, guidance(cmd, "Not enabled for background runs. Next: noon enable"))
 	}
 	return nil
 }
 
 func printJobs(out io.Writer, jobs []app.Job, now time.Time) {
-	if len(jobs) == 0 {
-		fmt.Fprintln(out, "No jobs. Add one with: noon add tests \"weekdays at 9am\" -- task test")
-		return
-	}
 	rows := [][5]string{{"JOB", "SCHEDULE", "NEXT", "LAST", "COMMAND"}}
 	widths := [4]int{3, 8, 4, 4}
 	overrides := 0

@@ -31,7 +31,7 @@ func enableProject(_ context.Context, cmd *urfave.Command) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(cmd.Writer, hint)
+		fmt.Fprintln(cmd.Writer, guidance(cmd, hint))
 	}
 	return nil
 }

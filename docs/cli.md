@@ -188,7 +188,15 @@ noon logs 12 --path               # absolute log file path
 | `-s`, `--status S` | Pick the latest run with these statuses |
 
 Bounded reads print the resume command to stderr. JSON returns `log`, `next`, `size`, `truncated`,
-and `matched_lines`. Pass `next` back as `--after-cursor` with the same `--section`.
+`matched_lines`, and a copyable `resume` command. Resume commands pin the run and cursor and retain
+`--section`, `--match`, `--context`, and `--limit-bytes`; they omit `--tail` and `--status` so the
+next read moves forward within that run. The numeric `next` remains the byte cursor.
+
+Action guidance preserves explicit project, config, state-directory, and timezone selectors,
+including environment-selected overrides, with absolute, shell-quoted paths. It does not copy
+output mode or event payloads. Service/serve guidance carries only state selection and clears
+unsupported Noon selector environment variables; an explicit config’s state directory is resolved
+before suggesting a service command.
 
 ```console
 $ noon logs check --match FAIL --context 1

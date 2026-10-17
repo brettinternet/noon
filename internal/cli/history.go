@@ -45,9 +45,9 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 				fmt.Fprintf(cmd.Writer, "No runs match --status %s.\n", strings.Join(statuses, ","))
 			}
 		} else if job != "" {
-			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: noon run %s\n", job, job)
+			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: %s %s\n", job, guidance(cmd, "noon run"), shellArgument(job))
 		} else {
-			fmt.Fprintln(cmd.Writer, "No runs yet. Next: noon run (list jobs to run)")
+			fmt.Fprintln(cmd.Writer, guidance(cmd, "No runs yet. Next: noon run (list jobs to run)"))
 		}
 		return nil
 	}
@@ -229,9 +229,19 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	if !run.Log.Available {
 		return app.MissingRunLogError(run)
 	}
+	resume := guidance(cmd, "noon logs") + fmt.Sprintf(" %d", run.ID)
+	if sectionSet {
+		resume += " --section " + shellArgument(query.Section)
+	}
+	resume += fmt.Sprintf(" --after-cursor %d", selection.Next)
+	for _, name := range []string{"match", "context", "limit-bytes"} {
+		if cmd.IsSet(name) {
+			resume += " --" + name + " " + shellArgument(fmt.Sprint(cmd.Value(name)))
+		}
+	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{
-			"run": run, "log": app.ValidLogText(selection.Bytes), "next": selection.Next,
+			"run": run, "log": app.ValidLogText(selection.Bytes), "next": selection.Next, "resume": resume,
 			"size": selection.Size, "truncated": selection.Truncated, "matched_lines": selection.MatchedLines,
 		})
 	}
@@ -239,11 +249,7 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if hasSelection {
-		if sectionSet {
-			_, err = fmt.Fprintf(cmd.ErrWriter, "next: noon logs %d --section %s --after-cursor %d\n", run.ID, query.Section, selection.Next)
-		} else {
-			_, err = fmt.Fprintf(cmd.ErrWriter, "next: noon logs %d --after-cursor %d\n", run.ID, selection.Next)
-		}
+		_, err = fmt.Fprintln(cmd.ErrWriter, "next: "+resume)
 	}
 	return err
 }
@@ -259,9 +265,9 @@ func noRuns(cmd *urfave.Command, job string, statuses []string) error {
 			fmt.Fprintf(cmd.Writer, "No runs match --status %s.\n", strings.Join(statuses, ","))
 		}
 	} else if job != "" {
-		fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: noon run %s\n", job, job)
+		fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: %s %s\n", job, guidance(cmd, "noon run"), shellArgument(job))
 	} else {
-		fmt.Fprintln(cmd.Writer, "No runs yet. Next: noon run (list jobs to run)")
+		fmt.Fprintln(cmd.Writer, guidance(cmd, "No runs yet. Next: noon run (list jobs to run)"))
 	}
 	return nil
 }
