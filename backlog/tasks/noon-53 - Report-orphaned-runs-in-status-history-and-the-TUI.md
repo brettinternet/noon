@@ -4,11 +4,12 @@ title: 'Report orphaned runs in status, history, and the TUI'
 status: Done
 assignee: []
 created_date: '2026-10-17 18:09'
-updated_date: '2026-10-17 21:35'
+updated_date: '2026-10-17 22:28'
 labels:
   - cli
   - tui
   - mcp
+  - reviewed
 dependencies: []
 documentation:
   - docs/design.md
@@ -92,6 +93,8 @@ AC#5: docs/design.md, docs/cli.md, docs/agents.md updated; task ci -> exit 0 (se
 Independent verifier completed the single acceptance/review pass. Its only reported failure was literal Next spelling, resolved by user-approved preservation of selectors; no source correction needed. gopls check clean. Diff stays within modified-file contract; no tests deleted, skipped, or weakened. Next: commit implementation, merge main, final-commit CI, completion and owned worktree cleanup.
 
 Delivery: implementation commit 842a1b204611dabaa6c9da381f7ab8e13725b5b6 fast-forward merged into main. task ci passed again on that final implementation commit in primary checkout. Owned worktree and branch noon-53-orphaned removed with Worktrunk after receipt verification; associated Herdr wG8 confirmed absent. No retained worktree, blocker, or next implementation step. Final task-record commit receives another task ci check before lease release.
+
+Post-completion review: no blocking defects. Inspected inspectAndMapRun/RunFromStore owner checks across history, list, dashboard, cancel, queue and MCP, read-only re-read before reporting orphaned, dashboard notice/Next ordering, CLI/TUI orphan rendering, and hook stdin (owner alive, so false). Findings (P3, unfixed): (1) internal/app/dashboard.go embeds 'noon cancel ID' in the orphaned notice text, but only view.Next passes through guidance(), so the inline command drops explicit selectors (--state-dir/NOON_STATE_DIR, --project) contrary to docs/design.md's copyable-guidance contract; either route the notice through the same selector preservation or drop the inline command and rely on Next. (2) inspectAndMapRun calls RunByID for every listed run, including terminal ones; checking activeStoredRun on the already-read row first would avoid N extra queries. (3) Listing surfaces now fail with a state error if a process-identity lookup errors (non-ENOENT), where they previously never did; matches the settled contract, noted as a robustness tradeoff. task cli:test PKG="./internal/config ./internal/store ./internal/scheduler ./internal/cli ./internal/app ./internal/tui ./internal/mcp" -- -count=1 passed. No source changes; full CI not rerun for this review.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

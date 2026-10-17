@@ -4,11 +4,12 @@ title: Record runs that find nothing to do as noop
 status: Done
 assignee: []
 created_date: '2026-10-17 17:30'
-updated_date: '2026-10-17 21:12'
+updated_date: '2026-10-17 22:28'
 labels:
   - runner
   - history
   - config
+  - reviewed
 dependencies: []
 documentation:
   - docs/design.md
@@ -144,6 +145,8 @@ State compatibility: bumped SQLite user_version from 9 to 10 so older binaries r
 One independent critical-correctness verification pass found no concrete defects; git diff --check and store LSP diagnostics clean. No tests deleted, skipped or weakened. Executor timeout preserved completed changes; parent completed acceptance and CI. Implementation af5c523 merged locally via b7c3583; no push. Remaining step: remove verified owned worktree/workspace and finalize task.
 
 Cleanup complete: Worktrunk removed the session-receipted feat/noon-52-noop checkout and branch; post-remove hook closed its exact Herdr workspace wG4, verified absent. No owned checkout/workspace retained; no blocker or resumable step remains.
+
+Post-completion review: no actionable defects found. Inspected noop_exit_code parsing (!!int tag, 1-124, prompt-job rejection with YAML path), digest/edit round-trip, classification order in foreground and scheduled runs (timeout, cancellation and start failure precede noop; cancellation-check failure still overrides to failed), matchingHook/PreviousStatus/LastSuccess exclusion, split retention in pruneRuns (10 noop rows+logs vs 50/10 regular), LatestRunsForProject noop exclusion feeding dashboard/list/TUI LAST, schema v10 bump, TUI muted exit styling, and example scripts (failures-digest/release-watch windows stay correct because noops no longer advance NOON_LAST_SUCCESS_AT). task cli:test PKG="./internal/config ./internal/store ./internal/scheduler ./internal/cli ./internal/app ./internal/tui ./internal/mcp" -- -count=1 passed. No source changes; full CI not rerun for this review.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
