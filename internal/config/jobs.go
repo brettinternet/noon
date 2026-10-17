@@ -251,8 +251,11 @@ func jobEnabled(file, path string, node *yaml.Node) (bool, error) {
 
 func BuiltInAgents() map[string]AgentProfile {
 	return map[string]AgentProfile{
-		"claude": {Command: []string{"claude", "-p", "--permission-prompts", "none"}, Prompt: "stdin"},
-		"codex":  {Command: []string{"codex", "exec", "-"}, Prompt: "stdin"},
+		"claude":   {Command: []string{"claude", "-p", "--permission-prompts", "none"}, Prompt: "stdin"},
+		"codex":    {Command: []string{"codex", "exec", "-"}, Prompt: "stdin"},
+		"gemini":   {Command: []string{"gemini", "-p"}, Prompt: "argument"},
+		"opencode": {Command: []string{"opencode", "run", "--"}, Prompt: "argument"},
+		"pi":       {Command: []string{"pi", "--print"}, Prompt: "stdin"},
 	}
 }
 

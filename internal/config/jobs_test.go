@@ -96,7 +96,7 @@ func TestLoadJobs(t *testing.T) {
 		{name: "unknown field", shared: "jobs:\n  tests:\n    run: hi\n    typo: nope", want: "noon.yaml:4: jobs.tests.typo: unknown field"},
 		{name: "two actions", shared: "jobs: {tests: {run: hi, prompt: nope}}", want: "exactly one of run, prompt, or prompt_file is required"},
 		{name: "agent on run", shared: "jobs: {tests: {run: hi, agent: claude}}", want: "valid only for prompt or prompt_file jobs"},
-		{name: "unknown agent", shared: "jobs: {tests: {prompt: hi, agent: missing}}", want: `unknown agent "missing"; known agents: claude, codex`},
+		{name: "unknown agent", shared: "jobs: {tests: {prompt: hi, agent: missing}}", want: `unknown agent "missing"; known agents: claude, codex, gemini, opencode, pi`},
 		{name: "prompt needs agent", shared: "jobs: {tests: {prompt: hi}}", want: "requires agent or default_agent; set agent on the job or default_agent"},
 		{name: "agents outside user config", shared: "agents: {team: {command: [agent]}}", want: "agents: allowed only in user config or --config files"},
 		{name: "default agent outside allowed file", shared: "default_agent: claude", want: "default_agent: allowed only in user config, .git/noon.yaml, or --config files"},

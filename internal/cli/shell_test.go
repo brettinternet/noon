@@ -228,7 +228,7 @@ func TestShellCompletion(t *testing.T) {
 			t.Fatalf("completed a value or literal argv %q: %v", args, got)
 		}
 	}
-	if got := complete("add", "-a", ""); !reflect.DeepEqual(got, []string{"claude", "codex", "reviewer"}) {
+	if got := complete("add", "-a", ""); !reflect.DeepEqual(got, []string{"claude", "codex", "gemini", "opencode", "pi", "reviewer"}) {
 		t.Fatalf("agent profiles: %v", got)
 	}
 	if got := complete("add", "--agent=rev"); !reflect.DeepEqual(got, []string{"reviewer"}) {

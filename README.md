@@ -219,8 +219,10 @@ codex mcp add noon -- noon mcp
 
 For remote API and MCP clients, run `noon serve --listen ADDR --api-token-file FILE` and use a TLS
 reverse proxy. See [Agents](docs/agents.md#remote-mcp-and-json-api) for client setup and
-[Webhooks](docs/webhooks.md) for the shared listener. Agent-prompt jobs run your installed `claude`
-or `codex` CLI, or any CLI you configure. See [Agents](docs/agents.md).
+[Webhooks](docs/webhooks.md) for the shared listener. Agent-prompt jobs have built-in profiles for
+Claude Code (`claude`), Codex (`codex`), Gemini CLI (`gemini`), OpenCode (`opencode`), and Pi (`pi`).
+Install and authenticate the CLI separately, or configure your own
+[agent profile](docs/configuration.md#agent-profiles). See [Agents](docs/agents.md).
 
 ## Documentation
 

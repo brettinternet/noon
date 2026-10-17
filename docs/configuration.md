@@ -203,7 +203,8 @@ jobs:
 ## Agent profiles
 
 Prompt jobs pipe the prompt to an agent CLI. Profiles are machine choices, so they live in user
-config. `claude` and `codex` are built in; define the same name to replace one:
+config. `claude`, `codex`, `gemini`, `opencode`, and `pi` are built in; define the same name to
+replace one:
 
 ```yaml
 # ~/.config/noon/config.yaml
@@ -216,10 +217,17 @@ agents:
     prompt: argument
 ```
 
-| Built-in | Command |
-| --- | --- |
-| `claude` | `claude -p --permission-prompts none` |
-| `codex` | `codex exec -` |
+| Built-in | Command | Prompt delivery |
+| --- | --- | --- |
+| `claude` | `claude -p --permission-prompts none` | stdin |
+| `codex` | `codex exec -` | stdin |
+| `gemini` | `gemini -p` | Final argument |
+| `opencode` | `opencode run --` | Final argument |
+| `pi` | `pi --print` | stdin |
+
+Install and authenticate the selected CLI separately. Noon does not add auto-approval or
+workspace-trust bypass flags. Configure the agent's permissions for unattended use; these profiles
+are not sandboxes. Pi print mode emits the final response, not intermediate tool activity.
 
 `prompt: stdin` (default) sends the exact prompt bytes on stdin. `prompt: argument` appends them as
 the last argument. Nothing is templated, expanded, or trimmed. Unattended runs must never wait on
