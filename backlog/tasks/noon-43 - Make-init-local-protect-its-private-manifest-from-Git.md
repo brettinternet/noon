@@ -4,10 +4,11 @@ title: Make init local protect its private manifest from Git
 status: Done
 assignee: []
 created_date: '2026-10-16 23:22'
-updated_date: '2026-10-17 01:47'
+updated_date: '2026-10-17 02:36'
 labels:
   - cli-ux
   - devex
+  - reviewed
 dependencies: []
 modified_files:
   - internal/cli/root.go
@@ -62,6 +63,8 @@ AC#3: isolated repeated local init outside Git and shared init -> exit 0, cmp un
 Final implementation commit b134d5b56097b3a48ee900eb398d0102ce70044e: task ci passed (security, vet, Staticcheck, tests, race, smoke). Initial Staticcheck error-string finding fixed before final commit. LSP diagnostics clean. One general review of changed behavior found no additional item-scoped defects. Only allowed implementation files changed; no tests deleted, skipped or weakened. task check:staged passed. Fast-forward merged to main; unrelated NOON-42 changes preserved. No push. No remaining implementation blocker or resumable step; owned worktree cleanup follows.
 
 Cleanup complete: Worktrunk removed the verified session-owned fix/noon-43-local-ignore checkout and branch; Herdr workspace wFA disappeared. Other pre-existing worktrees were untouched.
+
+Review: NOON-46 superseded the .gitignore approach; init --local now writes .git/noon.yaml (0600) and fails outside Git without writing files, which meets the outcome. No protectLocalConfig remnants remain. Fixed a stale .noon.yaml test failure message. Covered by TestInitPreservesExistingConfig.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

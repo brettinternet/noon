@@ -4,8 +4,9 @@ title: Publish Noon releases and distribute through Homebrew
 status: Done
 assignee: []
 created_date: '2026-10-16 22:28'
-updated_date: '2026-10-17 01:40'
-labels: []
+updated_date: '2026-10-17 02:36'
+labels:
+  - reviewed
 dependencies: []
 priority: medium
 ordinal: 4400
@@ -69,6 +70,8 @@ AC#7: All four mise automatic installation jobs in release run 38985878352 passe
 Safety incident: initial local mise checks changed cache/data/state but inherited personal tool configuration and shim PATH. They resolved unrelated Ruby/gem tools and were associated with thousands of recursive gh auth token / gem sources processes, impacting another agent. GoblinHealth agent stopped the exact runaway chains with user authorization. Local evidence confirms gh/gem shims point to mise and global config includes those tools and credential_command; the complete recursion mechanism is not conclusively traced. No credentials were inspected. All further local isolated installs stopped. Commit 847b6c8 hardens future CI checks with env -i, isolated HOME/config, neutral cwd, absolute mise binary and system-only PATH; actionlint passed, but this hardened variant has not yet run on GitHub. Docs warn against data-only isolation. Existing global credential recursion guard was left untouched. Final gh/gem process counts were both zero.
 Coordination: original claim expired during the interruption. After confirming both delegated processes terminal, release workflow complete, no active conflicting claim, unchanged task ownership/history, and user instruction to continue, reacquired this same item as 83605c8ddd90e89f1e6a7f53605db374 under the same loop. No other task selected.
 Delivery/cleanup: implementation 054c650, follow-ups 3d3b67f and 847b6c8 integrated as 355a924 and pushed; tap 3540361 pushed. Both session-owned worktrees and branches removed through Worktrunk after receipt/list verification; matching Herdr workspaces absent. Disposable Homebrew/mise validation directories moved to Trash. Unrelated active backlog/worktrees preserved. No remaining item blocker or resumable implementation step.
+
+Review: release workflow, release-check/smoke scripts, formula generator, and the published tap formula match the acceptance criteria. Tag-derived versions are validated as stable semver before shell interpolation; publication refuses moved tags and existing releases; v0.1.0 is live. No defects found. Note: release-smoke's listener check runs after the inspection exits, so it catches only lingering listeners, not short-lived ones.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
