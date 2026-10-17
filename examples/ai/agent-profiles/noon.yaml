@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
 # Scheduled and on-demand agent prompts. Profiles come from user config; see user-config.yaml.
 version: 1
 

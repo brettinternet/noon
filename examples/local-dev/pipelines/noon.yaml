@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
 # A three-stage nightly pipeline chained with on_success hooks: build -> test -> package.
 # Each hook queues the next stage and hands it the previous run's summary as event data.
 version: 1

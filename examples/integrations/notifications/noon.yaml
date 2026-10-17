@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
 # Per-job hook choices layered over the user-level default.
 version: 1
 

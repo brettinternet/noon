@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
 # A morning reading list and release radar, summarized by an agent.
 version: 1
 

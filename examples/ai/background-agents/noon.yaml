@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
 # Editing agents that work unattended in throwaway Git worktrees and leave a branch to review.
 version: 1
 

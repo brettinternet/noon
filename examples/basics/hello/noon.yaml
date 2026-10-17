@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
 # The smallest useful Noon project: two manual jobs and one schedule.
 # Try: noon -C examples/basics/hello list
 version: 1

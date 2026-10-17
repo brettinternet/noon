@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
 # Shared, committed jobs. Everyone who clones the repo sees these.
 version: 1
 

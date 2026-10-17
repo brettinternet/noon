@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
 # When a job fails, queue an agent to read its log and explain why.
 version: 1
 

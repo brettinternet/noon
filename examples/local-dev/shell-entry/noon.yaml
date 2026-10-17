@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
 # Run a check-in when you cd into the project. Pairs with: noon shell init <shell> --on-enter check-in
 version: 1
 
