@@ -43,6 +43,7 @@ type Job struct {
 	CWD          string
 	Env          map[string]string `json:"-"`
 	Timeout      string
+	NoopExitCode int
 	Cooldown     time.Duration
 	Requests     string
 	Overlap      string
@@ -249,6 +250,17 @@ func jobEnabled(file, path string, node *yaml.Node) (bool, error) {
 	return value, nil
 }
 
+func jobNoopExitCode(file, path string, node *yaml.Node) (int, error) {
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!int" {
+		return 0, jobError(file, node, path, "must be an integer from 1 to 124")
+	}
+	var code int
+	if err := node.Decode(&code); err != nil || code < 1 || code > 124 {
+		return 0, jobError(file, node, path, "must be an integer from 1 to 124")
+	}
+	return code, nil
+}
+
 func BuiltInAgents() map[string]AgentProfile {
 	return map[string]AgentProfile{
 		"claude":   {Command: []string{"claude", "-p", "--permission-prompts", "none"}, Prompt: "stdin"},
@@ -380,6 +392,12 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				return Job{}, err
 			}
 			job.Run, execution[key] = run, run
+		case "noop_exit_code":
+			code, err := jobNoopExitCode(file, field, value)
+			if err != nil {
+				return Job{}, err
+			}
+			job.NoopExitCode, execution[key] = code, code
 		case "on_success", "on_failure":
 			command, err := parseCommand(file, field, value, true)
 			if err != nil {
@@ -554,6 +572,9 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 	}
 	if actions != 1 {
 		return Job{}, jobError(file, node, path, "exactly one of run, prompt, or prompt_file is required")
+	}
+	if value := fields["noop_exit_code"]; value != nil && job.Run == nil {
+		return Job{}, jobError(file, value, path+".noop_exit_code", "only valid for run jobs")
 	}
 	if job.Requests == "each" && fields["cooldown"] != nil {
 		return Job{}, jobError(file, fields["cooldown"], path+".cooldown", "cannot be used with requests: each")

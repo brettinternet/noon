@@ -138,7 +138,7 @@ func TestHistoryAndLogs(t *testing.T) {
 			t.Fatalf("repeated status filter: exit=%d history=%+v", code, repeatedStatuses)
 		}
 		code, invalidStatus := invoke(t, "history", "--status", "bogus", "--json")
-		if code != 2 || invalidStatus["error"].(map[string]any)["code"] != "usage" || !strings.Contains(invalidStatus["error"].(map[string]any)["hint"].(string), "queued, running, succeeded, failed") || !strings.Contains(invalidStatus["error"].(map[string]any)["hint"].(string), "expired") {
+		if code != 2 || invalidStatus["error"].(map[string]any)["code"] != "usage" || !strings.Contains(invalidStatus["error"].(map[string]any)["hint"].(string), "queued, running, succeeded, noop, failed") || !strings.Contains(invalidStatus["error"].(map[string]any)["hint"].(string), "expired") {
 			t.Fatalf("invalid status did not list valid values: exit=%d error=%+v", code, invalidStatus)
 		}
 		code, invalidLimit := invoke(t, "history", "--limit", "51", "--json")

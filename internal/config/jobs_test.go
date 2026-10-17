@@ -2,7 +2,9 @@ package config_test
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -10,7 +12,42 @@ import (
 	"time"
 
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/google/jsonschema-go/jsonschema"
 )
+
+func TestNoopExitCodeSchemaRange(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "noon.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := func(value any) map[string]any {
+		return map[string]any{"jobs": map[string]any{"poll": map[string]any{"run": "true", "noop_exit_code": value}}}
+	}
+	for _, code := range []float64{1, 124} {
+		if err := resolved.Validate(instance(code)); err != nil {
+			t.Errorf("schema rejected valid noop_exit_code %v: %v", code, err)
+		}
+	}
+	for _, code := range []any{float64(0), float64(125), float64(128), float64(256), "78"} {
+		if err := resolved.Validate(instance(code)); err == nil {
+			t.Errorf("schema accepted invalid noop_exit_code %v", code)
+		}
+	}
+	if err := resolved.Validate(map[string]any{"jobs": map[string]any{"review": map[string]any{"prompt": "review"}}}); err != nil {
+		t.Fatalf("schema rejected control prompt job: %v", err)
+	}
+	if err := resolved.Validate(map[string]any{"jobs": map[string]any{"review": map[string]any{"prompt": "review", "noop_exit_code": float64(78)}}}); err == nil {
+		t.Fatal("schema accepted noop_exit_code on a prompt job")
+	}
+}
 
 func TestLoadJobs(t *testing.T) {
 	t.Parallel()
@@ -65,6 +102,17 @@ func TestLoadJobs(t *testing.T) {
 				t.Fatalf("requests = %q, want each", got)
 			}
 		}},
+		{name: "noop exit code", shared: "jobs:\n  tests:\n    run: 'true'\n    noop_exit_code: 78\n", check: func(t *testing.T, c config.Config) {
+			if got := c.Jobs["tests"].NoopExitCode; got != 78 {
+				t.Fatalf("noop_exit_code = %d, want 78", got)
+			}
+		}},
+		{name: "noop exit code zero", shared: "jobs:\n  tests:\n    run: 'true'\n    noop_exit_code: 0\n", want: "noon.yaml:4: jobs.tests.noop_exit_code: must be an integer from 1 to 124"},
+		{name: "noop exit code start failure", shared: "jobs:\n  tests:\n    run: 'true'\n    noop_exit_code: 125\n", want: "noon.yaml:4: jobs.tests.noop_exit_code: must be an integer from 1 to 124"},
+		{name: "noop exit code signal", shared: "jobs:\n  tests:\n    run: 'true'\n    noop_exit_code: 128\n", want: "noon.yaml:4: jobs.tests.noop_exit_code: must be an integer from 1 to 124"},
+		{name: "noop exit code out of range", shared: "jobs:\n  tests:\n    run: 'true'\n    noop_exit_code: 256\n", want: "noon.yaml:4: jobs.tests.noop_exit_code: must be an integer from 1 to 124"},
+		{name: "noop exit code string", shared: "jobs:\n  tests:\n    run: 'true'\n    noop_exit_code: \"78\"\n", want: "noon.yaml:4: jobs.tests.noop_exit_code: must be an integer from 1 to 124"},
+		{name: "noop exit code on prompt", shared: "jobs:\n  review:\n    prompt: review\n    agent: claude\n    noop_exit_code: 78\n", want: "noon.yaml:5: jobs.review.noop_exit_code: only valid for run jobs"},
 		{name: "invalid requests", shared: "jobs:\n  tests:\n    run: 'true'\n    requests: newest\n", want: "noon.yaml:4: jobs.tests.requests: must be merge or each"},
 		{name: "requests each conflicts with cooldown", shared: "jobs:\n  tests:\n    run: 'true'\n    requests: each\n    cooldown: 5m\n", want: "noon.yaml:5: jobs.tests.cooldown: cannot be used with requests: each"},
 		{name: "webhook", shared: "jobs: {tests: {run: 'true', webhook: {secret_env: GITHUB_SECRET}}}", check: func(t *testing.T, c config.Config) {
@@ -272,6 +320,9 @@ func TestJobDigest(t *testing.T) {
 	if mergeDigest := load("    run: 'true'\n    requests: merge\n", "{}"); mergeDigest == load("    run: 'true'\n    requests: each\n", "{}") {
 		t.Fatal("requests mode did not change digest")
 	}
+	if load(base+"    noop_exit_code: 78\n", "{}") == digest {
+		t.Fatal("noop_exit_code did not change the digest")
+	}
 	hookDefinition := "    run: echo hi\n    on_success: [notify, done]\n"
 	hookDigest := load(hookDefinition, "{}")
 	if load(strings.Replace(hookDefinition, "done", "failed", 1), "{}") == hookDigest {
@@ -344,14 +395,14 @@ func TestJobDigest(t *testing.T) {
 			t.Fatal("user-owned agent profile command changed the job digest")
 		}
 	})
-	t.Run("requested job digest preserves platform fields", func(t *testing.T) {
-		job := config.Job{Name: "tests", Run: "echo hi", OS: []string{"linux"}, Arch: []string{"amd64"}}
+	t.Run("requested job digest preserves execution fields", func(t *testing.T) {
+		job := config.Job{Name: "tests", Run: "echo hi", OS: []string{"linux"}, Arch: []string{"amd64"}, NoopExitCode: 78}
 		digest, err := config.DigestJobDefinition(job, config.BuiltInAgents(), "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := load("    run: echo hi\n    os: [linux]\n    arch: [amd64]\n", "{}"); digest != want {
-			t.Fatalf("requested platform digest = %s, want %s", digest, want)
+		if want := load("    run: echo hi\n    os: [linux]\n    arch: [amd64]\n    noop_exit_code: 78\n", "{}"); digest != want {
+			t.Fatalf("requested execution digest = %s, want %s", digest, want)
 		}
 	})
 }

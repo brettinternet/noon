@@ -41,4 +41,4 @@ while read -r run_id job status; do
 done <<EOF
 $pending
 EOF
-[ "$count" -gt 0 ] || echo "no undiagnosed failures"
+[ "$count" -gt 0 ] || { echo "no undiagnosed failures"; exit 78; }

@@ -259,7 +259,7 @@ func TestShellCompletion(t *testing.T) {
 	if got := complete("shell", "init", ""); !reflect.DeepEqual(got, []string{"bash", "zsh", "fish"}) {
 		t.Fatalf("shell names: %v", got)
 	}
-	statuses := []string{"queued", "running", "succeeded", "failed", "timed_out", "cancelled", "interrupted", "skipped", "missed", "expired"}
+	statuses := []string{"queued", "running", "succeeded", "noop", "failed", "timed_out", "cancelled", "interrupted", "skipped", "missed", "expired"}
 	if got := complete("logs", "--status", ""); !reflect.DeepEqual(got, statuses) {
 		t.Fatalf("status values: %v", got)
 	}

@@ -158,6 +158,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `description` | — | Shown by `list`, the TUI, and MCP |
 | `schedule` | manual only | Cron, macro, calendar phrase, or interval ([grammar](design.md#schedules)) |
 | `run` | — | String runs with `/bin/sh -c`; list is exact argv |
+| `noop_exit_code` | — | Integer 1–124: record a normally exited run with this code as `noop` |
 | `prompt` | — | Inline agent prompt, ≤ 64 KiB |
 | `prompt_file` | — | Prompt read when the run starts, ≤ 64 KiB |
 | `agent` | `default_agent` | Agent profile for prompt jobs |
@@ -281,7 +282,8 @@ the one `noon enable` approved. Private jobs need no approval. A local `enabled:
 the shared job's approval requirement.
 
 The digest is a SHA-256 of the job's execution fields: schedule, action, agent name, cwd, env,
-timeout, overlap, missed, cooldown, hooks, webhook, and platform constraints (`os` and `arch`). `requests` joins the digest only when
+timeout, `noop_exit_code`, overlap, missed, cooldown, hooks, webhook, and platform constraints
+(`os` and `arch`). `requests` joins the digest only when
 explicitly present, so jobs that omit it keep their existing digest and approval. Changing the
 description doesn't require re-approval. Agent profile commands and user-config hook defaults are
 yours and excluded. **The digest doesn't cover the contents of referenced scripts or prompt files.**

@@ -14,6 +14,7 @@ jobs:
 | --- | --- |
 | `succeeded` | `on_success` |
 | `failed`, `timed_out` | `on_failure` |
+| `noop` | none; it is neither success nor failure |
 | anything else | none |
 
 Like `run`, a hook is a string (`/bin/sh -c`) or an argv list. Set defaults for every job in user
@@ -87,9 +88,10 @@ Stdin is one JSON object. `run` has the same shape as `noon history --json`:
 - The first 64 KiB of its output is appended to the run log after a marker at `log.hook_offset`.
   Read one part with `noon logs RUN --section job` or `--section hook`.
 - Hooks run outside the scheduler's concurrency limits.
-- `previous_status` is the latest earlier result of the same project and job, by finish time,
-  regardless of definition changes. It may come from a run with a higher ID that finished first.
-  If Noon can't read history, it records the job's result, reports the error, and skips the hook.
+- `previous_status` is the latest earlier `succeeded`, `failed`, or `timed_out` result of the same
+  project and job, by finish time, regardless of definition changes; noops are excluded. It may come
+  from a run with a higher ID that finished first. If Noon can't read history, it records the job's
+  result, reports the error, and skips the hook.
 - Hooks are not a sandbox. They run with your permissions and inherited secrets.
 
 ## Notify on first failure and recovery

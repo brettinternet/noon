@@ -7,7 +7,7 @@ mkdir -p "$digest_dir"
 out="$digest_dir/week-$(date +%G-W%V).md"
 
 files=$(find "$NOTES_DIR" -name '*.md' -type f -mtime -7 ! -path "$digest_dir/*" | sort)
-[ -n "$files" ] || { echo "no notes changed this week"; exit 0; }
+[ -n "$files" ] || { echo "no notes changed this week"; exit 78; }
 
 {
   printf 'Summarize this week of my notes. Sections: Themes, Decisions, Open questions, Follow-ups.\n'

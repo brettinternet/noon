@@ -34,7 +34,7 @@ type runJobArgs struct {
 type listRunsArgs struct {
 	Project *string  `json:"project,omitempty" jsonschema:"absolute path of another checkout; defaults to the server's project"`
 	Job     *string  `json:"job,omitempty" jsonschema:"only runs of this job"`
-	Status  []string `json:"status,omitempty" jsonschema:"only runs with these statuses: queued, running, succeeded, failed, timed_out, cancelled, interrupted, skipped, missed, expired"`
+	Status  []string `json:"status,omitempty" jsonschema:"only runs with these statuses: queued, running, succeeded, noop, failed, timed_out, cancelled, interrupted, skipped, missed, expired"`
 	Limit   *int     `json:"limit,omitempty" jsonschema:"1 to 50 runs; default 20"`
 }
 
@@ -42,7 +42,7 @@ type getRunArgs struct {
 	RunID       *int64   `json:"run_id,omitempty" jsonschema:"run ID; pass this or job"`
 	Job         *string  `json:"job,omitempty" jsonschema:"job name; selects its newest started run; pass this or run_id"`
 	Project     *string  `json:"project,omitempty" jsonschema:"absolute checkout path; only with job"`
-	Status      []string `json:"status,omitempty" jsonschema:"only with job; select from these statuses: queued, running, succeeded, failed, timed_out, cancelled, interrupted, skipped, missed, expired"`
+	Status      []string `json:"status,omitempty" jsonschema:"only with job; select from these statuses: queued, running, succeeded, noop, failed, timed_out, cancelled, interrupted, skipped, missed, expired"`
 	WaitSeconds *int     `json:"wait_seconds,omitempty" jsonschema:"wait up to 60 seconds for the run and its hook to finish; returns early with orphaned true if their owner exited"`
 	LogBytes    *int     `json:"log_bytes,omitempty" jsonschema:"up to 65536 bytes of whole log lines; default 16384"`
 	After       *int64   `json:"after,omitempty" jsonschema:"byte offset to read from; pass the previous next to page forward"`

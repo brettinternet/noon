@@ -48,6 +48,98 @@ func TestRunColorPreservesChildOutput(t *testing.T) {
 	}
 }
 
+func TestRunNoopSemantics(t *testing.T) {
+	root := sandbox(t)
+	latestMarker := filepath.Join(root, "latest-ran")
+	latestCommand := "if [ ! -e " + strconv.Quote(latestMarker) + " ]; then touch " + strconv.Quote(latestMarker) + "; exit 0; fi; exit 78"
+	manifest := "jobs:\n" +
+		"  poll:\n    run: 'echo noop-output; exit 78'\n    noop_exit_code: 78\n    on_success: [touch, noop-success-hook]\n    on_failure: [touch, noop-failure-hook]\n" +
+		"  latest:\n    run: " + strconv.Quote(latestCommand) + "\n    noop_exit_code: 78\n" +
+		"  plain:\n    run: 'exit 78'\n" +
+		"  start_failure:\n    run: [noon-noop-missing-command]\n    noop_exit_code: 78\n"
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, stderr bytes.Buffer
+	code := cli.Run(context.Background(), []string{"noon", "run", "poll"}, config.BuildOpts{}, &out, &stderr)
+	if code != 0 || !strings.Contains(stderr.String(), "noop-output") || !strings.Contains(stderr.String(), "noop") || !strings.Contains(stderr.String(), "exit 78") {
+		t.Fatalf("human noop: exit=%d stdout=%q stderr=%q", code, &out, &stderr)
+	}
+	out.Reset()
+	stderr.Reset()
+	code = cli.Run(context.Background(), []string{"noon", "run", "poll", "--json"}, config.BuildOpts{}, &out, &stderr)
+	var jsonResult map[string]any
+	if err := json.Unmarshal(out.Bytes(), &jsonResult); err != nil {
+		t.Fatalf("noop JSON: %v stdout=%q stderr=%q", err, &out, &stderr)
+	}
+	run := jsonResult["run"].(map[string]any)
+	if code != 0 || run["status"] != "noop" || run["exit_code"] != float64(78) {
+		t.Fatalf("JSON noop: exit=%d run=%+v stderr=%q", code, run, &stderr)
+	}
+
+	for _, args := range [][]string{{"run", "latest"}, {"run", "latest"}} {
+		out.Reset()
+		stderr.Reset()
+		if code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr); code != 0 {
+			t.Fatalf("run latest %v: exit=%d stdout=%q stderr=%q", args, code, &out, &stderr)
+		}
+	}
+	out.Reset()
+	stderr.Reset()
+	if code := cli.Run(context.Background(), []string{"noon", "run", "plain"}, config.BuildOpts{}, &out, &stderr); code != 78 || !strings.Contains(stderr.String(), "failed") {
+		t.Fatalf("unconfigured exit 78: exit=%d stdout=%q stderr=%q", code, &out, &stderr)
+	}
+	out.Reset()
+	stderr.Reset()
+	code = cli.Run(context.Background(), []string{"noon", "run", "start_failure", "--json"}, config.BuildOpts{}, &out, &stderr)
+	jsonResult = nil
+	if err := json.Unmarshal(out.Bytes(), &jsonResult); err != nil {
+		t.Fatalf("start failure JSON: %v stdout=%q stderr=%q", err, &out, &stderr)
+	}
+	run = jsonResult["run"].(map[string]any)
+	if code != 127 || run["status"] != "failed" {
+		t.Fatalf("start failure with noop code: exit=%d run=%+v stderr=%q", code, run, &stderr)
+	}
+	for _, marker := range []string{"noop-success-hook", "noop-failure-hook"} {
+		if _, err := os.Stat(filepath.Join(root, marker)); !os.IsNotExist(err) {
+			t.Fatalf("noop fired %s: %v", marker, err)
+		}
+	}
+
+	code, history := invoke(t, "history", "--status", "noop", "--json")
+	if code != 0 {
+		t.Fatalf("history noop: %d %+v", code, history)
+	}
+	noops := history["runs"].([]any)
+	if len(noops) != 3 {
+		t.Fatalf("history --status noop returned %d runs, want 3: %+v", len(noops), noops)
+	}
+	for _, value := range noops {
+		if value.(map[string]any)["status"] != "noop" {
+			t.Fatalf("noop history filter included another status: %+v", value)
+		}
+	}
+	for _, command := range []string{"list", "status"} {
+		code, result := invoke(t, command, "--json")
+		if code != 0 {
+			t.Fatalf("%s: %d %+v", command, code, result)
+		}
+		for _, value := range result["jobs"].([]any) {
+			job := value.(map[string]any)
+			if job["name"] == "poll" && job["noop_exit_code"] != float64(78) {
+				t.Fatalf("%s omitted configured noop_exit_code: %+v", command, job)
+			}
+			if job["name"] == "latest" {
+				last := job["last_run"].(map[string]any)
+				if last["status"] != "succeeded" {
+					t.Fatalf("%s LAST includes noop: %+v", command, job)
+				}
+			}
+		}
+	}
+}
+
 func TestRunRejectsUnsupportedPlatform(t *testing.T) {
 	root := sandbox(t)
 	platform := config.CurrentPlatform()

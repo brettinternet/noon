@@ -19,6 +19,7 @@ jobs:
     description: Summarize new releases of the tools I depend on since the last check.
     schedule: weekdays at 9am
     run: [./scripts/release-watch.sh, watch.txt]
+    noop_exit_code: 78
     env:
       DIGEST_DIR: /Users/me/notes/digest
       AGENT_CMD: claude -p --permission-prompts none

@@ -29,7 +29,7 @@ func UsageError(message, hint string) *Error {
 }
 
 // RunStatuses lists every run status accepted by status filters.
-var RunStatuses = []string{"queued", "running", "succeeded", "failed", "timed_out", "cancelled", "interrupted", "skipped", "missed", "expired"}
+var RunStatuses = []string{"queued", "running", "succeeded", "noop", "failed", "timed_out", "cancelled", "interrupted", "skipped", "missed", "expired"}
 
 // ValidateRunStatuses checks status filters shared by CLI and MCP.
 func ValidateRunStatuses(statuses []string) error {

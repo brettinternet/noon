@@ -575,7 +575,7 @@ func (m *Model) exitCell(run app.Run) []span {
 	var spans []span
 	if run.ExitCode != nil {
 		tone := t.muted
-		if *run.ExitCode != 0 {
+		if *run.ExitCode != 0 && run.Status != "noop" {
 			tone = t.failure
 		}
 		spans = append(spans, span{strconv.Itoa(*run.ExitCode), tone})
@@ -616,7 +616,11 @@ func (m *Model) runFacts(run app.Run, now time.Time) []span {
 		facts = append(facts, span{*run.Error, t.failure})
 	}
 	if run.ExitCode != nil && *run.ExitCode != 0 {
-		facts = append(facts, span{"exit " + strconv.Itoa(*run.ExitCode), t.failure})
+		tone := t.failure
+		if run.Status == "noop" {
+			tone = t.muted
+		}
+		facts = append(facts, span{"exit " + strconv.Itoa(*run.ExitCode), tone})
 	}
 	if run.Signal != nil {
 		facts = append(facts, span{*run.Signal, t.warning})
@@ -689,7 +693,7 @@ var helpColumns = [2][]helpSection{{
 	}},
 }}
 
-var legendStatuses = []string{"succeeded", "failed", "timed_out", "running", "queued", "cancelled"}
+var legendStatuses = []string{"succeeded", "noop", "failed", "timed_out", "running", "queued", "cancelled", "skipped"}
 
 const (
 	helpKeyWidth    = 15
@@ -929,6 +933,8 @@ func (m *Model) statusIcon(status string) (string, style) {
 		return "◌", t.queued
 	case "cancelled":
 		return "⊘", t.muted
+	case "noop":
+		return "–", t.muted
 	}
 	return "–", t.muted
 }

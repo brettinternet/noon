@@ -82,6 +82,104 @@ func TestScheduledHistoryRetention(t *testing.T) {
 	}
 }
 
+func TestNoopRetentionPreservesResultsAndState(t *testing.T) {
+	state, projectID := testStore(t)
+	finishedAt := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	finishLogged := func(status string, exitCode int) Run {
+		t.Helper()
+		run := createTestRun(t, state, projectID, "poll")
+		log, err := state.RunLog(projectID, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := log.Write([]byte(status + " output\n")); err != nil {
+			t.Fatal(err)
+		}
+		logBytes, truncated, err := log.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := state.FinishRun(run.ID, projectID, run.Job, Outcome{
+			Status: status, FinishedAt: finishedAt.Add(time.Duration(run.ID) * time.Millisecond),
+			ExitCode: &exitCode, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		stored, err := state.RunByID(run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stored
+	}
+	succeeded := finishLogged("succeeded", 0)
+	failed := finishLogged("failed", 3)
+	noopIDs := make([]int64, 60)
+	for i := range noopIDs {
+		noopIDs[i] = finishLogged("noop", 78).ID
+	}
+
+	runs, err := state.RunsForJob(projectID, "poll")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 12 {
+		t.Fatalf("retained %d runs; want two results and ten noops", len(runs))
+	}
+	var retainedNoops []Run
+	for _, run := range runs {
+		if run.Status == "noop" {
+			retainedNoops = append(retainedNoops, run)
+		}
+	}
+	if len(retainedNoops) != 10 {
+		t.Fatalf("retained %d noops, want 10", len(retainedNoops))
+	}
+	for i, run := range retainedNoops {
+		wantID := noopIDs[len(noopIDs)-1-i]
+		if run.ID != wantID || !run.LogPath.Valid {
+			t.Fatalf("retained noop %d = %+v, want newest ID %d with log", i, run, wantID)
+		}
+		log, err := state.ReadRunLog(run)
+		if err != nil || string(log) != "noop output\n" {
+			t.Fatalf("retained noop log %d = %q, err=%v", run.ID, log, err)
+		}
+	}
+	for _, result := range []struct {
+		run  Run
+		want string
+	}{{succeeded, "succeeded output\n"}, {failed, "failed output\n"}} {
+		stored, err := state.RunByID(result.run.ID)
+		if err != nil || stored.Status != result.run.Status || !stored.LogPath.Valid {
+			t.Fatalf("real result %d not retained: %+v err=%v", result.run.ID, stored, err)
+		}
+		log, err := state.ReadRunLog(stored)
+		if err != nil || string(log) != result.want {
+			t.Fatalf("real result log %d = %q err=%v", stored.ID, log, err)
+		}
+	}
+	if _, err := state.RunByID(noopIDs[49]); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("older noop run %d was retained: %v", noopIDs[49], err)
+	}
+	lastSuccess, found, err := state.LastSuccess(projectID, "poll")
+	if err != nil || !found || lastSuccess != succeeded.StartedAt {
+		t.Fatalf("last success = %q found=%t err=%v, want %q", lastSuccess, found, err, succeeded.StartedAt)
+	}
+	if previous, err := state.PreviousStatus(projectID, "poll", noopIDs[59]); err != nil || previous != "failed" {
+		t.Fatalf("previous result after noops = %q err=%v, want failed", previous, err)
+	}
+	var projectPath string
+	if err := state.db.QueryRow(`SELECT path FROM projects WHERE id=?`, projectID).Scan(&projectPath); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := state.LatestRunsForProject(projectPath)
+	if err != nil || len(latest) != 1 || latest[0].ID != failed.ID || latest[0].Status != "failed" {
+		t.Fatalf("latest result = %+v err=%v, want last real failure", latest, err)
+	}
+}
+
 func deadPID(t *testing.T) int {
 	t.Helper()
 	cmd := exec.Command("sleep", "30")
@@ -309,7 +407,7 @@ VALUES(?, ?, ?, 'manual', 'old-definition', ?, ?)`, projectID, job, status, Form
 		check("timed_out")
 		insert(other, "flip", "succeeded", now.Add(time.Hour))
 		insert(project, "other", "succeeded", now.Add(time.Hour))
-		for _, status := range []string{"cancelled", "interrupted", "skipped", "missed", "expired", "queued", "running"} {
+		for _, status := range []string{"cancelled", "interrupted", "skipped", "missed", "expired", "noop", "queued", "running"} {
 			insert(project, "flip", status, now.Add(time.Hour))
 			check("timed_out")
 		}
@@ -343,7 +441,7 @@ VALUES(?, ?, ?, 'manual', 'old-definition', ?, ?)`, projectID, job, status, Form
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 9 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 10 {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		for _, statement := range []string{
@@ -466,8 +564,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 9 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 9", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 10 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 10", version, err)
 		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.LogOverflow {
@@ -523,7 +621,7 @@ VALUES(1, 'previous', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=10"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=11"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -535,8 +633,8 @@ VALUES(1, 'previous', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 10 {
-			t.Fatalf("Open error = %v, want StateTooNewError(10)", err)
+		if !errors.As(err, &newer) || newer.Version != 11 {
+			t.Fatalf("Open error = %v, want StateTooNewError(11)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {

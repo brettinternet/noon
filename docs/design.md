@@ -81,6 +81,8 @@ digests are in [Configuration](configuration.md).
 
 - `run` as a YAML string runs with `/bin/sh -c`; as a list it is exact argv. The YAML type decides,
   never punctuation.
+- `noop_exit_code` is an optional integer from 1–124 on `run` jobs only, and is included in the
+  execution digest. Without it, every nonzero exit fails as usual.
 - A private `.git/noon.yaml` job replaces the shared job wholesale. `{enabled: false}` alone toggles it off.
   There is no field-level merge.
 - Optional `os` and `arch` lists constrain execution to supported Go platforms (`darwin`/`linux`,
@@ -240,7 +242,11 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   is gone, cancellation checks process identity, terminates only a matching group, and records
   `cancelled`.
 - A run that can't start is `failed` with `env`-style codes: 127 not found, 126 not executable, 125
-  anything else (missing `cwd`, bad prompt file).
+  anything else (missing `cwd`, bad prompt file). With a configured `noop_exit_code`, a process that
+  started and exited normally with exactly that code is `noop`; timeout, cancellation, and start
+  failure are never noops. Noops retain their log, duration, and actual exit code. Foreground `noon
+  run` treats a noop as a successful command exit (0), while its summary says `noop` and JSON reports
+  the actual exit code.
 - The log interleaves stdout and stderr. The first 1 MiB is written live; after that the last 1 MiB
   is kept in memory and appended after an omission marker at exit, so `--follow` sees the head live
   and the tail at the end.
@@ -282,10 +288,14 @@ worktrees, and lets one scheduler see every enabled project.
 - `noon.db` is SQLite (WAL, busy timeout) via `modernc.org/sqlite`. Beside it: `logs/PROJECT_ID/RUN_ID.log`,
   `events/RUN_ID.json`, `locks/`, `scheduler.lock`, and the service's `scheduler.log`.
 - Migrations are an append-only list keyed by `PRAGMA user_version`, applied in one transaction. A
-  newer database is refused with an upgrade hint. Read-only commands never create state.
-- Run `status`: `queued`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`,
-  `interrupted`, `skipped`, `missed`, `expired`. Run `trigger`: `manual`, `schedule`, `catch_up`,
-  `queued`, `webhook`.
+  newer database is refused with an upgrade hint. Read-only commands never create state. State schema
+  version 10 marks the incompatible noop status and retention semantics; older binaries refuse it.
+- Run `status`: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`,
+  `interrupted`, `skipped`, `missed`, `expired`. `noop` is a terminal run status, distinct from
+  `skipped`, which means an occurrence never started because of overlap. Noops count as terminal
+  for scheduling and idempotency; they do not count as job results, fire hooks, update
+  `NOON_LAST_SUCCESS_AT`, or become a hook's `previous_status`. Run `trigger`: `manual`, `schedule`,
+  `catch_up`, `queued`, `webhook`.
 - `scheduled_at` is the occurrence a scheduled run stands for (the first missed one for `catch_up`
   and `missed`) or a queued run's due time. `idempotency_key` is unique per project and job.
   `cancel_requested_at` is a durable stop request. `depth` is the request's recursion depth
@@ -296,9 +306,10 @@ worktrees, and lets one scheduler see every enabled project.
   `cancel_requested_at`, `event_file`, `depth`, `log` (`path`, `bytes`, `truncated`, `available`,
   `hook_offset`), and `hook`. Paths are absolute; absent values are null.
 - Times are UTC text, `2006-01-02T15:04:05.000Z`, so they sort as strings.
-- Retention: newest 50 terminal runs per job; logs and event files for the newest 10. Queued and
-  running runs are never pruned. Idempotency keys and delivery IDs deduplicate only against
-  retained runs.
+- Retention: newest 50 non-noop terminal runs per job, with logs and event files for the newest 10;
+  noops have an independent budget of the newest 10 runs with their logs and event files. Noops
+  never count against the regular budgets. Queued and running runs are never pruned. Idempotency keys
+  and delivery IDs deduplicate only against retained runs.
 - Recovery: a `running` run whose owner is gone becomes `interrupted` and never re-runs. Its group is
   terminated only if the recorded PGID and leader start identity still match. Queued runs that never
   started are safe to dispatch after a restart.
@@ -311,8 +322,9 @@ No plugin system; commands are the integration boundary (decision-4).
   `NOON_*` variables; 30s timeout; 64 KiB output appended after a marker; no hooks for hooks.
   `NOON_PREVIOUS_STATUS` / `previous_status` come from one snapshot taken before the terminal
   transition releases the running slot: the same project and job's latest retained `succeeded`,
-  `failed`, or `timed_out` result by `finished_at` then ID, excluding only the current run. Digest
-  changes don't reset it. On lookup error Noon still records the job result and skips the hook.
+  `failed`, or `timed_out` result by `finished_at` then ID, excluding the current run and noops.
+  Noops never run `on_success` or `on_failure` and don't replace the previous result. Digest changes
+  don't reset it. On lookup error Noon still records the job result and skips the hook.
   Notification policy belongs in wrappers, not the core.
 - **Triggers** ([doc](triggers.md)): `noon run NAME --detach --key ID [--data JSON]`. The event file
   is written before the queued run is committed, so dispatch can't race it. Payloads are files,

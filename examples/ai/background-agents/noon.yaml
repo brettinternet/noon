@@ -17,6 +17,7 @@ jobs:
     description: Every 30 minutes on weekdays, hand the oldest task in agent-inbox/ to an agent.
     schedule: "*/30 8-18 * * 1-5"
     run: [./scripts/inbox.sh]
+    noop_exit_code: 78
     env:
       AGENT_CMD: codex exec --sandbox workspace-write -
       CHECK_CMD: make check

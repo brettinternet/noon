@@ -20,6 +20,7 @@ jobs:
   triage:
     description: Diagnose recent failed runs in this project that have no report yet. Queued by on_failure hooks.
     run: [./scripts/triage.sh]
+    noop_exit_code: 78
     env:
       AGENT_CMD: claude -p --permission-prompts none
       TRIAGE_DIR: .noon-triage
