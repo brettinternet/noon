@@ -3,10 +3,10 @@ id: NOON-49
 title: >-
   Control the scheduler remotely over an authenticated JSON API and MCP over
   HTTP
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 01:43'
-updated_date: '2026-10-17 17:20'
+updated_date: '2026-10-17 18:41'
 labels:
   - http
   - mcp
@@ -83,18 +83,34 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test PKG=./internal/cli -count=1` exits 0. With the built binary in an isolated state dir: `bin/noon serve --api-token-file F` without `--listen` exits 2; `--listen 127.0.0.1:0` with a missing file or a 31-byte token exits 1 before writing a scheduler heartbeat. Without the flag, `/v1/projects` and `/mcp` return 404 while signed webhooks and `/healthz` behave as before (existing webhook tests pass unchanged).
-- [ ] #2 `task cli:test PKG=./integration -- -run '^TestRemoteAPI$' -count=1 -v` exits 0. With the built binary, isolated HOME/XDG/state, one enabled project with job `hello` and one registered but disabled project: a missing or wrong token gets 401 on every `/v1/` route and `/mcp`; `GET /v1/projects` lists only the enabled project; queueing `hello` with `data` returns 202, and `GET /v1/runs/{id}?wait_seconds=30` returns `succeeded` with its log; cancelling an `in: 1h` run returns `cancelled`; the disabled project's ID and an unknown ID return 404; PUT/DELETE return 405 and no add, enable, approve, or pause route exists.
-- [ ] #3 The same test drives `/mcp` with the go-sdk Streamable HTTP client: `tools/list` returns the stdio tools plus `list_projects`; `run_job` with the enabled project's path, then `get_run` with `wait_seconds`, reaches `succeeded`; `list_jobs` with the disabled project's path or any other absolute path returns a `not_found` tool error, and omitting `project` returns a `usage` tool error.
-- [ ] #4 The same test proves token hygiene: the token string appears in no scheduler output, run log, event file, `noon history --json` output, or the environment of a job that runs `env`.
-- [ ] #5 `task cli:test PKG=./internal/mcp -count=1` exits 0, including `list_projects` on stdio. The README and the docs in scope describe only implemented routes and flags, and remote client setup examples are verified and recorded. `task ci` exits 0.
+- [x] #1 `task cli:test PKG=./internal/cli -count=1` exits 0. With the built binary in an isolated state dir: `bin/noon serve --api-token-file F` without `--listen` exits 2; `--listen 127.0.0.1:0` with a missing file or a 31-byte token exits 1 before writing a scheduler heartbeat. Without the flag, `/v1/projects` and `/mcp` return 404 while signed webhooks and `/healthz` behave as before (existing webhook tests pass unchanged).
+- [x] #2 `task cli:test PKG=./integration -- -run '^TestRemoteAPI$' -count=1 -v` exits 0. With the built binary, isolated HOME/XDG/state, one enabled project with job `hello` and one registered but disabled project: a missing or wrong token gets 401 on every `/v1/` route and `/mcp`; `GET /v1/projects` lists only the enabled project; queueing `hello` with `data` returns 202, and `GET /v1/runs/{id}?wait_seconds=30` returns `succeeded` with its log; cancelling an `in: 1h` run returns `cancelled`; the disabled project's ID and an unknown ID return 404; PUT/DELETE return 405 and no add, enable, approve, or pause route exists.
+- [x] #3 The same test drives `/mcp` with the go-sdk Streamable HTTP client: `tools/list` returns the stdio tools plus `list_projects`; `run_job` with the enabled project's path, then `get_run` with `wait_seconds`, reaches `succeeded`; `list_jobs` with the disabled project's path or any other absolute path returns a `not_found` tool error, and omitting `project` returns a `usage` tool error.
+- [x] #4 The same test proves token hygiene: the token string appears in no scheduler output, run log, event file, `noon history --json` output, or the environment of a job that runs `env`.
+- [x] #5 `task cli:test PKG=./internal/mcp -count=1` exits 0, including `list_projects` on stdio. The README and the docs in scope describe only implemented routes and flags, and remote client setup examples are verified and recorded. `task ci` exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Modified-file contract expansion: internal/store/events.go is authorized to accept api as an event source under the existing cli/mcp JSON validation and 256 KiB limit. Verified writeEvent currently rejects api, preventing the required JSON API queue-with-data acceptance case. Preserve truthful source attribution rather than labeling API events as mcp; verify source and persisted data in the already-required integration/remote_api_test.go. docs/design.md event-source contract will include api (already in scope).
+
+Additional modified-file deviation: integration/serve_test.go changes only the shared listener-address helper to accept both unchanged webhook-only and new API-enabled listener log prefixes. This reuses the existing helper for TestRemoteAPI without changing any existing webhook assertions. Executor made this minimal deviation before requesting approval; recorded on parent inspection. AC command correction: Go test flags require -- before -count=1; use task cli:test PKG=./internal/cli -- -count=1 and task cli:test PKG=./internal/mcp -- -count=1. Executor reports both pass, HTTP API tests pass, TestRemoteAPI passes, and task ci passes. Remote client examples verified with mise exec -- claude mcp add --help and mise exec -- codex mcp add --help. Independent security review pending.
+
+AC#1: task cli:test PKG=./internal/cli -- -count=1 -> passed (corrected argument separator); TestRemoteAPI built-binary startup cases prove exit 2 without listen, exit 1 for missing/31-byte token before heartbeat, and tokenless API/MCP 404 with signed webhooks and health preserved.
+AC#2: task cli:test PKG=./integration -- -run ^TestRemoteAPI$ -count=1 -v -> passed; authenticated routes, queue-with-data, wait/logs, cancel, disabled/unknown resources, unsupported methods/admin routes covered.
+AC#3: same TestRemoteAPI -> passed; SDK HTTP client tools, queue/wait, required project and enabled-project restrictions verified, now with public reverse-proxy Host on every MCP request.
+AC#4: same TestRemoteAPI -> passed; token absent from scheduler output, logs, event files, history JSON and job environment.
+AC#5: task cli:test PKG=./internal/mcp -- -count=1 -> passed (corrected argument separator), including stdio list_projects. README and scoped docs updated. Installed claude mcp add --help confirmed HTTP transport/header options; codex mcp add --help confirmed URL/bearer-token-env options. task ci -> passed on committed implementation and again on integrated main b65e6c9 (log /tmp/noon-49-integrated-ci.log).
+Single independent security review completed. Fixed confirmed reverse-proxy Host rejection by disabling SDK localhost protection only behind bearer authentication; integration regression passes. Also reproduced delayed MCP body plus full 60s wait failing with socket hang up; extended API-only deadline to 75s (10s body budget + 60s wait + response margin), unchanged webhook limits. Isolated /tmp/noon-49-wait-probe.js then returned HTTP 200 after 67.010s. LSP diagnostics clean for scheduler and integration edits. No tests deleted, skipped or weakened; staged scanner false positive resolved by generating a synthetic test token.
+Delivery: implementation commit b65e6c9d965caf7fe7196852b5367e42fbe31119 fast-forwarded into main after rebasing onto concurrent unrelated main commits. Worktrunk removed owned worktree and branch; Herdr cleanup hook ran. No push. No remaining blocker or resumable implementation step; final task-record commit and claim release remain.
+<!-- SECTION:NOTES:END -->
