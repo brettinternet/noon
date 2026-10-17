@@ -1,9 +1,10 @@
 ---
 id: NOON-38
 title: Add consistent short flags for everyday CLI workflows
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-16 23:22'
+updated_date: '2026-10-17 00:23'
 labels:
   - cli-ux
   - devex
@@ -36,16 +37,40 @@ Acceptance commands describe the intended implementation, not current behavior. 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:build` exits 0. In an isolated fixture, `bin/noon logs -h`, `bin/noon history -h`, `bin/noon run -h`, `bin/noon add -h` and `bin/noon -h` show the specified short forms and clear value placeholders; inspect the remaining flag inventory and record justified long-only choices.
-- [ ] #2 `task cli:test -- -run '^(TestJSONFailuresAreSingleObjects|TestValueFlagsAreNotMistakenForJSON|TestAddJobs|TestShellCompletion)$' -count=1 -v` exits 0. Extend these existing tests only where needed to prove short-form parsing does not reinterpret argv after -- or consume a value equal to -j/--json, and -j emits one JSON error object even for pre-action parse failures.
-- [ ] #3 `task test` and `task smoke` exit 0. Directly exercise equivalent long/short history and log selections, an isolated completed log with -f, add using -a/-p/-t, and -d queueing in an isolated enabled fixture without starting a scheduler. Results and safety semantics match their long forms; completion exposes the aliases.
+- [x] #1 `task cli:build` exits 0. In an isolated fixture, `bin/noon logs -h`, `bin/noon history -h`, `bin/noon run -h`, `bin/noon add -h` and `bin/noon -h` show the specified short forms and clear value placeholders; inspect the remaining flag inventory and record justified long-only choices.
+- [x] #2 `task cli:test -- -run '^(TestJSONFailuresAreSingleObjects|TestValueFlagsAreNotMistakenForJSON|TestAddJobs|TestShellCompletion)$' -count=1 -v` exits 0. Extend these existing tests only where needed to prove short-form parsing does not reinterpret argv after -- or consume a value equal to -j/--json, and -j emits one JSON error object even for pre-action parse failures.
+- [x] #3 `task test` and `task smoke` exit 0. Directly exercise equivalent long/short history and log selections, an isolated completed log with -f, add using -a/-p/-t, and -d queueing in an isolated enabled fixture without starting a scheduler. Results and safety semantics match their long forms; completion exposes the aliases.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Audit flag declarations, raw argv parsing, completion, and existing tests. 2. Add requested aliases and document intentional long-only flags; extend critical parsing regressions. 3. Run all acceptance checks and task ci, review scoped diff, commit, merge, record delivery, and clean up owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented requested aliases with explicit placeholders; addArgv and completeShell already consume alias names from declarations. jsonRequested now scopes value-taking flags to the selected command path, preserving global values after subcommands. Independent reviewer found config -p --json/-j losing JSON error output; fixed and covered alongside nested/global-value cases. No other validated findings; no tests deleted, skipped, or weakened. Source/docs stay within contract; backlog metadata is required workflow bookkeeping. No design contract changed.
+AC#1: task cli:build -> exit 0. Isolated env -i PATH="$PATH" sh /var/folders/jp/1mwx72h172955139pth4h8800000gn/T/noon-short-flags.3YoCtQBwp7/acceptance.sh -> exit 0; inspected logs/history/run/add/root -h showing aliases and N/STATUS/TEXT/NAME/DURATION placeholders. docs/cli.md records full flag inventory: config/timezone/state-dir and log context/section/path stay long to avoid collisions; timing, payload, action, scope, and service/shell side-effect flags remain explicit long forms.
+AC#2: task cli:test -- -run "^(TestJSONFailuresAreSingleObjects|TestValueFlagsAreNotMistakenForJSON|TestAddJobs|TestShellCompletion)$" -count=1 -v -> exit 0 after review correction. Existing tests extended for literal argv after --, -j/--json values, pre-action single-object errors, command-scoped invalid flags, and alias completion.
+AC#3: task test and task smoke -> exit 0, repeated through task ci on final implementation commit 97c8e32. Isolated acceptance.sh compared long/short history and logs JSON byte-for-byte, completed follow output byte-for-byte, added equivalent agent prompt/timeout jobs without running agents, and verified -d/--detach deduplicated to one queued run while scheduler stayed offline. Completion exposed every requested alias.
+Validation: task check:staged passed before implementation commit; task ci passed on 97c8e32 (security, formatting, vet, Staticcheck, tests, race, smoke). LSP root.go clean. Optional task shell:smoke passed Bash and Zsh; Fish could not execute because installed mise package has no working fish binary (shim fails under isolated HOME); no shell scripts changed and public completion tests pass. No required acceptance check is blocked. Next: merge verified implementation into main, finalize task record, clean owned worktree, release claim.
+
+Delivery complete: implementation 97c8e323d7b5568f07639fc7aef41481f1f4b123 fast-forward merged into main after rebasing onto concurrent release work. Verified-owned feat/noon-short-flags worktree and branch removed with Worktrunk; its exact Herdr workspace wET disappeared. No task-owned checkout retained; unrelated release/TUI worktrees preserved. No blocker or resumable implementation step remains.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added everyday short flags and consistent help/docs/completion. Preserved literal argv and JSON-like values; corrected command-scoped JSON error detection found by independent review. All ACs and task ci passed on 97c8e32, merged into main; owned worktree/branch/workspace cleaned. Nothing pushed.
+<!-- SECTION:FINAL_SUMMARY:END -->
