@@ -4,11 +4,12 @@ title: Build and run the docker-agent example
 status: Done
 assignee: []
 created_date: '2026-10-16 22:09'
-updated_date: '2026-10-16 23:45'
+updated_date: '2026-10-17 01:56'
 labels:
   - ops
   - integration
   - examples
+  - reviewed
 dependencies: []
 documentation:
   - docs/docker.md
@@ -73,6 +74,8 @@ AC#3: same task examples:docker-agent -> exit 0. Scheduled jobs removed from fix
 Validation: task ci -> exit 0; bash -n and git diff --check pass; Bash LSP clean, YAML diagnostics unavailable (actual Compose execution validated YAML). No tests weakened/deleted. Changes stay within allowed paths; README describes implemented credential, mount, native-install and smoke behavior. No new product/design contract.
 
 Delivery: implementation commit 7a45f58 merged into main as 67f5ea3, preserving the concurrent backlog planning commit. task ci passed on merged source. Independent reviewer completed the one general review with no validated findings. task check:staged passed. Verified session creation receipt and clean integrated worktree before Worktrunk removal; branch/worktree deleted and exact Herdr workspace wEF confirmed absent. Unrelated feat/tui-design worktree left untouched. No blockers or resumable implementation work remain; no push performed.
+
+Review 2026-10-17: the image kept a 265 MB duplicate Claude install under /root/.local after cp -L. The Dockerfile now removes installer leftovers in the same layer. TMPDIR=~/.cache/noon-smoke task examples:docker-agent passed all four PASS stages, and claude 2.1.302 still runs.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

@@ -4,10 +4,11 @@ title: Verify vendor-specific claims in the AI examples
 status: Done
 assignee: []
 created_date: '2026-10-16 22:09'
-updated_date: '2026-10-16 23:04'
+updated_date: '2026-10-17 01:56'
 labels:
   - integration
   - examples
+  - reviewed
 dependencies: []
 documentation:
   - docs/triggers.md
@@ -110,6 +111,8 @@ AC#3: first-party headless and CLI reference passages quoted above establish hea
 AC#4: task cli:test -- -run '^TestExamplesValidate$' -count=1 -v -> PASS. One direct general review of git diff -- examples/ai against this table completed; corrected overbroad Codex table guarantee and tightened test environment/output bound. Independent review launch unavailable: registry/scope conflict; no child ran. No second general review.
 
 Delivery: implementation 7c8e2a2; merged into main as 874afb7 after concurrent documentation commit 3f636ee, preserving that work. task ci passed on implementation and merged code (security/vulnerability scan, formatting/vet/staticcheck, tests, race, smoke). LSP examples_test.go clean; sh -n passed for all three changed scripts; focused gate rerun passed after review corrections. No tests removed, skipped or weakened; no core/design contract changed. NOON-33 received profile findings. Owned worktree/branch docs/noon-32 removed via Worktrunk after creation receipt and idle shell pane verification; exact Herdr workspace wE9 closed by post-remove hook. No owned checkout retained. Remaining blocker: none. No remaining item-scoped implementation step; final ledger commit and claim release complete delivery.
+
+Review 2026-10-17: fixed a regression. verify-gate exited 2 (blocking Stop) when jq was missing or session_id was invalid, with no counter, so Claude could loop forever. Before this change, a missing jq still reached the bounded counter path. Setup errors now exit 1 (non-blocking, per the hooks reference); the README and TestExampleVerifyGate expectations were updated to match. Claude 2.1.302 help confirms --safe-mode, --tools, --strict-mcp-config, and --disallowedTools. TestExampleVerifyGate/TestExamplesValidate pass.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

@@ -193,10 +193,11 @@ jobs:
 			missingJQEnv[i] = "PATH=" + bin // Contains only noon, deliberately no jq.
 		}
 	}
-	if output := run("test-session", false, 2, missingJQEnv); !strings.Contains(output, "requires jq; install jq") {
+	// Setup errors must not block: no session counter could bound the retries.
+	if output := run("test-session", false, 1, missingJQEnv); !strings.Contains(output, "requires jq; install jq") {
 		t.Fatalf("missing actionable jq error: %s", output)
 	}
-	if output := run("../invalid", false, 2, env); !strings.Contains(output, "valid session_id") {
+	if output := run("../invalid", false, 1, env); !strings.Contains(output, "valid session_id") {
 		t.Fatalf("unsafe session ID accepted: %s", output)
 	}
 }

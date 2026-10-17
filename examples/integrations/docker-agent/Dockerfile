@@ -7,6 +7,7 @@ RUN apk add --no-cache bash git github-cli jq curl libgcc libstdc++ ripgrep \
     && curl -fsSL https://claude.ai/install.sh -o /tmp/install-claude.sh \
     && bash /tmp/install-claude.sh "${CLAUDE_VERSION}" \
     && cp -L /root/.local/bin/claude /usr/local/bin/claude \
+    && rm -rf /root/.local /root/.claude /root/.claude.json /tmp/install-claude.sh \
     && mkdir -p /reports \
     && chown noon:noon /reports \
     && git config --system --add safe.directory /workspace
