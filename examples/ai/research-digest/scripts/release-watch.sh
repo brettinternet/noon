@@ -12,7 +12,7 @@ notes=$(grep -v -e '^#' -e '^$' "$watch" | while read -r repo; do
       '.[] | select(.draft | not) | select(.published_at > $since)
        | "### \($repo) \(.tag_name)\n\(.body // "" | .[0:4000])\n"'
 done)
-[ -n "$notes" ] || { echo "no releases since $since"; exit 0; }
+[ -n "$notes" ] || { echo "no releases since $since"; exit 78; }
 
 mkdir -p "$DIGEST_DIR"
 out="$DIGEST_DIR/releases-$(date +%F).md"

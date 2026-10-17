@@ -23,6 +23,7 @@ jobs:
     description: Friday summary of the notes I edited this week, written next to the notes.
     schedule: every friday at 4:30pm
     run: [./scripts/notes-digest.sh]
+    noop_exit_code: 78
     env:
       NOTES_DIR: /Users/me/notes
       MODEL: llama3.2
@@ -32,6 +33,7 @@ jobs:
     description: Morning summary of overnight Noon failures in this project, using the local model.
     schedule: weekdays at 8am
     run: [./scripts/failures-digest.sh]
+    noop_exit_code: 78
     env:
       MODEL: llama3.2
     timeout: 10m

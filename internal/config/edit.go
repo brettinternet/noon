@@ -283,6 +283,9 @@ func jobFields(job Job) map[string]any {
 		if job.Timeout != "" && job.Timeout != "1h" {
 			fields["timeout"] = job.Timeout
 		}
+		if job.NoopExitCode != 0 {
+			fields["noop_exit_code"] = job.NoopExitCode
+		}
 		if job.Overlap != "" && job.Overlap != "skip" {
 			fields["overlap"] = job.Overlap
 		}

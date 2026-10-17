@@ -107,8 +107,8 @@ Other options deliberately stay long-only:
 `status` (including bare `noon`), `list`, `history`, `doctor`, foreground-run headers and
 summaries, and CLI errors use restrained styling. Project/job names, table headers, and next-step
 commands are bold. Failures are red, attention states (such as needs approval, paused, disabled,
-and offline) yellow, running cyan, and success marks/status labels green. Paths, timestamps,
-durations, and ordinary text retain the terminal\'s default foreground; nothing is dimmed.
+and offline) yellow, running cyan, and success marks/status labels green. Noops are dimmed. Paths,
+timestamps, durations, and ordinary text retain the terminal\'s default foreground.
 Labels and symbols retain their meaning without color. Colors use the terminal\'s ANSI palette,
 not hard-coded RGB values, so their appearance follows your terminal theme.
 
@@ -164,7 +164,8 @@ A job whose `os` or `arch` constraints don't match this binary fails in foregrou
 with exit 1 and error code `unsupported_platform`; the hint names the allowed values and current
 platform. See [job platform constraints](configuration.md#jobs).
 
-`noon run NAME` exits with the job's own code instead:
+`noon run NAME` exits with the job's own code instead, except that a configured `noop_exit_code`
+matching a normal process exit records `noop` and returns 0:
 
 | Exit | Meaning |
 | --- | --- |
@@ -243,11 +244,13 @@ Queued runs are cancelled immediately. Running ones get the same TERM-then-KILL 
 ```sh
 noon history                            # newest 20 runs
 noon history tests -n 50                 # --limit 50
-noon history -s failed,timed_out          # --status failed,timed_out
+noon history -s failed,timed_out         # --status failed,timed_out
+noon history -s noop                     # only no-op polls
 ```
 
-Statuses: `queued`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`, `interrupted`,
-`skipped`, `missed`, `expired`. Repeat `--status` or comma-separate values. `history NAME` and
+Statuses: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`, `interrupted`,
+`skipped`, `missed`, `expired`. A noop is not a success or failure and does not run hooks. Repeat
+`--status` or comma-separate values. `history NAME` and
 `logs NAME` still work after a job is removed.
 
 ## Logs
@@ -256,6 +259,7 @@ Statuses: `queued`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`, 
 noon logs                         # latest started run in this project
 noon logs tests                   # latest started run of tests
 noon logs tests --status failed   # latest failure
+noon logs tests --status noop     # latest no-op poll
 noon logs 12 -f                   # --follow: wait for run 12, then stream it
 noon logs 12 -n 50                # last 50 lines
 noon logs 12 -m 'panic|FAIL' --context 3
@@ -301,13 +305,15 @@ Rules:
 - Bounded reads omit an unfinished last line of an active run. Unflagged reads include it.
 - If the run's owner exits without recording a result, `--follow` prints what's left and exits 1
   with code `orphaned`. Record it with `noon cancel RUN`. Reading never repairs or cancels runs.
-- Noon keeps logs for the newest 10 runs per job. See [limits](agents.md#limits-and-safety).
+- Noon keeps logs for the newest 10 non-noop runs and the newest 10 noops per job. See
+  [limits](agents.md#limits-and-safety).
 
 ## Status and doctor
 
 Bare `noon` and `noon status` show jobs, scheduler state, queued work, up to three notices, and
 one `Next:` step. JSON has `project`, `scheduler`, `service`, `jobs`, `queued`, `notices`, and
-`next`. `noon list` shows the same jobs with commands and next-run times.
+`next`. `noon list` shows the same jobs with commands and next-run times; its `LAST` value ignores
+noops, so a poll does not replace the latest result.
 
 Human list, history, and dashboard tables keep complete job names so similar names
 remain distinguishable and copyable. Descriptive columns shrink to the output terminal

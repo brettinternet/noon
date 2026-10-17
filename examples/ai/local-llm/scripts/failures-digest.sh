@@ -6,7 +6,7 @@ set -eu
 failures=$(noon history --status failed,timed_out --limit 50 --json |
   jq --arg since "${NOON_LAST_SUCCESS_AT:-}" '{runs: [.runs[] | select(.started_at > $since)][:10]}')
 count=$(printf '%s' "$failures" | jq '.runs | length')
-[ "$count" -gt 0 ] || { echo "no failures"; exit 0; }
+[ "$count" -gt 0 ] || { echo "no failures"; exit 78; }
 
 {
   printf 'These scheduled jobs failed. For each, give one line: job, likely cause, next step.\n'

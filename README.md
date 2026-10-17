@@ -154,7 +154,7 @@ suggests `noon --user add` without creating files.
 | `noon list` | Jobs and next run times |
 | `noon add NAME [SCHEDULE] -- CMD…` | Add a job (`--sh`, `--prompt`, `--prompt-file`, `--shared`) |
 | `noon remove NAME` | Remove a job definition; history stays |
-| `noon run NAME` | Run now in the foreground; exits with the job's code |
+| `noon run NAME` | Run now; returns 0 when `noop_exit_code` matches |
 | `noon run NAME --detach` | Queue for the scheduler (`--in 2h`, `--at 17:00`, `--key`, `--data`) |
 | `noon cancel RUN\|NAME` | Cancel queued or running work |
 | `noon pause NAME` / `resume NAME` | Stop or restart background runs of one job |

@@ -223,6 +223,90 @@ func TestServeLifecycleHooks(t *testing.T) {
 	}
 }
 
+func TestServeNoopLifecycle(t *testing.T) {
+	fixtureDir := t.TempDir()
+	failedOnce := filepath.Join(fixtureDir, "failed-once")
+	noopedOnce := filepath.Join(fixtureDir, "nooped-once")
+	run := fmt.Sprintf("if [ ! -e %s ]; then touch %s; exit 3; fi; if [ ! -e %s ]; then touch %s; exit 78; fi; exit 0",
+		shellQuote(failedOnce), shellQuote(failedOnce), shellQuote(noopedOnce), shellQuote(noopedOnce))
+	failureHook := filepath.Join(fixtureDir, "failure-hook")
+	successHook := filepath.Join(fixtureDir, "success-hook")
+	manifest := fmt.Sprintf("jobs:\n  poll:\n    schedule: every 1m\n    run: %s\n    noop_exit_code: 78\n    on_failure: %s\n    on_success: %s\n",
+		strconv.Quote(run), strconv.Quote("echo $NOON_STATUS >> "+shellQuote(failureHook)), strconv.Quote("echo $NOON_PREVIOUS_STATUS >> "+shellQuote(successHook)))
+	fixture := newServeFixture(t, manifest)
+	defer fixture.stop(t)
+	fixture.step(t, serveTestStart)
+
+	for i, expected := range []string{"failed", "noop", "succeeded"} {
+		fixture.step(t, serveTestStart.Add(time.Duration(i+1)*time.Minute))
+		wantRuns := i + 1
+		waitFor(t, func() bool {
+			runs := fixture.runs(t)
+			if len(runs) != wantRuns || runs[0].Status != expected {
+				return false
+			}
+			return expected == "noop" || (runs[0].HookStatus.Valid && runs[0].HookStatus.String == "ok")
+		})
+	}
+
+	failureData, err := os.ReadFile(failureHook)
+	if err != nil || string(failureData) != "failed\n" {
+		t.Fatalf("failure hook ran for noop: output=%q err=%v", failureData, err)
+	}
+	successData, err := os.ReadFile(successHook)
+	if err != nil || string(successData) != "failed\n" {
+		t.Fatalf("success hook did not receive last result, or ran for noop: output=%q err=%v", successData, err)
+	}
+	runs := fixture.runs(t)
+	if len(runs) != 3 || runs[0].Status != "succeeded" || runs[1].Status != "noop" || !runs[1].ExitCode.Valid || runs[1].ExitCode.Int64 != 78 || runs[2].Status != "failed" {
+		t.Fatalf("failed/noop/succeeded sequence = %+v", runs)
+	}
+}
+
+func TestServeNoopDoesNotOverrideStops(t *testing.T) {
+	command := "trap 'exit 78' TERM; while :; do sleep 0.01; done"
+	t.Run("timeout", func(t *testing.T) {
+		manifest := fmt.Sprintf("jobs:\n  poll:\n    schedule: every 1m\n    run: %s\n    timeout: 1s\n    noop_exit_code: 78\n", strconv.Quote(command))
+		fixture := newServeFixture(t, manifest)
+		defer fixture.stop(t)
+		fixture.step(t, serveTestStart)
+		fixture.step(t, serveTestStart.Add(time.Minute))
+		waitFor(t, func() bool {
+			runs := fixture.runs(t)
+			return len(runs) == 1 && runs[0].Status == "timed_out"
+		})
+	})
+
+	t.Run("cancellation", func(t *testing.T) {
+		manifest := fmt.Sprintf("jobs:\n  poll:\n    schedule: every 1m\n    run: %s\n    noop_exit_code: 78\n", strconv.Quote(command))
+		fixture := newServeFixture(t, manifest)
+		defer fixture.stop(t)
+		fixture.step(t, serveTestStart)
+		fixture.step(t, serveTestStart.Add(time.Minute))
+		waitFor(t, func() bool {
+			runs := fixture.runs(t)
+			return len(runs) == 1 && runs[0].Status == "running"
+		})
+		runID := fixture.runs(t)[0].ID
+		state, err := store.Open(fixture.stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := state.RequestCancelRun(runID, serveTestStart.Add(time.Minute)); err != nil {
+			_ = state.Close()
+			t.Fatal(err)
+		}
+		if err := state.Close(); err != nil {
+			t.Fatal(err)
+		}
+		fixture.step(t, serveTestStart.Add(time.Minute+time.Second))
+		waitFor(t, func() bool {
+			runs := fixture.runs(t)
+			return len(runs) == 1 && runs[0].Status == "cancelled"
+		})
+	})
+}
+
 func TestServePlatformEligibility(t *testing.T) {
 	mismatchMarker := filepath.Join(t.TempDir(), "unsupported-ran")
 	matchMarker := filepath.Join(t.TempDir(), "supported-ran")

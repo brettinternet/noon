@@ -5,7 +5,7 @@ set -eu
 inbox=agent-inbox
 mkdir -p "$inbox/done" "$inbox/failed"
 task=$(ls -1tr "$inbox"/*.md 2>/dev/null | head -n 1 || true)
-[ -n "$task" ] || { echo "inbox empty"; exit 0; }
+[ -n "$task" ] || { echo "inbox empty"; exit 78; }
 
 name=$(basename "$task" .md)
 printf 'task %s\n' "$name"

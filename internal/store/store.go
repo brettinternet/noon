@@ -73,6 +73,9 @@ ALTER TABLE runs ADD COLUMN event_path TEXT;
 ALTER TABLE runs ADD COLUMN depth INTEGER NOT NULL DEFAULT 0;
 `, `
 ALTER TABLE runs ADD COLUMN hook_log_offset INTEGER;
+`, `
+-- Version 10 marks noop run status and retention semantics; older binaries must refuse this state.
+SELECT 1;
 `}
 
 type Store struct {
@@ -731,19 +734,20 @@ func (s *Store) finishWithTerminalTolerance(runID, projectID int64, job string, 
 }
 
 func pruneRuns(tx *sql.Tx, dir string, projectID int64, job string) error {
-	rows, err := tx.Query(`SELECT id, log_path, event_path FROM runs WHERE project_id=? AND job=? AND status NOT IN ('queued','running') AND (hook_status IS NULL OR hook_status!='running') ORDER BY id DESC`, projectID, job)
+	rows, err := tx.Query(`SELECT id, status, log_path, event_path FROM runs WHERE project_id=? AND job=? AND status NOT IN ('queued','running') AND (hook_status IS NULL OR hook_status!='running') ORDER BY id DESC`, projectID, job)
 	if err != nil {
 		return err
 	}
 	type retained struct {
 		id        int64
+		status    string
 		logPath   sql.NullString
 		eventPath sql.NullString
 	}
 	var all []retained
 	for rows.Next() {
 		var r retained
-		if err := rows.Scan(&r.id, &r.logPath, &r.eventPath); err != nil {
+		if err := rows.Scan(&r.id, &r.status, &r.logPath, &r.eventPath); err != nil {
 			_ = rows.Close()
 			return err
 		}
@@ -754,8 +758,16 @@ func pruneRuns(tx *sql.Tx, dir string, projectID int64, job string) error {
 		return err
 	}
 	_ = rows.Close()
-	for i, r := range all {
-		if i >= 10 {
+	var regularRuns, noopRuns int
+	for _, r := range all {
+		retainedIndex, retentionLimit := regularRuns, 50
+		if r.status == "noop" {
+			retainedIndex, retentionLimit = noopRuns, 10
+			noopRuns++
+		} else {
+			regularRuns++
+		}
+		if retainedIndex >= 10 {
 			if r.logPath.Valid {
 				if err := removeLog(dir, r.logPath.String); err != nil {
 					return err
@@ -766,13 +778,13 @@ func pruneRuns(tx *sql.Tx, dir string, projectID int64, job string) error {
 					return err
 				}
 			}
-			if i < 50 {
+			if retainedIndex < retentionLimit {
 				if _, err := tx.Exec(`UPDATE runs SET log_path=NULL, event_path=NULL WHERE id=?`, r.id); err != nil {
 					return err
 				}
 			}
 		}
-		if i >= 50 {
+		if retainedIndex >= retentionLimit {
 			if _, err := tx.Exec(`DELETE FROM runs WHERE id=?`, r.id); err != nil {
 				return err
 			}
@@ -1041,9 +1053,9 @@ func (s *Store) RunsForProjectFiltered(project, job string, statuses []string, s
 	return runs, rows.Err()
 }
 
-// LatestRunsForProject returns the latest retained run per job for a canonical project path.
+// LatestRunsForProject returns the latest retained non-noop result per job for a canonical project path.
 func (s *Store) LatestRunsForProject(project string) ([]Run, error) {
-	rows, err := s.db.Query(`SELECT `+s.qualifiedRunSelectColumns()+` FROM runs JOIN projects ON projects.id=runs.project_id WHERE projects.path=? AND runs.id IN (SELECT MAX(id) FROM runs WHERE project_id=(SELECT id FROM projects WHERE path=?) GROUP BY job) ORDER BY runs.id DESC`, project, project)
+	rows, err := s.db.Query(`SELECT `+s.qualifiedRunSelectColumns()+` FROM runs JOIN projects ON projects.id=runs.project_id WHERE projects.path=? AND runs.status!='noop' AND runs.id IN (SELECT MAX(id) FROM runs WHERE project_id=(SELECT id FROM projects WHERE path=?) AND status!='noop' GROUP BY job) ORDER BY runs.id DESC`, project, project)
 	if err != nil {
 		return nil, err
 	}

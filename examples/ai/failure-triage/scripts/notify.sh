@@ -1,6 +1,5 @@
 #!/bin/sh
 # on_success hook for triage: show the newest report's one-line summary, if this run wrote one.
-grep -q '^no undiagnosed failures$' "${NOON_LOG_FILE:-/dev/null}" 2>/dev/null && exit 0
 newest=$(ls -1t "${TRIAGE_DIR:-.noon-triage}"/*.md 2>/dev/null | head -n 1)
 summary=$(head -n 1 "$newest" 2>/dev/null | cut -c 1-180)
 title="noon triage: $(basename "$NOON_PROJECT")"

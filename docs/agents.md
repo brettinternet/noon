@@ -99,9 +99,9 @@ A description guides choice; it doesn't make anything mandatory. Put requirement
 instructions such as `AGENTS.md`:
 
 > Discover jobs with MCP list_jobs or noon list --json. After changing Go code, run the verify job
-> and wait for that run to succeed before reporting completion. Never report queued, skipped, or
-> cancelled work as passed. Follow user authorization for actions with external or destructive
-> effects.
+> and wait for that run to succeed before reporting completion. Never report queued, skipped,
+> cancelled, or noop work as passed. A `noop` means no work was done; never report it as completed.
+> Follow user authorization for actions with external or destructive effects.
 
 | Step | CLI | MCP |
 | --- | --- | --- |
@@ -109,7 +109,8 @@ instructions such as `AGENTS.md`:
 | Run | `noon run verify --json` (foreground) | `run_job {"name":"verify"}` (queued) |
 | Check that run | `noon logs 12 --limit-bytes 4096 --json` | `get_run {"run_id":12,"wait_seconds":10,"log_bytes":4096}` |
 
-The CLI run returns the job's exit code. MCP only queues: the run needs enablement, approval, and
+The CLI run returns the job's exit code, except a configured `noop_exit_code` returns 0 while the
+stored run remains `noop`. MCP only queues: the run needs enablement, approval, and
 a running scheduler. Keep the returned run ID; an older successful run proves nothing about this
 one. Report hook failures separately from the job result. Don't enable projects, approve jobs, or
 start services just to unblock an agent.
@@ -202,8 +203,9 @@ CLI JSON and MCP share one run object.
 
 ## Limits and safety
 
-- Noon keeps the newest 50 finished runs per job, and logs and event files for the newest 10.
-  Queued and running runs are never pruned.
+- Noon keeps the newest 50 non-noop finished runs per job with logs and event files for the newest
+  10; noops have a separate budget of the newest 10 with logs and event files. Queued and running
+  runs are never pruned.
 - A job's log keeps the first 1 MiB and the last 1 MiB, with a marker if anything was dropped.
   Hook output adds up to 64 KiB. Dropped or pruned bytes are gone.
 - Bounded reads omit an active run's unfinished last line.

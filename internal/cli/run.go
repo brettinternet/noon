@@ -296,6 +296,8 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		status, summary = "timed_out", style.render("✗", "timed_out")+" "+displayName+" "+style.render("timed out", "timed_out")+" after "
 	case result.Cancelled:
 		status, summary = "cancelled", style.render("✗", "cancelled")+" "+displayName+" "+style.render("cancelled", "cancelled")+" after "
+	case job.NoopExitCode != 0 && result.StartError == nil && result.ExitCode == job.NoopExitCode:
+		status, summary = "noop", fmt.Sprintf("%s %s noop: exit %d after ", style.render("–", "noop"), displayName, result.ExitCode)
 	case result.ExitCode != 0:
 		status, summary = "failed", fmt.Sprintf("%s %s %s: exit %d after ", style.render("✗", "failed"), displayName, style.render("failed", "failed"), result.ExitCode)
 	}
@@ -341,6 +343,9 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		if err := emit(cmd, map[string]any{"run": app.RunFromStore(state, stored)}); err != nil {
 			return err
 		}
+	}
+	if status == "noop" {
+		return runExit(0)
 	}
 	return runExit(result.ExitCode)
 }

@@ -53,6 +53,8 @@ func (s humanStyle) render(text, role string) string {
 		if strings.HasPrefix(text, "✓") {
 			return "\x1b[32m✓\x1b[0m" + strings.TrimPrefix(text, "✓")
 		}
+	case "noop":
+		code = "2"
 	}
 	if code == "" {
 		return text

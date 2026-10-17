@@ -903,6 +903,8 @@ func executeScheduledRun(ctx context.Context, state *store.Store, run store.Run,
 		if status == "" {
 			status = "cancelled"
 		}
+	case job.NoopExitCode != 0 && result.StartError == nil && result.ExitCode == job.NoopExitCode:
+		status = "noop"
 	case result.ExitCode != 0:
 		status = "failed"
 	}

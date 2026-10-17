@@ -19,8 +19,9 @@ jobs:
     os: [linux, darwin]
     arch: [amd64, arm64]
   report:
-    description: Manual report using a shell string
-    run: "git log -5 --oneline"
+    description: Report changed files; a clean working tree means no work to report.
+    run: "if [ -z \"$(git status --porcelain)\" ]; then echo 'working tree clean'; exit 78; fi; git status --short"
+    noop_exit_code: 78
     timeout: none
   reminder:
     description: Disabled interval example

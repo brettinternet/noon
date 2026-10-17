@@ -65,6 +65,10 @@
             "required": ["requests"]
           },
           "then": { "not": { "required": ["cooldown"] } }
+        },
+        {
+          "if": { "required": ["noop_exit_code"] },
+          "then": { "required": ["run"] }
         }
       ],
       "if": { "required": ["run"] },
@@ -80,6 +84,12 @@
           "examples": ["every 30m", "weekdays at 9am", "0 6 * * 1"]
         },
         "run": { "$ref": "#/definitions/command" },
+        "noop_exit_code": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 124,
+          "description": "Exit code from 1 to 124 that a run job uses to report that it had nothing to do."
+        },
         "prompt": {
           "type": "string",
           "description": "Inline agent prompt, at most 64 KiB in UTF-8 bytes (checked by Noon)."
