@@ -1,10 +1,10 @@
 ---
 id: NOON-48
 title: Let per-event jobs queue every request as its own run
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-16 22:10'
-updated_date: '2026-10-17 17:29'
+updated_date: '2026-10-17 18:00'
 labels:
   - scheduler
   - store
@@ -70,18 +70,35 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test PKG=./internal/config -count=1` exits 0 and covers: `requests: merge` and `requests: each` parse; any other value, and `cooldown` combined with `requests: each`, fail with file:line and YAML path; a job without `requests` keeps a literal digest captured before the change.
-- [ ] #2 After `task cli:build`, in a temp Git project with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d`, a noon.yaml with `review` (`run: ["true"]`, `requests: each`) and `refresh` (`run: ["true"]`), and `bin/noon enable`: `bin/noon run review --detach --data '{"n":1}' --json` and the same with `{"n":2}` both print `created: true` with different run IDs, and each `.run.event_file` holds its own `data.n`; `--key k1` twice prints `created: true` then `created: false` with `reason: duplicate`; `bin/noon run refresh --detach --json` twice prints `created: true` then `created: false` with `reason: queued`.
-- [ ] #3 Same fixture, scheduler not running: once `review` has 20 queued runs, `bin/noon run review --detach --data '{"n":99}' --json` exits 1 with `error.code` `queue_full`; `bin/noon history review --status queued --json` still lists 20 runs, and no file under `$NOON_STATE_DIR/events` contains `99`.
-- [ ] #4 `task cli:test PKG=./internal/httpapi -count=1` exits 0 and covers, for an `each` job: two signed deliveries with distinct delivery IDs get 202 with different run IDs, a redelivery gets 200 with `reason: duplicate`, and a delivery at the cap gets 429 without creating a run. Responses for merge jobs are unchanged.
-- [ ] #5 `task cli:test PKG=./integration -- -run '^(TestExamplesValidate|TestExampleScripts)$' -count=1` exits 0: examples/jobs.yaml uses `requests` and the shipped examples keep merge semantics. The docs in scope describe both modes, payload loss under merge, the cap, and expiry. `task ci` exits 0.
+- [x] #1 `task cli:test PKG=./internal/config -count=1` exits 0 and covers: `requests: merge` and `requests: each` parse; any other value, and `cooldown` combined with `requests: each`, fail with file:line and YAML path; a job without `requests` keeps a literal digest captured before the change.
+- [x] #2 After `task cli:build`, in a temp Git project with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d`, a noon.yaml with `review` (`run: ["true"]`, `requests: each`) and `refresh` (`run: ["true"]`), and `bin/noon enable`: `bin/noon run review --detach --data '{"n":1}' --json` and the same with `{"n":2}` both print `created: true` with different run IDs, and each `.run.event_file` holds its own `data.n`; `--key k1` twice prints `created: true` then `created: false` with `reason: duplicate`; `bin/noon run refresh --detach --json` twice prints `created: true` then `created: false` with `reason: queued`.
+- [x] #3 Same fixture, scheduler not running: once `review` has 20 queued runs, `bin/noon run review --detach --data '{"n":99}' --json` exits 1 with `error.code` `queue_full`; `bin/noon history review --status queued --json` still lists 20 runs, and no file under `$NOON_STATE_DIR/events` contains `99`.
+- [x] #4 `task cli:test PKG=./internal/httpapi -count=1` exits 0 and covers, for an `each` job: two signed deliveries with distinct delivery IDs get 202 with different run IDs, a redelivery gets 200 with `reason: duplicate`, and a delivery at the cap gets 429 without creating a run. Responses for merge jobs are unchanged.
+- [x] #5 `task cli:test PKG=./integration -- -run '^(TestExamplesValidate|TestExampleScripts)$' -count=1` exits 0: examples/jobs.yaml uses `requests` and the shipped examples keep merge semantics. The docs in scope describe both modes, payload loss under merge, the cap, and expiry. `task ci` exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: task cli:test PKG=./internal/config -- -count=1 -> passed. Covers both modes, invalid value/cooldown path diagnostics, and pre-change literal digest sha256:98dc0d61f34692d1b2b36b24bf272cbcc95c4f81aa817a971f6b700d6857c9cf. Go flags use the documented -- separator.
+AC#2: task cli:build; isolated temp Git fixture /tmp/noon-48-ac.kQXBCw with HOME/XDG_CONFIG_HOME/XDG_STATE_HOME/NOON_STATE_DIR under fixture; bin/noon enable; run review --detach --data for n=1 and n=2 -> created true, IDs 1/2 and distinct event data; run review --detach --key k1 twice -> created then duplicate; run refresh --detach twice -> created then queued. All JSON assertions passed.
+AC#3: Same fixture, scheduler offline; filled review to 20; run review --detach --data n=99 --json -> exit 1, queue_full and cancel hint. history review --status queued --json -> 20; rg for n=99 in events -> no match. No extra run or payload.
+AC#4: task cli:test PKG=./internal/httpapi -- -count=1 -> passed; signed each deliveries 202/202, duplicate 200, cap 429, merge unchanged.
+AC#5: task cli:test PKG=./integration -- -run ^(TestExamplesValidate|TestExampleScripts)$ -count=1 -> passed. task ci -> passed in worktree on a4f66d4 and on main merge a1fc771, including security, formatting, vet, Staticcheck, all tests, race, smoke. Schema parses; docs cover default merge payload loss, each cap and expiry.
+Delivery: implementation a4f66d4c7188f79d4dfc9143ba2276beabb675ba merged as a1fc771ca1deaba16c777ea9875bd0147a586642. task check:staged passed before both commits. One independent reviewer pass: no validated findings. Changed files stay within contract; no test deleted, skipped or weakened. Source/test LSP diagnostics clean. Worktree, branch feat/noon-48, and exact associated Herdr workspace wFY removed and verified absent. No remaining blocker or resumable implementation step. Nothing pushed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented requests: each with atomic 20-queued-run admission, preserved default merge and existing approvals, key deduplication, queue_full CLI/MCP errors and webhook 429; updated schema, critical regressions and docs. All acceptance checks and full CI passed; merged to main and cleaned owned worktree.
+<!-- SECTION:FINAL_SUMMARY:END -->
