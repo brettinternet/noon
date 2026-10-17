@@ -4,10 +4,11 @@ title: Keep human job listings unambiguous and offer full-width inspection
 status: Done
 assignee: []
 created_date: '2026-10-16 23:22'
-updated_date: '2026-10-17 02:23'
+updated_date: '2026-10-17 02:29'
 labels:
   - cli-ux
   - devex
+  - reviewed
 dependencies: []
 modified_files:
   - internal/cli/jobs.go
@@ -61,6 +62,8 @@ Implementation plan: preserve complete escaped job identifiers in list/history/d
 AC#2: task cli:test -- -run '^(TestListJSON|TestDashboard)$' -count=1 -v and task test -> exit 0; focused TestListHumanIdentifiers covers shared-prefix collisions and wide-mode control escaping. Existing JSON shape and inspection snapshot checks preserved and extended to --wide. AC#3: task smoke -> exit 0; TestListJSON verifies wide inspection does not change files or emit environment values. docs/cli.md documents compact, wide, escaping, and redirected fallback. Source commit e98731c; task check:staged and task ci on that commit -> exit 0 (security, vet/staticcheck, full tests, race, smoke). CGO_ENABLED=0 go build -> exit 0. LSP diagnostics clean for all changed Go files. Terminal-width verification is in progress; integration pending preservation of concurrent NOON-46 edits in main.
 
 AC#1: task cli:build -> exit 0. Independent verifier used macOS script PTYs with stty cols 80 and 120 for list/history/status, plus redirected list --wide: both long-job-name-alpha and long-job-name-beta remain complete; wide schedules/commands are complete. Isolated inspection created no state before two explicit harmless printf runs; environment sentinel absent and control-escaping regression passed. Review: one independent verification/diff pass, no concrete defects. Report: /tmp/noon-44-verification.md. Main NOON-46 work committed independently; merged its changes into the task branch preserving both help updates, task ci -> exit 0 on 3d063bf. Integrated to main as d0e2ff2. No tests deleted/skipped/weakened; only documented go.mod contract expansion. Remaining delivery: owned worktree cleanup and final backlog commit; no blocker.
+
+Review fix: printBoundedRows protected only one identifier column, so history could truncate run IDs of 5+ digits (12345 -> 1...) beside long job names, leaving the ID unusable for noon logs. It now accepts several protected columns; history protects RUN and JOB. Verified with a direct render probe; task cli:test passes.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

@@ -4,10 +4,11 @@ title: Preserve invocation context in copyable next-step commands
 status: Done
 assignee: []
 created_date: '2026-10-16 23:22'
-updated_date: '2026-10-17 01:36'
+updated_date: '2026-10-17 02:29'
 labels:
   - cli-ux
   - devex
+  - reviewed
 dependencies: []
 modified_files:
   - internal/cli/**
@@ -62,6 +63,8 @@ Review: reviewer launch rejected by model scope before any child started. One lo
 Implementation/docs within file contract; backlog metadata is required delivery bookkeeping. Next: commit, CI, merge, finalize, owned worktree cleanup, release claim.
 
 Delivery: implementation commit 6371314f502fc0ef695a2516af96307bc4530715 passed task ci (security, formatting/vet/staticcheck, tests, race, smoke) on the committed tree. Fast-forward merged into main. Verified creation receipt and Worktrunk listing before removal; owned fix/noon-41-guidance worktree/branch removed with Worktrunk, corresponding Herdr workspace wF4 disappeared. Other pre-existing worktrees retained untouched. No push. No remaining item blocker or resumable implementation step.
+
+Review: guidance rewriting, shellArgument quoting, service selector handling, and log resume checked. AC#1 tests pass. Built-binary probe: project path containing an apostrophe and $(touch PWNED) plus a state dir with spaces; the resume command eval'd from another cwd read the same filtered run, and no command executed. No defects.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

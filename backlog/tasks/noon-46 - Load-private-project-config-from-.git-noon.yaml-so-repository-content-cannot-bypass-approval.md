@@ -7,10 +7,11 @@ status: Done
 assignee:
   - '@pi'
 created_date: '2026-10-17 02:05'
-updated_date: '2026-10-17 02:21'
+updated_date: '2026-10-17 02:29'
 labels:
   - security
   - config
+  - reviewed
 dependencies: []
 priority: high
 type: bug
@@ -60,6 +61,8 @@ AC#3: task cli:build -> exit 0. Isolated env -i HOME/XDG fixture /var/folders/jp
 AC#4: README, docs/configuration.md (new Private config section), docs/design.md (approval rules + security model table rows for .git/noon.yaml and in-tree .noon.yaml), docs/cli.md, docs/crontab.md, examples updated. task ci -> exit 0 on HEAD d41228e containing implementation commit 9fb3ade (security, vet, staticcheck, tests, race, smoke). Before that, govulncheck failed environmentally (binary built with go1.26.6 vs pinned go1.27.2); reinstalled with mise install -f go:golang.org/x/vuln/cmd/govulncheck@1.9.0, no repo change.
 
 Contract deviations: internal/cli/{history_test,run_test}.go use a new projectFiles helper (sandbox now has .git, and no-write checks must also see .git/noon.yaml); internal/{scheduler/queue_test,scheduler/serve_test,cronimport/cronimport_test,tui/tui_test}.go fixtures create .git; examples/basics/local-overrides/dot-noon.yaml renamed to private.yaml; repo noon.yaml comment updated. Removed tests only for removed behavior (NOON-43 .gitignore protection in init --local and add's ignore reminder; doctor local_config_ignored check); replaced with refusal-outside-Git checks. No test skipped or weakened. Concurrent agent commits (3869207 deps, d41228e README) landed in this checkout during the work; their files were not staged by this task. No push.
+
+Review: config.LocalPath resolution (dir, gitdir file, commondir; bounded reads), approval kind selection, serve reload stamps, and writers checked. Approval/CommittedDotNoon tests and go test ./internal/config pass. Built-binary probe: init --local and add from a linked worktree write main .git/noon.yaml (0600); an in-tree .noon.yaml is ignored. No defects.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
