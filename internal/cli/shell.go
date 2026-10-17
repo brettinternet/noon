@@ -110,6 +110,16 @@ func configureCompletion(root *urfave.Command, argv []string) {
 	})
 }
 
+const (
+	completionPathFile = "__NOON_COMPLETE_PATH_FILE__"
+	completionPathDir  = "__NOON_COMPLETE_PATH_DIR__"
+)
+
+type pendingCompletionValue struct {
+	flag urfave.Flag
+	name string
+}
+
 func completeShell(root, active *urfave.Command, argv []string) {
 	if len(argv) < 2 {
 		return
@@ -121,45 +131,27 @@ func completeShell(root, active *urfave.Command, argv []string) {
 	if len(args) == 0 {
 		args = []string{""}
 	}
-	prefix := args[len(args)-1]
-	selected := root
-	position := 0
-	var expectingValue bool
-	for _, arg := range args[:len(args)-1] {
-		if expectingValue {
-			expectingValue = false
-			continue
-		}
-		if arg == "--" {
-			return
-		}
-		if strings.HasPrefix(arg, "-") {
-			name, _, equal := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+	current := args[len(args)-1]
+	selected, position, pending, afterBoundary, valid := completionPosition(root, args[:len(args)-1])
+	if !valid || afterBoundary {
+		return
+	}
+	if pending.flag != nil {
+		completeFlagValue(active, pending, current)
+		return
+	}
+	if strings.HasPrefix(current, "-") {
+		name, value, equal := strings.Cut(strings.TrimLeft(current, "-"), "=")
+		if equal {
 			flag := completionFlag(selected, name)
 			if flag == nil {
 				return
 			}
-			_, boolean := flag.(*urfave.BoolFlag)
-			expectingValue = !boolean && !equal
-			continue
-		}
-		if position == 0 {
-			if next := selected.Command(arg); next != nil {
-				selected = next
-				continue
+			if _, boolean := flag.(*urfave.BoolFlag); !boolean {
+				completeFlagValue(active, pendingCompletionValue{flag: flag, name: name}, value)
+				return
 			}
 		}
-		position++
-	}
-	if expectingValue {
-		return
-	}
-	printCandidate := func(candidate string) {
-		if strings.HasPrefix(candidate, prefix) {
-			fmt.Fprintln(active.Writer, candidate)
-		}
-	}
-	if strings.HasPrefix(prefix, "-") {
 		for _, command := range selected.Lineage() {
 			for _, flag := range command.VisibleFlags() {
 				for _, name := range flag.Names() {
@@ -167,7 +159,7 @@ func completeShell(root, active *urfave.Command, argv []string) {
 					if len(name) == 1 {
 						leader = "-"
 					}
-					printCandidate(leader + name)
+					printCompletionCandidate(active, leader+name, current)
 				}
 			}
 		}
@@ -179,29 +171,67 @@ func completeShell(root, active *urfave.Command, argv []string) {
 	for _, command := range selected.Commands {
 		if !command.Hidden {
 			for _, name := range command.Names() {
-				printCandidate(name)
+				printCompletionCandidate(active, name, current)
 			}
 		}
 	}
-	switch selected.Name {
-	case "run", "pause", "resume", "remove", "history", "logs", "cancel":
-		values, err := input(active)
-		if err != nil {
+	switch selected.FullName() {
+	case "noon shell init":
+		for _, shell := range []string{"bash", "zsh", "fish"} {
+			printCompletionCandidate(active, shell, current)
+		}
+	case "noon import crontab":
+		fmt.Fprintln(active.Writer, completionPathFile)
+		printCompletionCandidate(active, "-", current)
+	case "noon run", "noon pause", "noon resume", "noon remove", "noon history", "noon logs", "noon cancel":
+		cfg, ok := completionConfig(active)
+		if !ok {
 			return
 		}
-		cfg, err := config.Load(values)
-		if err != nil {
-			return
-		}
-		names := make([]string, 0, len(cfg.Jobs))
-		for name := range cfg.Jobs {
-			names = append(names, name)
-		}
-		slices.Sort(names)
-		for _, name := range names {
-			printCandidate(name)
+		for _, name := range sortedMapKeys(cfg.Jobs) {
+			printCompletionCandidate(active, name, current)
 		}
 	}
+}
+
+func completionPosition(root *urfave.Command, args []string) (*urfave.Command, int, pendingCompletionValue, bool, bool) {
+	selected := root
+	position := 0
+	pending := pendingCompletionValue{}
+	afterBoundary := false
+	for _, arg := range args {
+		if afterBoundary {
+			continue
+		}
+		if pending.flag != nil {
+			pending = pendingCompletionValue{}
+			continue
+		}
+		if arg == "--" {
+			afterBoundary = true
+			continue
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			name, _, equal := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+			flag := completionFlag(selected, name)
+			if flag == nil {
+				return selected, position, pendingCompletionValue{}, afterBoundary, false
+			}
+			_, boolean := flag.(*urfave.BoolFlag)
+			if !boolean && !equal {
+				pending = pendingCompletionValue{flag: flag, name: name}
+			}
+			continue
+		}
+		if position == 0 {
+			if next := selected.Command(arg); next != nil {
+				selected = next
+				continue
+			}
+		}
+		position++
+	}
+	return selected, position, pending, afterBoundary, true
 }
 
 func completionFlag(cmd *urfave.Command, name string) urfave.Flag {
@@ -215,6 +245,80 @@ func completionFlag(cmd *urfave.Command, name string) urfave.Flag {
 		}
 	}
 	return nil
+}
+
+func printCompletionCandidate(cmd *urfave.Command, candidate, prefix string) {
+	if strings.HasPrefix(candidate, prefix) {
+		fmt.Fprintln(cmd.Writer, candidate)
+	}
+}
+
+func completeFlagValue(active *urfave.Command, pending pendingCompletionValue, prefix string) {
+	name := pending.name
+	if names := pending.flag.Names(); len(names) != 0 {
+		name = names[0]
+	}
+	switch name {
+	case "project":
+		fmt.Fprintln(active.Writer, completionPathDir)
+	case "config":
+		fmt.Fprintln(active.Writer, completionPathFile)
+	case "prompt-file":
+		fmt.Fprintln(active.Writer, completionPathFile)
+	case "status":
+		completeStatusValues(active.Writer, prefix)
+	case "section":
+		completeValues(active.Writer, []string{"all", "job", "hook"}, prefix)
+	case "agent":
+		if cfg, ok := completionConfig(active); ok {
+			completeValues(active.Writer, sortedMapKeys(cfg.Agents), prefix)
+		}
+	case "on-enter":
+		if cfg, ok := completionConfig(active); ok {
+			completeValues(active.Writer, sortedMapKeys(cfg.Jobs), prefix)
+		}
+	}
+}
+
+func completeValues(out io.Writer, values []string, prefix string) {
+	for _, candidate := range values {
+		if strings.HasPrefix(candidate, prefix) {
+			fmt.Fprintln(out, candidate)
+		}
+	}
+}
+
+func completeStatusValues(out io.Writer, prefix string) {
+	const statuses = "queued,running,succeeded,failed,timed_out,cancelled,interrupted,skipped,missed,expired"
+	completed := strings.Split(prefix, ",")
+	last := completed[len(completed)-1]
+	lead := strings.Join(completed[:len(completed)-1], ",")
+	if lead != "" {
+		lead += ","
+	}
+	for _, status := range strings.Split(statuses, ",") {
+		if strings.HasPrefix(status, last) {
+			fmt.Fprintln(out, lead+status)
+		}
+	}
+}
+
+func completionConfig(cmd *urfave.Command) (config.Config, bool) {
+	values, err := input(cmd)
+	if err != nil {
+		return config.Config{}, false
+	}
+	cfg, err := config.Load(values)
+	return cfg, err == nil
+}
+
+func sortedMapKeys[T any](values map[string]T) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 // os.Args is the default for callers that run NewRootCommand directly; Run

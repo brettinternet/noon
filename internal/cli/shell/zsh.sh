@@ -5,9 +5,30 @@ _noon_install() {
     autoload -Uz compinit add-zsh-hook
     (( $+functions[compdef] )) || compinit -i -D
     _noon_complete() {
+        setopt local_options extended_glob
         local -a candidates
-        candidates=("${(@f)$(command noon "${(@Q)words[@]:1:$((CURRENT-1))}" --generate-shell-completion 2>/dev/null)}")
-        (( ${#candidates} )) && compadd -- "${candidates[@]}"
+        local line path_mode
+        path_mode=
+        candidates=()
+        while IFS= read -r line; do
+            case $line in
+                __NOON_COMPLETE_PATH_FILE__) path_mode=file ;;
+                __NOON_COMPLETE_PATH_DIR__) path_mode=dir ;;
+                *) candidates+=("$line") ;;
+            esac
+        done < <(command noon "${(@Q)words[@]:1:$((CURRENT-1))}" --generate-shell-completion 2>/dev/null)
+        if [[ -n $path_mode ]]; then
+            [[ ${words[CURRENT]} == -*=* ]] && compset -P '[^=]#='
+            if [[ $path_mode == dir ]]; then
+                _files -/
+            else
+                _files
+            fi
+            (( ${#candidates} )) && compadd -- "${candidates[@]}"
+        elif (( ${#candidates} )); then
+            [[ ${words[CURRENT]} == -*=* ]] && compset -P '[^=]#='
+            compadd -- "${candidates[@]}"
+        fi
         return 0
     }
     compdef _noon_complete noon

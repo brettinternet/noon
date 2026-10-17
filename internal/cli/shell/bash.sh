@@ -3,14 +3,29 @@ _noon_saved_status=$?
 _noon_install() {
     local saved=$1 item
     _noon_complete() {
-        local line
+        local line path_mode current
         COMPREPLY=()
+        path_mode=
         while IFS= read -r line; do
-            [[ -n $line ]] && COMPREPLY+=("$line")
+            case $line in
+                __NOON_COMPLETE_PATH_FILE__) path_mode=file ;;
+                __NOON_COMPLETE_PATH_DIR__) path_mode=dir ;;
+                *) [[ -n $line ]] && COMPREPLY+=("$line") ;;
+            esac
         done < <(NOON_COMPLETION_SHELL=bash command noon "${COMP_WORDS[@]:1:COMP_CWORD}" --generate-shell-completion 2>/dev/null)
+        if [[ -n $path_mode ]]; then
+            current=${COMP_WORDS[COMP_CWORD]-}
+            [[ $current == = ]] && current=
+            [[ $current == -*=* ]] && current=${current#*=}
+            if [[ $path_mode == dir ]]; then
+                while IFS= read -r line; do COMPREPLY+=("$line"); done < <(compgen -d -- "$current")
+            else
+                while IFS= read -r line; do COMPREPLY+=("$line"); done < <(compgen -f -- "$current")
+            fi
+        fi
         return 0
     }
-    complete -F _noon_complete noon
+    complete -o filenames -F _noon_complete noon
 
     # Bash before 5.1 executes only the first PROMPT_COMMAND array element.
     # Preserve scalar scripts verbatim there; newer Bash keeps array entries.

@@ -11,7 +11,31 @@ function _noon_install
         if test -n "$current"
             set -e words[-1]
         end
-        command noon $words[2..-1] "$current" --generate-shell-completion 2>/dev/null
+        set -l path_mode
+        set -l candidates
+        for line in (command noon $words[2..-1] "$current" --generate-shell-completion 2>/dev/null)
+            switch $line
+                case __NOON_COMPLETE_PATH_FILE__
+                    set path_mode file
+                case __NOON_COMPLETE_PATH_DIR__
+                    set path_mode dir
+                case '*'
+                    set -a candidates "$line"
+            end
+        end
+        if test -n "$path_mode"
+            if string match -rq '^-+[^=]+=.*' -- "$current"
+                set current (string replace -r -- '^[^=]*=' '' "$current")
+            end
+            if test "$path_mode" = dir
+                __fish_complete_directories "$current"
+            else
+                __fish_complete_path "$current"
+            end
+            printf '%s\n' $candidates
+            return
+        end
+        printf '%s\n' $candidates
     end
     complete -c noon -e
     complete -c noon -f -a '(_noon_complete)'

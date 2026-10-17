@@ -185,6 +185,7 @@ func TestShellCompletion(t *testing.T) {
 		}
 	}
 	write(filepath.Join(root, "noon.yaml"), "jobs:\n  local-job:\n    run: [touch, EXECUTED]\n")
+	write(filepath.Join(root, "user", "noon", "config.yaml"), "agents:\n  reviewer:\n    command: [agent]\n")
 	other := filepath.Join(root, "other $(touch INJECTED)")
 	write(filepath.Join(other, "noon.yaml"), "jobs:\n  other-job:\n    run: 'true'\n")
 	explicit := filepath.Join(root, "explicit config.yaml")
@@ -220,10 +221,71 @@ func TestShellCompletion(t *testing.T) {
 			t.Fatalf("short flag consumed selector %q: %v", args, got)
 		}
 	}
-	for _, args := range [][]string{{"add", "-p", ""}, {"add", "-a", ""}, {"add", "-t", ""}, {"history", "-n", ""}, {"logs", "-s", ""}, {"add", "--", "-j", ""}} {
+	for _, args := range [][]string{{"add", "-p", ""}, {"add", "-t", ""}, {"history", "-n", ""}, {"run", "--key", ""}, {"add", "--", "-j", ""}, {"run", "--", "local-job", ""}} {
 		if got := complete(args...); len(got) != 0 {
 			t.Fatalf("completed a value or literal argv %q: %v", args, got)
 		}
+	}
+	if got := complete("add", "-a", ""); !reflect.DeepEqual(got, []string{"claude", "codex", "reviewer"}) {
+		t.Fatalf("agent profiles: %v", got)
+	}
+	if got := complete("add", "--agent=rev"); !reflect.DeepEqual(got, []string{"reviewer"}) {
+		t.Fatalf("equals agent profile: %v", got)
+	}
+	for _, args := range [][]string{{"add", "--prompt-file", ""}, {"add", "--prompt-file="}} {
+		if got := complete(args...); !reflect.DeepEqual(got, []string{"__NOON_COMPLETE_PATH_FILE__"}) {
+			t.Fatalf("prompt-file path marker %q: %v", args, got)
+		}
+	}
+	if got := complete("--project", ""); !reflect.DeepEqual(got, []string{"__NOON_COMPLETE_PATH_DIR__"}) {
+		t.Fatalf("project directory marker: %v", got)
+	}
+	for _, args := range [][]string{{"--project=."}, {"-C=."}} {
+		if got := complete(args...); !reflect.DeepEqual(got, []string{"__NOON_COMPLETE_PATH_DIR__"}) {
+			t.Fatalf("equals project directory marker %q: %v", args, got)
+		}
+	}
+	if got := complete("--config", ""); !reflect.DeepEqual(got, []string{"__NOON_COMPLETE_PATH_FILE__"}) {
+		t.Fatalf("config path marker: %v", got)
+	}
+	if got := complete("run", "--config="); !reflect.DeepEqual(got, []string{"__NOON_COMPLETE_PATH_FILE__"}) {
+		t.Fatalf("equals config path marker: %v", got)
+	}
+	if got := complete("import", "crontab", ""); !reflect.DeepEqual(got, []string{"__NOON_COMPLETE_PATH_FILE__", "-"}) {
+		t.Fatalf("crontab path: %v", got)
+	}
+	if got := complete("shell", "init", ""); !reflect.DeepEqual(got, []string{"bash", "zsh", "fish"}) {
+		t.Fatalf("shell names: %v", got)
+	}
+	statuses := []string{"queued", "running", "succeeded", "failed", "timed_out", "cancelled", "interrupted", "skipped", "missed", "expired"}
+	if got := complete("logs", "--status", ""); !reflect.DeepEqual(got, statuses) {
+		t.Fatalf("status values: %v", got)
+	}
+	for _, args := range [][]string{{"history", "-s", "fa"}, {"logs", "--status=fa"}, {"logs", "-s=fa"}} {
+		if got := complete(args...); !reflect.DeepEqual(got, []string{"failed"}) {
+			t.Fatalf("status prefix %q: %v", args, got)
+		}
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"history", "--status", "failed,que"}, "failed,queued"},
+		{[]string{"logs", "--status=failed,que"}, "failed,queued"},
+		{[]string{"logs", "--status", "failed", "-s", "que"}, "queued"},
+	} {
+		if got := complete(tc.args...); !reflect.DeepEqual(got, []string{tc.want}) {
+			t.Fatalf("comma/repeated status %q: %v", tc.args, got)
+		}
+	}
+	if got := complete("logs", "--section", ""); !reflect.DeepEqual(got, []string{"all", "job", "hook"}) {
+		t.Fatalf("log sections: %v", got)
+	}
+	if got := complete("logs", "--section=ho"); !reflect.DeepEqual(got, []string{"hook"}) {
+		t.Fatalf("equals log section: %v", got)
+	}
+	if got := complete("shell", "init", "--on-enter", ""); !reflect.DeepEqual(got, []string{"local-job"}) {
+		t.Fatalf("entry job names: %v", got)
 	}
 	for _, command := range []string{"run", "pause", "resume", "remove", "rm", "history", "logs", "cancel"} {
 		if got := complete(command, "local"); !reflect.DeepEqual(got, []string{"local-job"}) {
@@ -239,7 +301,7 @@ func TestShellCompletion(t *testing.T) {
 			t.Fatalf("extra selector: %v", got)
 		}
 	}
-	for _, args := range [][]string{{"add", ""}, {"run", "--key", ""}, {"run", "--key", "loc"}, {"run", "--key=loc"}, {"run", "--config", ""}, {"run", "--", "local-job", ""}, {"service", "install", ""}, {"enable", ""}, {"init", ""}, {"shell", "entry", ""}} {
+	for _, args := range [][]string{{"add", ""}, {"run", "--key", ""}, {"run", "--key", "loc"}, {"run", "--key=loc"}, {"run", "--", "local-job", ""}, {"service", "install", ""}, {"enable", ""}, {"init", ""}, {"shell", "entry", ""}} {
 		if got := complete(args...); len(got) != 0 {
 			t.Fatalf("unexpected candidates %q: %v", args, got)
 		}
@@ -254,13 +316,19 @@ func TestShellCompletion(t *testing.T) {
 	_ = os.Unsetenv("NOON_PROJECT")
 	// Real Bash COMP_WORDS retains quote syntax and splits --flag=value.
 	t.Setenv("NOON_COMPLETION_SHELL", "bash")
-	for _, args := range [][]string{
-		{"-C", triggerShellQuote(other), "run", ""},
-		{"--project", "=", triggerShellQuote(other), "run", ""},
-		{"-C", strings.ReplaceAll(strings.ReplaceAll(other, " ", "\\ "), "$", "\\$"), "run", ""},
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-C", triggerShellQuote(other), "run", ""}, "other-job"},
+		{[]string{"--project", "=", triggerShellQuote(other), "run", ""}, "other-job"},
+		{[]string{"-C", "=", triggerShellQuote(other), "run", ""}, "other-job"},
+		{[]string{"--config=" + triggerShellQuote(explicit), "run", ""}, "explicit-job"},
+		{[]string{"--config", "=", triggerShellQuote(explicit), "run", ""}, "explicit-job"},
+		{[]string{"-C", strings.ReplaceAll(strings.ReplaceAll(other, " ", "\\ "), "$", "\\$"), "run", ""}, "other-job"},
 	} {
-		if got := complete(args...); !reflect.DeepEqual(got, []string{"other-job"}) {
-			t.Fatalf("quoted Bash argv %q: %v", args, got)
+		if got := complete(tc.args...); !reflect.DeepEqual(got, []string{tc.want}) {
+			t.Fatalf("quoted Bash argv %q: %v", tc.args, got)
 		}
 	}
 	_ = os.Unsetenv("NOON_COMPLETION_SHELL")
@@ -270,6 +338,15 @@ func TestShellCompletion(t *testing.T) {
 	}
 	if !slices.Contains(complete("run", "--d"), "--detach") || !slices.Contains(complete(""), "run") {
 		t.Fatal("broken config suppressed static completion")
+	}
+	if got := complete("shell", "init", ""); !reflect.DeepEqual(got, []string{"bash", "zsh", "fish"}) {
+		t.Fatalf("broken config suppressed shell names: %v", got)
+	}
+	if got := complete("logs", "--status", ""); !reflect.DeepEqual(got, statuses) {
+		t.Fatalf("broken config suppressed statuses: %v", got)
+	}
+	if got := complete("logs", "--section", ""); !reflect.DeepEqual(got, []string{"all", "job", "hook"}) {
+		t.Fatalf("broken config suppressed sections: %v", got)
 	}
 	for _, args := range [][]string{{"shell"}, {"shell", "init"}, {"shell", "--help"}, {"shell", "init", "bash"}, {"shell", "init", "zsh", "--on-enter", "entry"}, {"shell", "init", "fish"}} {
 		if code, out, stderr := triggerCLI(t, args...); code != 0 || len(out) == 0 || len(stderr) != 0 {
@@ -281,7 +358,7 @@ func TestShellCompletion(t *testing.T) {
 			t.Fatalf("invalid init %q: %d", args, code)
 		}
 	}
-	for _, name := range []string{"state", "user", "EXECUTED", "INJECTED"} {
+	for _, name := range []string{"state", "EXECUTED", "INJECTED"} {
 		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
 			t.Fatalf("completion/init created %s: %v", name, err)
 		}

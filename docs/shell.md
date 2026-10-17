@@ -24,12 +24,24 @@ eval "$(noon shell init zsh)"       # ~/.zshrc
 noon shell init fish | source       # ~/.config/fish/config.fish
 ```
 
-Completion covers commands, aliases, flags, and current job names for `run`, `pause`, `resume`,
-`remove`, `history`, `logs`, and `cancel`. It respects `-C` and `--config`. It only reads config:
-no jobs, state, network, or services. Broken config hides job names but not commands.
+Completion covers commands, aliases, flags, the `bash`, `zsh`, and `fish` shell names, and current
+job names for `run`, `pause`, `resume`, `remove`, `history`, `logs`, and `cancel`. `add --agent`
+completes configured agent profiles; `shell init --on-enter` completes job names. `history` and
+`logs` status filters complete valid statuses, including comma-separated or repeated values, and
+`logs --section` completes `all`, `job`, and `hook`. These value completions support separate
+arguments and `--flag=value`, including short aliases. Completion respects `-C` and `--config`.
+
+The shells use native filesystem completion for project directories (`-C` / `--project`), config
+files, `add --prompt-file` paths, and `import crontab FILE`. Quoting and paths containing spaces or
+shell metacharacters remain argument data; completion never evaluates them. After `--`, Noon
+suggests no commands, flags, or job names. It only reads configuration to list jobs or agents: no
+jobs run, no state or database is opened or created, and no network or services are used. Broken
+config hides config-derived names but leaves static command, flag, shell, status, and section
+completion available.
+
 Short flags are included: for example, `noon logs -<TAB>` offers `-f`, `-s`, `-n`, `-c`,
 `-m`, `-b`, and global aliases. The [short-flag mapping](cli.md#short-flags) is shared with
-command help. Completion does not suggest job names while a flag needs a value or after `--`.
+command help.
 
 Bash 3.2+ works without the bash-completion package. Zsh uses its bundled completion system and
 writes no compdump. No Python, Node, or jq is needed.
