@@ -78,6 +78,16 @@ $ noon --json run nope
 
 Read-only commands never create the state directory.
 
+Without a target, `run`, `remove`, `pause`, and `resume` list candidates or explain how
+to add a job; they never select the only job automatically. `cancel` lists active runs.
+Empty history/logs point to `noon run` to list runnable jobs. `add` and `import crontab`
+print examples, `service` shows status, and `shell init` shows explicit sourcing commands
+for Bash, Zsh, and Fish. These inspections exit 0 without changing jobs or starting services.
+Logs still default to the latest run when one exists.
+
+`noon remove NAME` confirms the job and definition file removed; history remains queryable
+with `noon history NAME` and `noon logs RUN`. Its JSON result contains `removed` and `file`.
+
 ## Run now
 
 `noon run NAME` runs in the foreground, without a scheduler or approval. Job stdout goes to stdout

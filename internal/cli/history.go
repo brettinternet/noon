@@ -47,7 +47,7 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 		} else if job != "" {
 			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: noon run %s\n", job, job)
 		} else {
-			fmt.Fprintln(cmd.Writer, "No runs yet.")
+			fmt.Fprintln(cmd.Writer, "No runs yet. Next: noon run (list jobs to run)")
 		}
 		return nil
 	}
@@ -261,7 +261,7 @@ func noRuns(cmd *urfave.Command, job string, statuses []string) error {
 	} else if job != "" {
 		fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: noon run %s\n", job, job)
 	} else {
-		fmt.Fprintln(cmd.Writer, "No runs yet.")
+		fmt.Fprintln(cmd.Writer, "No runs yet. Next: noon run (list jobs to run)")
 	}
 	return nil
 }

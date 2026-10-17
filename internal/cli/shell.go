@@ -43,6 +43,17 @@ func supportedShell(shell string) bool { return shell == "bash" || shell == "zsh
 var shellJobName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 func shellInit(_ context.Context, cmd *urfave.Command) error {
+	if cmd.Args().Len() == 0 && !cmd.IsSet("on-enter") {
+		if cmd.Bool("json") {
+			return emit(cmd, map[string]any{"shells": []string{"bash", "zsh", "fish"}})
+		}
+		fmt.Fprintln(cmd.Writer, `Choose your shell; source the output explicitly:
+  Bash (~/.bashrc): eval "$(noon shell init bash)"
+  Zsh (~/.zshrc): eval "$(noon shell init zsh)"
+  Fish (~/.config/fish/config.fish): noon shell init fish | source
+No startup files are changed. No shell is selected automatically.`)
+		return nil
+	}
 	if cmd.Args().Len() != 1 || !supportedShell(cmd.Args().First()) || cmd.Bool("json") {
 		return usageError("use noon shell init bash|zsh|fish [--on-enter JOB] (without --json)", "")
 	}

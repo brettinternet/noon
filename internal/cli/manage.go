@@ -340,9 +340,7 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 		if cmd.Bool("json") {
 			return emit(cmd, map[string]any{"jobs": names})
 		}
-		for _, name := range names {
-			fmt.Fprintln(cmd.Writer, name)
-		}
+		printJobCandidates(cmd, names)
 		return nil
 	}
 	if len(args) != 1 {
@@ -419,8 +417,20 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"removed": args[0], "file": file})
 	}
+	fmt.Fprintf(cmd.Writer, "Removed %s from %s. History is retained.\n", args[0], file)
 	return nil
 }
+func printJobCandidates(cmd *urfave.Command, names []string) {
+	if len(names) == 0 {
+		fmt.Fprintln(cmd.Writer, "No jobs. Next: noon add tests -- go test ./...")
+		return
+	}
+	fmt.Fprintf(cmd.Writer, "Choose a job: noon %s NAME\n", cmd.Name)
+	for _, name := range names {
+		fmt.Fprintf(cmd.Writer, "  noon %s %s\n", cmd.Name, name)
+	}
+}
+
 func hasJobInFile(_ config.Input, file, name string) bool {
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -451,9 +461,7 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 		if cmd.Bool("json") {
 			return emit(cmd, map[string]any{"jobs": names})
 		}
-		for _, name := range names {
-			fmt.Fprintln(cmd.Writer, name)
-		}
+		printJobCandidates(cmd, names)
 		return nil
 	}
 	if len(args) != 1 {

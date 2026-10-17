@@ -271,12 +271,12 @@ func TestShellCompletion(t *testing.T) {
 	if !slices.Contains(complete("run", "--d"), "--detach") || !slices.Contains(complete(""), "run") {
 		t.Fatal("broken config suppressed static completion")
 	}
-	for _, args := range [][]string{{"shell"}, {"shell", "--help"}, {"shell", "init", "bash"}, {"shell", "init", "zsh", "--on-enter", "entry"}, {"shell", "init", "fish"}} {
+	for _, args := range [][]string{{"shell"}, {"shell", "init"}, {"shell", "--help"}, {"shell", "init", "bash"}, {"shell", "init", "zsh", "--on-enter", "entry"}, {"shell", "init", "fish"}} {
 		if code, out, stderr := triggerCLI(t, args...); code != 0 || len(out) == 0 || len(stderr) != 0 {
 			t.Fatalf("init/help %q: %d %s %s", args, code, out, stderr)
 		}
 	}
-	for _, args := range [][]string{{"shell", "init"}, {"shell", "init", "sh"}, {"shell", "init", "bash", "extra"}, {"shell", "init", "bash", "--on-enter", "$(touch INJECTED)"}, {"shell", "init", "bash", "--on-enter", ""}, {"shell", "init", "bash", "--json"}} {
+	for _, args := range [][]string{{"shell", "init", "--on-enter", "entry"}, {"shell", "init", "sh"}, {"shell", "init", "bash", "extra"}, {"shell", "init", "bash", "--on-enter", "$(touch INJECTED)"}, {"shell", "init", "bash", "--on-enter", ""}, {"shell", "init", "bash", "--json"}} {
 		if code, _, _ := triggerCLI(t, args...); code != 2 {
 			t.Fatalf("invalid init %q: %d", args, code)
 		}

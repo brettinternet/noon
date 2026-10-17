@@ -1,5 +1,6 @@
 # Shell setup
 
+`noon shell init` lists supported shells and sourcing commands, exits 0, and never guesses your shell.
 `noon shell init SHELL` prints code for you to source. It never edits startup files, creates
 state, enables a project, or starts a scheduler.
 

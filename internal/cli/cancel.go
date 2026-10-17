@@ -35,7 +35,7 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 			return emit(cmd, map[string]any{"runs": runs})
 		}
 		if len(runs) == 0 {
-			fmt.Fprintln(cmd.Writer, "No active runs.")
+			fmt.Fprintln(cmd.Writer, "No active runs. Next: noon run (list jobs to run)")
 			return nil
 		}
 		for _, run := range runs {

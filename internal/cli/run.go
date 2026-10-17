@@ -77,7 +77,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 			return emit(cmd, map[string]any{"jobs": jobs})
 		}
 		if len(jobs) == 0 {
-			fmt.Fprintln(cmd.Writer, "No runnable jobs. Add a job to noon.yaml.")
+			fmt.Fprintln(cmd.Writer, "No runnable jobs. Next: noon add tests -- go test ./...")
 		}
 		for _, job := range jobs {
 			fmt.Fprintf(cmd.Writer, "%s  %s\n", job["name"], cell(job["description"], 60))

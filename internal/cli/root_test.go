@@ -203,6 +203,60 @@ func TestInspectionDoesNotWriteOrExecute(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("inspection created files: %v", entries)
 	}
+	// A missing target must never select the only job or install/start a service.
+	fakeBin := filepath.Join(root, "bin")
+	if err := os.Mkdir(fakeBin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"launchctl", "systemctl", "loginctl"} {
+		if err := os.WriteFile(filepath.Join(fakeBin, name), []byte("#!/bin/sh\ncase \"$*\" in\n  print\\ *) echo 'Could not find service'; exit 1 ;;\n  '--user show-environment') exit 0 ;;\n  '--user is-active '*) echo inactive; exit 3 ;;\n  'show-user '*) echo no; exit 0 ;;\nesac\ntouch \"$HOME/SERVICE_CALLED\"\nexit 1\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	snapshot := func() map[string]string {
+		t.Helper()
+		files := map[string]string{}
+		if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				files[path] = "<directory>"
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			files[path] = string(data)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return files
+	}
+	for _, populated := range []bool{false, true} {
+		if populated {
+			manifest := "jobs:\n  only-job:\n    run: touch EXECUTED\n    on_success: touch HOOK_EXECUTED\n"
+			if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		before := snapshot()
+		for _, args := range [][]string{{}, {"run"}, {"add"}, {"remove"}, {"pause"}, {"resume"}, {"cancel"}, {"history"}, {"logs"}, {"service"}, {"import", "crontab"}, {"shell", "init"}} {
+			for _, jsonMode := range []bool{false, true} {
+				argv := append([]string{"noon"}, args...)
+				if jsonMode {
+					argv = append(argv, "--json")
+				}
+				var out, stderr bytes.Buffer
+				if code := cli.Run(context.Background(), argv, config.BuildOpts{}, &out, &stderr); code != 0 || out.Len() == 0 || stderr.Len() != 0 {
+					t.Fatalf("populated=%v %v: exit=%d stdout=%s stderr=%s", populated, argv, code, &out, &stderr)
+				}
+				if !reflect.DeepEqual(before, snapshot()) {
+					t.Fatalf("populated=%v %v changed files or executed work", populated, argv)
+				}
+			}
+		}
+	}
 }
 
 // Guard against executing a manifest during inspection, leaking secrets, or
