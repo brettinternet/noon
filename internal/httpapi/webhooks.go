@@ -150,6 +150,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "job needs approval"})
 			case "not_found":
 				http.NotFound(w, r)
+			case "queue_full":
+				writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "job queue is full"})
 			default:
 				http.Error(w, "request could not be queued", http.StatusInternalServerError)
 			}

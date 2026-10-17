@@ -68,9 +68,11 @@ is validated by `integration/examples_test.go`.
 
 - **Failure is the alarm.** Report-style jobs exit non-zero when something needs attention and
   let an `on_failure` hook notify you.
-- **Triggers are wake-ups; scripts reconcile.** A request that arrives while a run of the same job
-  is already waiting is merged into that run, and its payload is not kept. Jobs that must handle
-  every event (PR review, failure triage) list what still needs work and record what they did.
+- **Triggers are wake-ups by default.** `requests: merge` (the default used by the shipped
+  examples) merges a due-now request into an existing queued run and drops the new payload, so jobs
+  should reconcile current state. Opt into `requests: each` when each event needs its own run and
+  payload; due-now each requests are capped at 20 queued runs per job, and overdue work expires
+  after an hour. Jobs that cannot miss events should still reconcile outstanding work.
 - **Gather deterministically, summarize with a model.** AI scripts collect facts themselves and
   give the model no tools, so untrusted input (logs, PR text, feeds) cannot make it act.
 - **Unattended means non-interactive.** Agent profiles deny or pre-approve permissions; none can

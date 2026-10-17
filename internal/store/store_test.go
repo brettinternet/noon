@@ -3,12 +3,14 @@ package store
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -104,6 +106,156 @@ func waitForFile(t *testing.T, path string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("file %q was not created", path)
+}
+
+func TestQueueRunEachRequestsAndCap(t *testing.T) {
+	s, projectID := testStore(t)
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	var projectPath string
+	if err := s.db.QueryRow(`SELECT path FROM projects WHERE id=?`, projectID).Scan(&projectPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnableProject(projectPath, nil, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	queue := func(job string, requestEach, coalesce bool, key string, dueAt time.Time, n int) (QueueRunResult, error) {
+		t.Helper()
+		data := []byte(fmt.Sprintf(`{"n":%d}`, n))
+		return s.QueueRun(QueueRunInput{
+			ProjectID: projectID, Job: job, Digest: "test", IdempotencyKey: key,
+			RequestedBy: "test", DueAt: dueAt, Now: now, JobExists: true, JobEnabled: true,
+			Coalesce: coalesce, RequestsEach: requestEach, EventData: data, EventSource: "cli",
+		})
+	}
+	readEventValue := func(run Run) float64 {
+		t.Helper()
+		path, ok := s.EventFilePath(run)
+		if !ok {
+			t.Fatalf("run %d has no event file", run.ID)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var event struct {
+			Data map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal(data, &event); err != nil {
+			t.Fatal(err)
+		}
+		value, ok := event.Data["n"].(float64)
+		if !ok {
+			t.Fatalf("event data = %+v", event.Data)
+		}
+		return value
+	}
+
+	mergedFirst, err := queue("merge", false, true, "", now, 1)
+	if err != nil || !mergedFirst.Created {
+		t.Fatalf("first merge request: %+v err=%v", mergedFirst, err)
+	}
+	mergedSecond, err := queue("merge", false, true, "", now, 2)
+	if err != nil || mergedSecond.Created || mergedSecond.Reason != "queued" || mergedSecond.Run.ID != mergedFirst.Run.ID || readEventValue(mergedFirst.Run) != 1 {
+		t.Fatalf("merge behavior: first=%+v second=%+v err=%v", mergedFirst, mergedSecond, err)
+	}
+
+	eachFirst, err := queue("each", true, true, "", now, 1)
+	if err != nil || !eachFirst.Created {
+		t.Fatalf("first each request: %+v err=%v", eachFirst, err)
+	}
+	eachSecond, err := queue("each", true, true, "", now, 2)
+	if err != nil || !eachSecond.Created || eachSecond.Run.ID == eachFirst.Run.ID || readEventValue(eachFirst.Run) != 1 || readEventValue(eachSecond.Run) != 2 {
+		t.Fatalf("each requests did not retain separate payloads: first=%+v second=%+v err=%v", eachFirst, eachSecond, err)
+	}
+	keyed, err := queue("each", true, true, "delivery-1", now, 3)
+	if err != nil || !keyed.Created {
+		t.Fatalf("keyed each request: %+v err=%v", keyed, err)
+	}
+	entriesBeforeDuplicate, err := os.ReadDir(filepath.Join(s.dir, "events"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate, err := queue("each", true, true, "delivery-1", now, 4)
+	entriesAfterDuplicate, readErr := os.ReadDir(filepath.Join(s.dir, "events"))
+	if err != nil || readErr != nil || duplicate.Created || duplicate.Reason != "duplicate" || duplicate.Run.ID != keyed.Run.ID || len(entriesAfterDuplicate) != len(entriesBeforeDuplicate) {
+		t.Fatalf("duplicate each request: result=%+v err=%v readErr=%v event counts=%d/%d", duplicate, err, readErr, len(entriesBeforeDuplicate), len(entriesAfterDuplicate))
+	}
+
+	future := now.Add(time.Hour)
+	for i := 1; i <= 20; i++ {
+		result, err := queue("full", true, false, "", future, i)
+		if err != nil || !result.Created {
+			t.Fatalf("seed future queued run %d: %+v err=%v", i, result, err)
+		}
+	}
+	beforeFull, err := os.ReadDir(filepath.Join(s.dir, "events"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queue("full", true, true, "", now, 99); !errors.Is(err, ErrQueueFull) {
+		t.Fatalf("due-now request at cap error = %v, want ErrQueueFull", err)
+	}
+	afterFull, err := os.ReadDir(filepath.Join(s.dir, "events"))
+	if err != nil || len(afterFull) != len(beforeFull) {
+		t.Fatalf("full queue created an event file: before=%d after=%d err=%v", len(beforeFull), len(afterFull), err)
+	}
+	fullRuns, err := s.RunsForJob(projectID, "full")
+	if err != nil || len(fullRuns) != 20 {
+		t.Fatalf("full queue runs=%d err=%v, want 20", len(fullRuns), err)
+	}
+	for _, run := range fullRuns {
+		if run.Status != "queued" || !run.DueAt.Valid || run.DueAt.String != FormatTime(future) {
+			t.Fatalf("future queued run not counted at cap: %+v", run)
+		}
+	}
+
+	for i := 1; i <= 19; i++ {
+		if result, err := queue("race", true, false, "", future, i); err != nil || !result.Created {
+			t.Fatalf("seed concurrent queue request %d: %+v err=%v", i, result, err)
+		}
+	}
+	beforeRace, err := os.ReadDir(filepath.Join(s.dir, "events"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		result QueueRunResult
+		err    error
+	}
+	start := make(chan struct{})
+	results := make(chan outcome, 2)
+	var workers sync.WaitGroup
+	for i := 20; i <= 21; i++ {
+		workers.Add(1)
+		go func(n int) {
+			defer workers.Done()
+			<-start
+			result, err := queue("race", true, true, "", now, n)
+			results <- outcome{result: result, err: err}
+		}(i)
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	created, full := 0, 0
+	for result := range results {
+		switch {
+		case result.err == nil && result.result.Created:
+			created++
+		case errors.Is(result.err, ErrQueueFull):
+			full++
+		default:
+			t.Fatalf("concurrent queue result = %+v err=%v", result.result, result.err)
+		}
+	}
+	if created != 1 || full != 1 {
+		t.Fatalf("concurrent cap outcomes: created=%d full=%d", created, full)
+	}
+	afterRace, err := os.ReadDir(filepath.Join(s.dir, "events"))
+	racedRuns, runsErr := s.RunsForJob(projectID, "race")
+	if err != nil || runsErr != nil || len(afterRace) != len(beforeRace)+1 || len(racedRuns) != 20 {
+		t.Fatalf("concurrent cap state: event files=%d->%d queued runs=%d errors=%v/%v", len(beforeRace), len(afterRace), len(racedRuns), err, runsErr)
+	}
 }
 
 func createTestRun(t *testing.T, s *Store, project int64, job string) Run {

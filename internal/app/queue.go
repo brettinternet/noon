@@ -83,7 +83,7 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 		ProjectID: projectID, Job: name, Digest: job.Digest, IdempotencyKey: key,
 		RequestedBy: requestedBy, Trigger: options.Trigger, DueAt: dueAt, Now: now, NowFunc: nowFunc,
 		JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared,
-		Coalesce: coalesce, Cooldown: job.Cooldown, Depth: depth, RequireUnpaused: options.RequireUnpaused,
+		Coalesce: coalesce, Cooldown: job.Cooldown, RequestsEach: job.Requests == "each", Depth: depth, RequireUnpaused: options.RequireUnpaused,
 		EventData: options.EventData, EventSource: options.EventSource, EventHeaders: options.EventHeaders,
 	})
 	if err != nil {
@@ -98,6 +98,8 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 			err = &QueueError{Code: "paused", Message: fmt.Sprintf("job %q is paused", name)}
 		case errors.Is(err, store.ErrNeedsApproval):
 			err = &QueueError{Code: "needs_approval", Message: fmt.Sprintf("job %q needs approval", name), Hint: "Run noon enable"}
+		case errors.Is(err, store.ErrQueueFull):
+			err = &QueueError{Code: "queue_full", Message: fmt.Sprintf("job %q queue is full", name), Hint: fmt.Sprintf("Run noon cancel %s to clear queued runs", name)}
 		}
 		return QueuedRun{}, err
 	}

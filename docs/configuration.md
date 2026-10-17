@@ -139,9 +139,10 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `env` | — | String values (quote numbers). `NOON_*` is reserved. Values are never printed |
 | `timeout` | `1h` | `30s`, `10m`, `1h30m`, `2d` (≥ 1s), or `none` |
 | `overlap` | `skip` | `skip` or `queue` (at most one pending) |
+| `requests` | `merge` | `merge` due-now requests or queue `each` as a separate run ([Triggers](triggers.md)) |
 | `missed` | `run_once` | `run_once` or `skip`: what to do after sleep or downtime |
 | `enabled` | `true` | `false` disables the job |
-| `cooldown` | — | Minimum gap between queued requests ([Triggers](triggers.md)) |
+| `cooldown` | — | Minimum gap between queued requests; incompatible with `requests: each` ([Triggers](triggers.md)) |
 | `on_success`, `on_failure` | user default | Hook command; `[]` disables the default ([Hooks](hooks.md)) |
 | `webhook` | — | `{secret_env: NAME}` ([Webhooks](webhooks.md)) |
 
@@ -240,9 +241,10 @@ the one `noon enable` approved. Private jobs need no approval. A local `enabled:
 the shared job's approval requirement.
 
 The digest is a SHA-256 of the job's execution fields: schedule, action, agent name, cwd, env,
-timeout, overlap, missed, cooldown, hooks, and webhook. Changing the description doesn't require
-re-approval. Agent profile commands and user-config hook defaults are yours and excluded. **The
-digest doesn't cover the contents of referenced scripts or prompt files.**
+timeout, overlap, missed, cooldown, hooks, and webhook. `requests` joins the digest only when
+explicitly present, so jobs that omit it keep their existing digest and approval. Changing the
+description doesn't require re-approval. Agent profile commands and user-config hook defaults are
+yours and excluded. **The digest doesn't cover the contents of referenced scripts or prompt files.**
 
 `noon enable` records the checkout's canonical path and its config selection (automatic files or
 the absolute `--config` path), then approves every current shared job. Re-running it keeps

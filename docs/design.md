@@ -155,13 +155,17 @@ their state.
 - `overlap: skip` (default) records a `skipped` run when the job is already running.
   `overlap: queue` keeps at most one pending run.
 - The scheduler starts a run only while fewer than one run is active in its project and fewer than
-  four overall, counting foreground runs. The rest wait FIFO as `queued`, at most one due run per
-  job. Foreground runs ignore the caps but never overlap the same job.
-- A due-now request (`--detach`, MCP, triggers, webhooks) returns the job's existing due queued run
-  instead of adding one. `--in` and `--at` one-shots stay independent.
-- A queued run more than one hour overdue expires. Queued runs of inactive or removed jobs are
-  cancelled instead. Dispatch orders by due time, then run ID. Future one-shots never suppress a
-  scheduled occurrence; an already-due queued run does, recording the occurrence as `skipped`.
+  four overall, counting foreground runs. The rest wait FIFO as `queued`. Foreground runs ignore
+  the caps but never overlap the same job.
+- A due-now request (`--detach`, MCP, triggers, webhooks) defaults to merging into the job's
+  existing due queued run; the new payload and event file are discarded. `requests: each` instead
+  creates a separate run up to a per-job cap of 20 queued runs, counting due and future runs. The
+  cap is checked in the queue transaction before any event file is written. `--in` and `--at`
+  one-shots stay independent.
+- A queued run more than one hour overdue expires as `expired`. Queued runs of inactive or removed
+  jobs are cancelled instead. Dispatch orders by due time, then run ID. Future one-shots never
+  suppress a scheduled occurrence; an already-due queued run does, recording the occurrence as
+  `skipped`.
 
 ## Scheduler lifetime
 
@@ -185,8 +189,9 @@ self-daemonizes and is not one process per repo.
 - There is no IPC socket. Clients read SQLite for scheduler status and next times. Revisit polling
   only if latency or cost becomes a measured problem.
 - Queueing (`--detach`, `--in`, `--at`, MCP `run_job`) is one immediate SQLite transaction that
-  checks retained idempotency keys, enablement and approval, cooldown, and due-run coalescing
-  before inserting.
+  checks retained idempotency keys, enablement and approval, cooldown, and due-run merging or the
+  `requests: each` cap before inserting. The each-mode cap is 20 queued runs per job and is checked
+  before event-file creation.
 
 ### Enable and approve
 
@@ -203,7 +208,8 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   a branch can't add or replace `.git/noon.yaml`. A filename in the tree is never private: a commit
   can add `.noon.yaml` despite ignore rules, so Noon never loads it.
 - The digest covers what runs and when (schedule, action, agent, cwd, env, timeout, overlap, missed,
-  cooldown, hooks, webhook), not the description, and not referenced file contents.
+  cooldown, hooks, webhook, and `requests` when explicitly set), not the description, and not
+  referenced file contents. Omitting `requests` preserves existing job digests.
 - `noon add` enables the project when the new job has a schedule or queued run, and approves only
   that job. Foreground `noon run NAME` is explicit and needs no approval; anything the scheduler
   runs (scheduled, catch-up, queued, webhook) does.
@@ -298,8 +304,9 @@ No plugin system; commands are the integration boundary (decision-4).
 - **Triggers** ([doc](triggers.md)): `noon run NAME --detach --key ID [--data JSON]`. The event file
   is written before the queued run is committed, so dispatch can't race it. Payloads are files,
   never interpolated. Cooldown is checked after key deduplication and requirements, before due-run
-  coalescing. Requests at depth 3 or more, or from the same project and job, fail with `recursion`.
-  Nothing installs hooks for you.
+  merging or the each-mode cap. `requests: merge` drops a new payload when a due run exists;
+  `requests: each` preserves each due-now payload up to 20 queued runs per job. Requests at depth 3
+  or more, or from the same project and job, fail with `recursion`. Nothing installs hooks for you.
 - **Shell** ([doc](shell.md)): completion only reads config. `--on-enter` detects canonical project
   changes per shell, uses the checkout's recorded config and the normal queue with an atomic pause
   check, and stores directories as data. Nothing edits startup files or the parent environment.
