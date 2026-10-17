@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,7 +42,7 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "scheduler": view.Scheduler, "service": view.Service, "jobs": view.Jobs, "queued": view.Queued, "notices": view.Notices, "next": view.Next})
 	}
-	printBoundedRows(cmd.Writer, [][]string{{view.Project.Name, view.Project.Path, "scheduler " + view.Scheduler.State, view.Project.Timezone}}, " · ", outputWidth(cmd.Writer), -1)
+	printBoundedRows(cmd.Writer, [][]string{{view.Project.Name, view.Project.Path, "scheduler " + view.Scheduler.State, view.Project.Timezone}}, " · ", outputWidth(cmd.Writer))
 	rows := [][]string{{"JOB", "SCHEDULE", "NEXT", "LAST"}}
 	for _, job := range view.Jobs {
 		schedule, next := "manual", "-"
@@ -82,7 +83,7 @@ func outputWidth(out io.Writer) int {
 
 // Shrink descriptive columns, never identifiers. A zero budget means full width.
 // Very long identifiers may exceed the budget rather than becoming ambiguous.
-func printBoundedRows(out io.Writer, rows [][]string, separator string, budget, identifier int) {
+func printBoundedRows(out io.Writer, rows [][]string, separator string, budget int, identifiers ...int) {
 	widths := make([]int, len(rows[0]))
 	for _, row := range rows {
 		for i, value := range row {
@@ -93,7 +94,7 @@ func printBoundedRows(out io.Writer, rows [][]string, separator string, budget, 
 		total, widest := (len(widths)-1)*len([]rune(separator)), -1
 		for i, width := range widths {
 			total += width
-			if i != identifier && width > 4 && (widest == -1 || width > widths[widest]) {
+			if !slices.Contains(identifiers, i) && width > 4 && (widest == -1 || width > widths[widest]) {
 				widest = i
 			}
 		}

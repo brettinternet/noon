@@ -69,7 +69,7 @@ func printHistory(out io.Writer, runs []app.Run, now time.Time) {
 		}
 		rows = append(rows, row)
 	}
-	printBoundedRows(out, rows, "  ", outputWidth(out), 1)
+	printBoundedRows(out, rows, "  ", outputWidth(out), 0, 1)
 }
 
 func runLogs(ctx context.Context, cmd *urfave.Command) error {
