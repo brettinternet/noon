@@ -1,0 +1,232 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing version tag to validate without publication
+        required: true
+        default: v1.0.0
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+
+jobs:
+  package:
+    name: Build and verify release archives
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      commit: ${{ steps.release.outputs.commit }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - name: Resolve release inputs
+        id: release
+        run: |
+          set -eu
+          case "$RELEASE_TAG" in v*) version=${RELEASE_TAG#v} ;; *) echo "release tag must start with v" >&2; exit 1 ;; esac
+          commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'version=%s\ncommit=%s\nbuild_time=%s\n' "$version" "$commit" "$build_time" >> "$GITHUB_OUTPUT"
+      - name: Build all archives and verify release metadata
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          COMMIT: ${{ steps.release.outputs.commit }}
+          BUILD_TIME: ${{ steps.release.outputs.build_time }}
+        run: task release:check VERSION="$VERSION" COMMIT="$COMMIT" BUILD_TIME="$BUILD_TIME"
+      - name: Smoke-test the native packaged binary
+        run: >-
+          task release:smoke
+          BINARY="$PWD/dist/release/v${{ steps.release.outputs.version }}/native-noon"
+          VERSION="${{ steps.release.outputs.version }}"
+      - name: Upload validated assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: noon-release-${{ steps.release.outputs.version }}
+          path: |
+            dist/release/v${{ steps.release.outputs.version }}/noon-v*.tar.gz
+            dist/release/v${{ steps.release.outputs.version }}/checksums.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  platform-smoke:
+    name: Native smoke (${{ matrix.platform }}-${{ matrix.asset_arch }})
+    needs: [package]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            asset_arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            asset_arch: arm64
+          - os: macos-15-intel
+            platform: macos
+            asset_arch: x64
+          - os: macos-14
+            platform: macos
+            asset_arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: noon-release-${{ needs.package.outputs.version }}
+          path: ${{ runner.temp }}/release-assets
+      - name: Extract and smoke-test the native release binary
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+        run: |
+          set -eu
+          archive="noon-v${VERSION}-${PLATFORM}-${ASSET_ARCH}.tar.gz"
+          install_dir="$RUNNER_TEMP/noon-install"
+          mkdir -p "$install_dir"
+          tar -xzf "$RUNNER_TEMP/release-assets/$archive" -C "$install_dir"
+          test -x "$install_dir/bin/noon"
+          task release:smoke BINARY="$install_dir/bin/noon" VERSION="$VERSION"
+
+  release-gate:
+    name: Authorize tagged release
+    if: github.event_name == 'push'
+    needs: [package, platform-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify CI passed for the exact tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.package.outputs.commit }}
+        run: |
+          set -eu
+          tag_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          test "$tag_commit" = "$COMMIT"
+          run_id="$(gh run list --workflow ci.yaml --commit "$COMMIT" --branch main --event push --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run_id" ]; then
+            echo "No main-branch CI run found for tagged commit $COMMIT" >&2
+            exit 1
+          fi
+          gh run watch "$run_id" --exit-status
+
+  publish:
+    name: Publish immutable release assets
+    if: github.event_name == 'push'
+    needs: [package, platform-smoke, release-gate]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.package.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: noon-release-${{ needs.package.outputs.version }}
+          path: dist/release
+      - name: Verify assets and refuse to replace an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          cd dist/release
+          shasum -a 256 -c checksums.txt
+          test "$(wc -l < checksums.txt | tr -d ' ')" = 4
+          if gh release view "$RELEASE_TAG" --repo brettinternet/noon >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to replace released assets" >&2
+            exit 1
+          fi
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.package.outputs.version }}
+          COMMIT: ${{ needs.package.outputs.commit }}
+        run: |
+          set -eu
+          remote_commit="$(gh api "repos/brettinternet/noon/commits/$RELEASE_TAG" --jq .sha)"
+          if [ "$remote_commit" != "$COMMIT" ]; then
+            echo "Tag $RELEASE_TAG moved since validation; refusing publication" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            "dist/release/noon-v${VERSION}-linux-x64.tar.gz" \
+            "dist/release/noon-v${VERSION}-linux-arm64.tar.gz" \
+            "dist/release/noon-v${VERSION}-macos-x64.tar.gz" \
+            "dist/release/noon-v${VERSION}-macos-arm64.tar.gz" \
+            dist/release/checksums.txt \
+            --repo brettinternet/noon --verify-tag --generate-notes --title "$RELEASE_TAG"
+
+  mise-install:
+    name: mise automatic installation (${{ matrix.platform }})
+    if: needs.publish.result == 'success'
+    needs: [package, publish]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-15-intel
+            platform: macos-x64
+          - os: macos-14
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          install: false
+      - name: Install latest and pinned versions through mise
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+          MISE_MINIMUM_RELEASE_AGE: "0"
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          set -eu
+          for release in latest "$VERSION"; do
+            output="$(
+              MISE_CACHE_DIR="$RUNNER_TEMP/mise-$release-cache" \
+              MISE_DATA_DIR="$RUNNER_TEMP/mise-$release-data" \
+              MISE_STATE_DIR="$RUNNER_TEMP/mise-$release-state" \
+              mise exec "github:brettinternet/noon@$release" -- noon --version
+            )"
+            printf '%s\n' "$output"
+            case "$output" in
+              "noon version $VERSION ("*) ;;
+              *) echo "mise installed unexpected version for @$release: $output" >&2; exit 1 ;;
+            esac
+          done

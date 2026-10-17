@@ -3,6 +3,7 @@ version: "3"
 includes:
   setup: .taskfiles/setup.yaml
   cli: .taskfiles/cli.yaml
+  release: .taskfiles/release.yaml
 
 tasks:
   default:
@@ -44,6 +45,16 @@ tasks:
     cmds:
       - task: cli:build
       - sh scripts/smoke.sh
+  release:smoke:
+    desc: Verify isolated no-argument behavior of the native Noon binary
+    deps: [cli:build]
+    vars:
+      BINARY: '{{.BINARY | default "bin/noon"}}'
+      VERSION: '{{.VERSION | default ""}}'
+    env:
+      BINARY: "{{.BINARY}}"
+      VERSION: "{{.VERSION}}"
+    cmd: sh scripts/release-smoke.sh
   shell:smoke:
     desc: Verify generated integration in real Bash, Zsh, and Fish (all required on PATH)
     cmds:

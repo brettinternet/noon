@@ -1,0 +1,12 @@
+version: "3"
+
+tasks:
+  check:
+    desc: Build and verify all four local release archives without publishing
+    requires:
+      vars: [VERSION, COMMIT, BUILD_TIME]
+    env:
+      VERSION: "{{.VERSION}}"
+      COMMIT: "{{.COMMIT}}"
+      BUILD_TIME: "{{.BUILD_TIME}}"
+    cmd: sh scripts/release-check.sh

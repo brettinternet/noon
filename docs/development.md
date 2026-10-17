@@ -21,6 +21,8 @@ task cli:run -- --help                 # run from source
 | `task cli:check` | gofmt, vet, Staticcheck |
 | `task race` | Tests with the race detector |
 | `task smoke` | Exercise the built binary in a temp environment |
+| `task release:check VERSION=... COMMIT=... BUILD_TIME=...` | Build and verify four local release archives; never publishes |
+| `task release:smoke` | Verify isolated no-argument behavior of the native binary |
 | `task shell:smoke` | Real Bash, Zsh, and Fish integration |
 | `task security` | Secret scan of Git history; govulncheck |
 | `task check:staged` | Format and re-stage Go; scan staged secrets |
@@ -32,7 +34,8 @@ task cli:run -- --help                 # run from source
 
 Iterate with focused checks. Before each commit, stage only intended files and run
 `task check:staged`. Run `task ci` before pushing. Never push without being asked. GitHub Actions
-runs the gate on Linux and macOS, plus container smoke on Linux. Releases aren't published yet.
+runs the gate on Linux and macOS, plus container smoke on Linux. Stable releases are not published
+yet; the explicit tagged-release workflow is described below.
 
 ## Structure
 
@@ -96,6 +99,56 @@ Test each rule once, where it's computed:
 Release builds set `main.buildVersion`, `main.buildCommit`, and `main.buildTime` with `-ldflags -X`
 (defaults `dev`, `unknown`, `unknown`). Docker takes `VERSION`, `COMMIT`, and `BUILD_TIME` build
 args.
+
+## Release packaging
+
+`task release:check` is credential-free and never publishes or updates the sibling tap. Supply a
+stable version without the `v` prefix, the full commit SHA, and a UTC RFC 3339 build time (to whole
+seconds):
+
+```sh
+task release:check \
+  VERSION=1.2.3 \
+  COMMIT="$(git rev-parse HEAD)" \
+  BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+task release:smoke
+```
+
+The task builds all four `CGO_ENABLED=0` targets and verifies archive members, SHA-256 checksums,
+and the native binary's version/commit/build-time metadata. Output is in
+`dist/release/v<VERSION>/`: four `noon-v<VERSION>-{linux-x64,linux-arm64,macos-x64,macos-arm64}.tar.gz`
+archives, `checksums.txt`, and `native-noon` for native smoke tests. `task release:smoke` builds and
+checks the local binary by default; to exercise a release artifact, pass
+`BINARY=dist/release/v1.2.3/native-noon VERSION=1.2.3`.
+
+The release workflow runs on a `v*` tag push. It smoke-tests the same archives on four native
+runners, verifies successful `ci.yaml` for the exact tagged commit, uses the `release` environment
+as its publication gate, and refuses to overwrite an existing GitHub release. Configure required
+approval for that environment in repository settings. `workflow_dispatch` accepts an existing tag
+for validation only and never publishes. Neither local validation nor a tap update publishes a
+release. A stable tag push is the explicit publication action.
+
+After an authorized release is actually published, generate the tap formula only from its real
+checksums; do not invent or copy checksum values from another build. From the Noon repository root:
+
+```sh
+VERSION=1.2.3
+noon_release_dir="$(mktemp -d)"
+gh release view "v$VERSION" --repo brettinternet/noon
+gh release download "v$VERSION" --repo brettinternet/noon \
+  --pattern 'noon-v*.tar.gz' --pattern checksums.txt --dir "$noon_release_dir"
+(cd "$noon_release_dir" && shasum -a 256 -c checksums.txt)
+scripts/generate-homebrew-formula.sh "$VERSION" "$noon_release_dir/checksums.txt" \
+  > ../homebrew-tap/Formula/noon.rb
+```
+
+The generated formula uses the tap's existing `on_macos`/`on_linux` and `on_arm`/`on_intel`
+platform pattern. Review it, update the tap README, then run the tap's `.github/scripts/check-homebrew-tap.sh`
+with `brettinternet/tap noon` from a disposable Homebrew environment. The formula's `brew test`
+checks version reporting and confirms that a bare invocation neither executes a fixture job, creates
+state, nor installs a per-user service. Run the same full isolated safety check against the installed
+Homebrew executable with `task release:smoke BINARY="$(brew --prefix brettinternet/tap/noon)/bin/noon" VERSION="$VERSION"`.
+Formula creation and tap publication remain separate from the Noon release workflow.
 
 ## Worktrees and backlog
 

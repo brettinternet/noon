@@ -61,6 +61,14 @@ shows at most three. The `Next:` step follows the same order: `noon config check
 `noon doctor` never executes jobs, repairs, migrates, or creates absent state. SQLite WAL/SHM
 sidecars for an existing database are allowed; application data stays read-only.
 
+## Distribution
+
+Stable release archives target macOS and Linux on amd64 and arm64, are named
+`noon-v<VERSION>-<macos|linux>-<x64|arm64>.tar.gz`, and contain only `bin/noon`. Each release
+includes a SHA-256 `checksums.txt`; version, full commit SHA, and UTC build time are embedded in the
+binary. Homebrew formula updates consume the checksums from the published release, and installing
+or upgrading the binary never installs or starts the scheduler service.
+
 ## Jobs
 
 Settings merge by key across files; jobs merge by name (decision-5). File placement, fields, and
