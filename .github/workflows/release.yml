@@ -217,12 +217,23 @@ jobs:
           VERSION: ${{ needs.package.outputs.version }}
         run: |
           set -eu
+          mise_bin="$(command -v mise)"
           for release in latest "$VERSION"; do
+            install_root="$(mktemp -d "$RUNNER_TEMP/noon-mise-$release.XXXXXX")"
+            mkdir -p "$install_root/home"
             output="$(
-              MISE_CACHE_DIR="$RUNNER_TEMP/mise-$release-cache" \
-              MISE_DATA_DIR="$RUNNER_TEMP/mise-$release-data" \
-              MISE_STATE_DIR="$RUNNER_TEMP/mise-$release-state" \
-              mise exec "github:brettinternet/noon@$release" -- noon --version
+              cd "$install_root"
+              env -i \
+                PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+                HOME="$install_root/home" \
+                XDG_CONFIG_HOME="$install_root/config" \
+                MISE_CONFIG_DIR="$install_root/config/mise" \
+                MISE_CACHE_DIR="$install_root/cache" \
+                MISE_DATA_DIR="$install_root/data" \
+                MISE_STATE_DIR="$install_root/state" \
+                MISE_GITHUB_TOKEN="$MISE_GITHUB_TOKEN" \
+                MISE_MINIMUM_RELEASE_AGE=0 \
+                "$mise_bin" exec "github:brettinternet/noon@$release" -- noon --version
             )"
             printf '%s\n' "$output"
             case "$output" in
