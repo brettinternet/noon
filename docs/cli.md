@@ -97,7 +97,7 @@ print examples, `service` shows status, and `shell init` shows explicit sourcing
 for Bash, Zsh, and Fish. These inspections exit 0 without changing jobs or starting services.
 Logs still default to the latest run when one exists.
 
-`noon remove NAME --shared` selects `noon.yaml`; `--local` selects `.noon.yaml`.
+`noon remove NAME --shared` selects `noon.yaml`; `--local` selects `.git/noon.yaml`.
 If both files define the name, choose one explicitly. Without a name, nothing is removed.
 `noon remove NAME` confirms the job and definition file removed; history remains queryable
 with `noon history NAME` and `noon logs RUN`. Its JSON result contains `removed` and `file`.
@@ -223,7 +223,7 @@ one `Next:` step. JSON has `project`, `scheduler`, `service`, `jobs`, `queued`, 
 `next`. `noon list` shows the same jobs with commands and full next-run times.
 
 `noon doctor` checks config, state, enablement, approvals, the scheduler heartbeat, the service,
-each job's command, cwd, and prompt file, and whether Git ignores `.noon.yaml`:
+and each job's command, cwd, and prompt file:
 
 ```console
 $ noon doctor
@@ -232,7 +232,6 @@ ok approvals: No approvals pending
 warn scheduler: Scheduler heartbeat is absent or stale — noon service install, or noon serve
 warn service: Per-user service is not installed — noon service install
 ok job tests command: go
-ok local_config_ignored: .noon.yaml is ignored by Git
 ```
 
 Warnings exit 0; failures exit 1. JSON has `ok` and `checks` (`name`, `status`, `message`,

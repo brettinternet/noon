@@ -298,11 +298,7 @@ func TestRunRecordsHistory(t *testing.T) {
 	if !strings.Contains(string(secondLog), fmt.Sprintf("run=%d last=%s", runs[0].ID, wantLast)) {
 		t.Fatalf("last success metadata missing: %q", secondLog)
 	}
-	entries, err := os.ReadDir(project)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Name() != "noon.yaml" {
+	if entries := projectFiles(t, project); len(entries) != 1 || entries[0] != "noon.yaml" {
 		t.Fatalf("run added files to project: %v", entries)
 	}
 }

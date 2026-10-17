@@ -15,7 +15,7 @@ noon history pg-restore-check --status failed
 ```
 
 Credentials: `env` values are committed with `noon.yaml`, so use libpq's `~/.pgpass` (mode 0600)
-or a `PGSERVICEFILE`. Put machine paths in a private `.noon.yaml` replacement if they differ per
+or a `PGSERVICEFILE`. Put machine paths in a private `.git/noon.yaml` replacement if they differ per
 developer (see [local overrides](../../basics/local-overrides/)). Job `env` overrides inherited
 variables: edit/replace the job definitions, not just your shell environment.
 

@@ -146,7 +146,10 @@ func TestImportCrontab(t *testing.T) {
 			}
 		}
 		root := t.TempDir()
-		if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), preview, 0o600); err != nil {
+		if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), preview, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		cfg, err := config.Load(config.Input{CWD: root})
@@ -184,7 +187,10 @@ func FuzzImportCrontab(f *testing.F) {
 			t.Fatalf("render successful parse: %v", err)
 		}
 		root := t.TempDir()
-		if err := os.WriteFile(filepath.Join(root, ".noon.yaml"), preview, 0o600); err != nil {
+		if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, ".git", "noon.yaml"), preview, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := config.Load(config.Input{CWD: root, StateDirDefault: filepath.Join(root, "state")}); err != nil {

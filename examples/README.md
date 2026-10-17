@@ -24,7 +24,7 @@ is validated by `integration/examples_test.go`.
 | --- | --- | --- |
 | [hello](basics/hello/) | beginner | argv vs shell jobs, the `NOON_*` job environment, a cron schedule |
 | [schedules](basics/schedules/) | beginner | every schedule form, `timezone`, `overlap`, `missed`, `timeout`, `enabled` |
-| [local-overrides](basics/local-overrides/) | beginner | `noon.yaml` vs private `.noon.yaml` vs user config; toggles and replacements |
+| [local-overrides](basics/local-overrides/) | beginner | `noon.yaml` vs private `.git/noon.yaml` vs user config; toggles and replacements |
 | [crontab-import](basics/crontab-import/) | beginner | preview-first `noon import crontab` and what it refuses |
 
 ## Local development

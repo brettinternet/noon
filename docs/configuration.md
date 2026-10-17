@@ -7,7 +7,7 @@ Later sources override earlier ones, one setting at a time:
 1. Built-in defaults
 2. User config: `$XDG_CONFIG_HOME/noon/config.yaml`, else `~/.config/noon/config.yaml`
 3. `noon.yaml` in the project (shared, committed)
-4. `.noon.yaml` in the project (private, ignored by Git)
+4. `.git/noon.yaml` in the project's Git directory (private, can't be committed)
 5. Environment variables
 6. CLI flags
 
@@ -19,7 +19,7 @@ State dir:     /home/me/.local/state/noon
 Default agent: (none)
 Files (low → high precedence):
   /home/me/app/noon.yaml
-  /home/me/app/.noon.yaml
+  /home/me/app/.git/noon.yaml
 Agents:
   claude: "claude" "-p" "--permission-prompts" "none" (stdin)
   codex: "codex" "exec" "-" (stdin)
@@ -39,17 +39,26 @@ noon -C ../other-repo list
 noon --config ./deploy.yaml config check
 ```
 
-`noon init` creates `noon.yaml`; `noon init --local` creates `.noon.yaml` with mode 0600. Neither
-overwrites an existing file. In a Git checkout, local init preserves effective ignore rules or
-appends `/.noon.yaml` to the selected project's `.gitignore`, preserving existing contents.
-Repeated init also protects an existing private manifest without rewriting it. If protection fails
-(or the manifest is already tracked), init reports an error; it never untracks files. Outside Git,
-it reports that ignore protection is not applicable and does not create a repository. Shared init
-does not change ignore rules. Private manifests created by other means still need ignore protection.
+`noon init` creates `noon.yaml`; `noon init --local` creates `.git/noon.yaml` with mode 0600.
+Neither overwrites an existing file.
+
+### Private config
+
+Private jobs run unattended without approval, so only a file that repository content can't supply
+is private. That file is `noon.yaml` inside the project's Git directory. Git refuses to commit or
+check out paths there, so no branch or pull request can add or replace it. A linked worktree uses
+the main checkout's Git directory, so one `.git/noon.yaml` applies to the main checkout and every
+worktree. Each checkout still needs its own `noon enable`. Noon finds the directory by reading the
+project's `.git` directory or `.git` file and `commondir`. It never runs `git`. A malformed `.git`
+file is a config error.
+
+Noon ignores an in-tree `.noon.yaml`, even an untracked one, because a commit can supply that
+filename. A project with no `.git` has no private config: `init --local`, `add` without
+`--shared`, and `import --write` refuse and suggest `noon.yaml` instead.
 
 ## Where keys are allowed
 
-| Key | User config | `noon.yaml` | `.noon.yaml` |
+| Key | User config | `noon.yaml` | `.git/noon.yaml` |
 | --- | --- | --- | --- |
 | `version`, `timezone` | yes | yes | yes |
 | `jobs` | no | yes | yes |
@@ -79,8 +88,8 @@ Paths:
 
 ## Project discovery
 
-Noon walks up from the current directory to the nearest directory containing `noon.yaml`,
-`.noon.yaml`, or `.git` (including a worktree's `.git` file), and stops there. It never reads
+Noon walks up from the current directory to the nearest directory containing `noon.yaml` or
+`.git` (including a worktree's `.git` file), and stops there. It never reads
 config above a Git boundary. With no marker, the current directory is the project. A nested
 `noon.yaml` makes a nested project. Discovery only reads files; it never runs anything.
 
@@ -132,11 +141,11 @@ still an error even if a later file overrides its settings.
 
 ### Local overrides
 
-A job in `.noon.yaml` replaces the shared job of the same name entirely; fields don't merge. The
-one exception turns a shared job off without copying it:
+A job in `.git/noon.yaml` replaces the shared job of the same name entirely; fields don't merge.
+The one exception turns a shared job off without copying it:
 
 ```yaml
-# .noon.yaml
+# .git/noon.yaml
 jobs:
   tests: {enabled: false}
 ```
@@ -184,7 +193,7 @@ noon pause tests                                       # stop background runs
 noon resume tests                                      # restart from now, no catch-up
 ```
 
-`add` writes `.noon.yaml` by default and edits lines in place, keeping comments and formatting.
+`add` writes the private `.git/noon.yaml` by default and edits lines in place, keeping comments and formatting.
 Unusual `jobs` layouts must be edited by hand. `add`, `remove`, and `import --write` refuse to edit
 a `--config` file. If a name exists in both files, `remove` needs `--shared` or `--local`.
 

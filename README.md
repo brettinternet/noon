@@ -57,11 +57,12 @@ foreground instead.
 
 ## Quick start
 
-`noon add` writes a job to the private `.noon.yaml`. Add `--shared` to write `noon.yaml` instead.
+`noon add` writes a job to the private `.git/noon.yaml`, which Git can't commit. Add `--shared` to
+write `noon.yaml` instead.
 
 ```console
 $ noon add tests "every day at 2am" -- go test ./...
-Added tests to .noon.yaml (private) · every day at 02:00 · next Sat 02:00
+Added tests to .git/noon.yaml (private) · every day at 02:00 · next Sat 02:00
 Scheduling enabled for /home/me/app.
 The scheduler isn't running, so nothing runs in the background.
 Next: noon service install · noon run tests
@@ -107,11 +108,12 @@ Enabled /home/me/app · 1 jobs · approved 1 shared jobs
 
 `noon enable` approves the current definition of each job in `noon.yaml`. If a pull changes a
 job, that job waits as `needs approval` until you run `noon enable` again. Jobs in your private
-`.noon.yaml` don't need approval. `noon run NAME` runs in the foreground and never needs approval.
+`.git/noon.yaml` don't need approval. `noon run NAME` runs in the foreground and never needs approval.
 `noon disable` revokes everything and keeps history.
 
 Approval covers job definitions, not the scripts or prompt files they reference. Only enable
-repositories you would run by hand. Keep `.noon.yaml` out of Git.
+repositories you would run by hand. Noon ignores an in-tree `.noon.yaml`, since a commit could
+supply it.
 
 ## Commands
 

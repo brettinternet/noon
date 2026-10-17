@@ -17,4 +17,4 @@ agent must explore; use a script when you already know the inputs.
 
 `NOON_LAST_SUCCESS_AT` is the start of the last successful run, so Monday's note covers Friday
 onward and a failed day is included in the next one. Edit `REPOS`, `STANDUP_DIR`, and `AGENT_CMD`
-(e.g. `codex exec -` or `ollama run llama3.2`) in a private `.noon.yaml` copy of the job.
+(e.g. `codex exec -` or `ollama run llama3.2`) in a private `.git/noon.yaml` copy of the job.

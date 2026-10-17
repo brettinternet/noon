@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -148,22 +147,6 @@ func Doctor(ctx context.Context, input config.Input, now time.Time) DoctorView {
 			} else if err != nil {
 				check("job "+name+" command", "", "Correct the job command", err)
 			}
-		}
-	}
-	project, err := config.ProjectDir(input)
-	if err == nil {
-		local := filepath.Join(project, ".noon.yaml")
-		if _, err := os.Lstat(local); err == nil {
-			// check-ignore is read-only; no optional Git index refresh or user pager.
-			command := exec.CommandContext(ctx, "git", "-C", project, "check-ignore", "-q", "--", ".noon.yaml")
-			command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
-			if err := command.Run(); err != nil {
-				add("local_config_ignored", "warn", ".noon.yaml is not confirmed ignored by Git", "Add .noon.yaml to .gitignore")
-			} else {
-				add("local_config_ignored", "ok", ".noon.yaml is ignored by Git", "")
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			add("local_config_ignored", "warn", err.Error(), "Check .noon.yaml permissions and Git ignore rules")
 		}
 	}
 	return result

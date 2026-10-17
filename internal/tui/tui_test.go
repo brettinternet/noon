@@ -23,7 +23,7 @@ import (
 func TestTUIModel(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
-	if err := os.Mkdir(project, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", root)
@@ -97,7 +97,7 @@ func TestTUIModel(t *testing.T) {
 	fmt.Fprint(&local, ` ]; do sleep 0.02; done
       printf '\n'
 `)
-	if err := os.WriteFile(filepath.Join(project, ".noon.yaml"), []byte(local.String()), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".git", "noon.yaml"), []byte(local.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	initialConfig, err := config.Load(input)

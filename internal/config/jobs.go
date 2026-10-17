@@ -262,7 +262,7 @@ func (cfg *Config) resolveAgents() error {
 			job.Agent = cfg.DefaultAgent
 		}
 		if job.Agent == "" {
-			return fmt.Errorf("job %q: prompt job requires agent or default_agent; set agent on the job or default_agent in user config or .noon.yaml", name)
+			return fmt.Errorf("job %q: prompt job requires agent or default_agent; set agent on the job or default_agent in user config or .git/noon.yaml", name)
 		}
 		profile, ok := cfg.Agents[job.Agent]
 		if !ok {

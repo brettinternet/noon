@@ -28,7 +28,7 @@ jobs:
     timeout: none
 ```
 
-Add the jobs to `.noon.yaml` with `--write`. Use `-` for stdin:
+Add the jobs to the private `.git/noon.yaml` with `--write`. Use `-` for stdin:
 
 ```sh
 crontab -l | noon import crontab - --write

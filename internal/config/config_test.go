@@ -34,7 +34,7 @@ func TestLoadLayersAndPathOrigins(t *testing.T) {
 	user, project := filepath.Join(root, "user"), filepath.Join(root, "repo")
 	put(t, filepath.Join(user, "noon/config.yaml"), "timezone: UTC\nstate_dir: runs\n")
 	put(t, filepath.Join(project, "noon.yaml"), "timezone: America/Chicago\n")
-	put(t, filepath.Join(project, ".noon.yaml"), "timezone: Europe/London\n")
+	put(t, filepath.Join(project, ".git", "noon.yaml"), "timezone: Europe/London\n")
 	input := config.Input{CWD: project, UserConfigDir: user}
 	cfg, err := config.Load(input)
 	if err != nil {
@@ -54,6 +54,41 @@ func TestLoadLayersAndPathOrigins(t *testing.T) {
 	}
 	if _, err := os.Stat(cfg.StateDir); !os.IsNotExist(err) {
 		t.Fatalf("load must not create state: %v", err)
+	}
+}
+
+// Private jobs skip approval, so only a file repository content cannot supply
+// may be private: an in-tree .noon.yaml (committable) is never loaded.
+func TestPrivateConfigLivesInCommonGitDirectory(t *testing.T) {
+	t.Parallel()
+	root := canonical(t, t.TempDir())
+	main, worktree := filepath.Join(root, "main"), filepath.Join(root, "main", ".worktrees", "feature")
+	put(t, filepath.Join(main, ".noon.yaml"), "timezone: Asia/Tokyo\n")
+	put(t, filepath.Join(main, ".git", "noon.yaml"), "timezone: Europe/London\n")
+	put(t, filepath.Join(main, ".git", "worktrees", "feature", "commondir"), "../..\n")
+	put(t, filepath.Join(worktree, ".git"), "gitdir: ../../.git/worktrees/feature\n")
+	put(t, filepath.Join(worktree, ".noon.yaml"), "timezone: Asia/Tokyo\n")
+	for _, project := range []string{main, worktree} {
+		cfg, err := config.Load(config.Input{CWD: project})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Project != project || cfg.Timezone != "Europe/London" || len(cfg.Sources) != 1 || cfg.Sources[0] != filepath.Join(main, ".git", "noon.yaml") {
+			t.Fatalf("private layer from %s: %+v", project, cfg)
+		}
+	}
+
+	noGit := filepath.Join(root, "plain")
+	put(t, filepath.Join(noGit, "noon.yaml"), "")
+	put(t, filepath.Join(noGit, ".noon.yaml"), "timezone: Asia/Tokyo\n")
+	if cfg, err := config.Load(config.Input{CWD: noGit}); err != nil || cfg.Timezone != "Local" || len(cfg.Sources) != 1 {
+		t.Fatalf("in-tree .noon.yaml loaded: %+v, %v", cfg, err)
+	}
+
+	broken := filepath.Join(root, "broken")
+	put(t, filepath.Join(broken, ".git"), "not a pointer\n")
+	if _, err := config.Load(config.Input{CWD: broken}); err == nil || !strings.Contains(err.Error(), filepath.Join(broken, ".git")) {
+		t.Fatalf("malformed .git = %v", err)
 	}
 }
 
@@ -131,7 +166,7 @@ func TestLoadDiscoveryStopsAtGitBoundary(t *testing.T) {
 	if cfg.Project != project || len(cfg.Sources) != 0 {
 		t.Fatalf("escaped Git boundary: %+v", cfg)
 	}
-	put(t, filepath.Join(child, ".noon.yaml"), "timezone: UTC\n")
+	put(t, filepath.Join(child, "noon.yaml"), "timezone: UTC\n")
 	cfg, err = config.Load(config.Input{CWD: child})
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +180,7 @@ func TestLoadExplicitFileReplacesDiscovery(t *testing.T) {
 	t.Parallel()
 	root := canonical(t, t.TempDir())
 	put(t, filepath.Join(root, "noon.yaml"), "invalid: configuration\n")
-	put(t, filepath.Join(root, ".noon.yaml"), "also: invalid\n")
+	put(t, filepath.Join(root, ".git", "noon.yaml"), "also: invalid\n")
 	put(t, filepath.Join(root, "user/noon/config.yaml"), "invalid: user\n")
 	put(t, filepath.Join(root, "settings/custom.yaml"), "state_dir: runs\n")
 	path := "settings/custom.yaml"
@@ -185,7 +220,7 @@ func TestLoadRejectsAmbiguousOrInvalidYAML(t *testing.T) {
 
 func TestLoadAcceptsEmptyFileForJobEditing(t *testing.T) {
 	root := t.TempDir()
-	put(t, filepath.Join(root, ".noon.yaml"), "")
+	put(t, filepath.Join(root, ".git", "noon.yaml"), "")
 	if _, err := config.Load(config.Input{CWD: root}); err != nil {
 		t.Fatalf("zero-byte config rejected: %v", err)
 	}

@@ -73,10 +73,10 @@ func TestExamplesValidate(t *testing.T) {
 
 	// The private override only makes sense layered over its shared noon.yaml.
 	project := filepath.Join(root, "local-overrides")
-	if err := os.MkdirAll(project, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for source, target := range map[string]string{"noon.yaml": "noon.yaml", "dot-noon.yaml": ".noon.yaml"} {
+	for source, target := range map[string]string{"noon.yaml": "noon.yaml", "private.yaml": filepath.Join(".git", "noon.yaml")} {
 		data, err := os.ReadFile(filepath.Join(examples, "basics", "local-overrides", source))
 		if err != nil {
 			t.Fatal(err)

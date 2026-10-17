@@ -138,8 +138,10 @@ func TestShellEntry(t *testing.T) {
 	// Both a nested marker and a worktree .git file are distinct checkouts.
 	for _, marker := range []string{"noon.yaml", ".git"} {
 		nested := filepath.Join(project, "nested-"+marker)
-		write(filepath.Join(nested, marker), "")
-		write(filepath.Join(nested, ".noon.yaml"), manifest)
+		if marker == ".git" {
+			write(filepath.Join(nested, ".git"), "gitdir: elsewhere\n")
+		}
+		write(filepath.Join(nested, "noon.yaml"), manifest)
 		entry("entry", current, project, nested, false, 0)
 		if len(triggerRuns(t, stateDir, nested)) != 0 {
 			t.Fatal("nested checkout inherited enablement")

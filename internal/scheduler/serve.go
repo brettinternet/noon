@@ -649,12 +649,16 @@ func configPaths(project store.EnabledProject, userConfigDir string) []string {
 	if project.ConfigFile.Valid {
 		return []string{project.Path, project.ConfigFile.String}
 	}
-	return []string{
+	paths := []string{
 		project.Path,
 		filepath.Join(userConfigDir, "noon", "config.yaml"),
 		filepath.Join(project.Path, "noon.yaml"),
-		filepath.Join(project.Path, ".noon.yaml"),
 	}
+	// A broken .git fails the reload itself, so it needs no stamp here.
+	if local, err := config.LocalPath(project.Path); err == nil && local != "" {
+		paths = append(paths, local)
+	}
+	return paths
 }
 
 func statPaths(paths []string) []fileStamp {
