@@ -3,8 +3,6 @@
 Cron for repositories and coding agents. Jobs live in the repo, run on your machine or in a
 container, leave history you can inspect, and never run unattended until you say so.
 
-One Go binary. No web UI, cloud service, Python, Node, or agent SDK.
-
 ```yaml
 # noon.yaml
 version: 1
