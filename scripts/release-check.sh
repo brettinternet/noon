@@ -72,9 +72,13 @@ set -- $native_target
 build_archive "$1" "$2" "$3" "$4" yes
 
 [ -x "$output/native-noon" ] || fail 'native release binary was not built'
-expected="noon version $version (commit $commit, built $build_time)"
+short_commit=$(printf '%.7s' "$commit")
+expected="noon $version ($short_commit, built $build_time)"
 actual=$("$output/native-noon" --version)
 [ "$actual" = "$expected" ] || fail "native metadata mismatch: expected '$expected', got '$actual'"
+
+actual=$("$output/native-noon" version)
+[ "$actual" = "$expected" ] || fail "version subcommand mismatch: expected '$expected', got '$actual'"
 
 # Build the checksum list from the same four versioned assets the workflow will publish.
 (

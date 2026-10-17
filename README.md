@@ -136,6 +136,7 @@ supply it.
 | `noon import crontab FILE` | Preview a crontab as Noon YAML; `--write` to add it |
 | `noon shell init bash` | Shell completion; optional job on `cd` |
 | `noon init` / `config` | Create `noon.yaml`; show or check settings |
+| `noon version` / `noon --version` | Print version, short commit SHA, and build time |
 
 Commands that finish accept `-j` / `--json` and print one object. Everyday shortcuts include
 `logs -f`, `history -n 5 -s failed`, `run NAME -d`, and `add NAME -a claude -p "Review" -t 10m`.

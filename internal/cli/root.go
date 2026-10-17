@@ -17,13 +17,19 @@ import (
 	urfave "github.com/urfave/cli/v3"
 )
 
+func init() {
+	urfave.VersionPrinter = func(cmd *urfave.Command) {
+		fmt.Fprintf(cmd.Writer, "%s %s\n", cmd.Name, cmd.Version)
+	}
+}
+
 // NewRootCommand returns a fresh command tree; no settings are read until an action runs.
 func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Command {
 	root := &urfave.Command{
 		Name:        "noon",
 		Usage:       "Repo-local scheduling, without a platform",
 		Description: "With no command, show the project dashboard without running jobs, starting services, or opening listeners. Background runs require explicit enablement and a scheduler.\n\nExamples:\n  noon\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon run tests\n  noon history -s failed\n  noon logs tests -n 50",
-		Version:     fmt.Sprintf("%s (commit %s, built %s)", build.Version, build.Commit, build.BuildTime),
+		Version:     fmt.Sprintf("%s (%.7s, built %s)", build.Version, build.Commit, build.BuildTime),
 		Writer:      out, ErrWriter: errOut,
 		EnableShellCompletion: true,
 		ExitErrHandler:        func(context.Context, *urfave.Command, error) {},
@@ -38,6 +44,13 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 		Action: status,
 		Commands: []*urfave.Command{
 			shellCommand(),
+			{Name: "version", Usage: "Print version and build information", Action: func(_ context.Context, cmd *urfave.Command) error {
+				if err := noArgs(cmd); err != nil {
+					return err
+				}
+				urfave.VersionPrinter(cmd.Root())
+				return nil
+			}},
 			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "data", Usage: "Event `JSON`, @FILE, or - for stdin (up to 256 KiB)"},
 				&urfave.BoolFlag{Name: "detach", Aliases: []string{"d"}, Usage: "Queue NAME to run as soon as capacity is available"},

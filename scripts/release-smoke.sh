@@ -17,7 +17,7 @@ version_output=$("$binary" --version)
 expected_version=${VERSION:-}
 if [ -n "$expected_version" ]; then
   case "$version_output" in
-    "noon version $expected_version ("*) ;;
+    "noon $expected_version ("*) ;;
     *) fail "expected version $expected_version, got '$version_output'" ;;
   esac
 fi
