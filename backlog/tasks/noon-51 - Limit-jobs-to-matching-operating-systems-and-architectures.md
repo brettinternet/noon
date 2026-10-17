@@ -4,10 +4,11 @@ title: Limit jobs to matching operating systems and architectures
 status: Done
 assignee: []
 created_date: '2026-10-17 17:30'
-updated_date: '2026-10-17 20:33'
+updated_date: '2026-10-17 21:06'
 labels:
   - config
   - scheduler
+  - reviewed
 dependencies: []
 documentation:
   - docs/configuration.md
@@ -118,6 +119,8 @@ AC#3: task cli:test PKG=./internal/scheduler -- -count=1 -> passed; injected pla
 AC#4: task cli:test PKG=./internal/config -- -count=1; task cli:test PKG=./internal/httpapi -- -count=1; task cli:test PKG=./internal/cli -- -count=1 -> all passed; parsing, digest, signed webhook 409/no run covered.
 AC#5: mise exec -- go run /tmp/noon-51-schema-check.go -> valid enums accepted, invalid values rejected; task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1 -> passed; task ci -> passed both executor and parent on implementation commit 65f3b4f.
 Delivery: fast-forward merged 65f3b4f into main. No tests deleted, skipped or weakened. Docs describe implemented behavior. Removed verified session-owned worktree and branch with Worktrunk; confirmed associated Herdr workspace wG2 disappeared. No retained worktree, remaining blocker or next implementation step. No push performed.
+
+Post-completion review 2026-10-17: independent static review found no validated defects. Reviewed complete implementation diff and current validation, alias rejection, approval digest coverage, foreground and queue gates, scheduler cancellation, webhook authentication ordering, and inspection/doctor behavior. Verification: task cli:test PKG='./internal/config ./internal/store ./internal/scheduler ./internal/httpapi ./internal/cli ./internal/mcp ./integration' -- -count=1 -> all seven packages passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

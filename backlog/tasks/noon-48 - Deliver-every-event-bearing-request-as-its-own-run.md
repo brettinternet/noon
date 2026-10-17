@@ -4,12 +4,13 @@ title: Let per-event jobs queue every request as its own run
 status: Done
 assignee: []
 created_date: '2026-10-16 22:10'
-updated_date: '2026-10-17 18:00'
+updated_date: '2026-10-17 21:06'
 labels:
   - scheduler
   - store
   - http
   - config
+  - reviewed
 dependencies: []
 documentation:
   - docs/triggers.md
@@ -95,6 +96,8 @@ AC#3: Same fixture, scheduler offline; filled review to 20; run review --detach 
 AC#4: task cli:test PKG=./internal/httpapi -- -count=1 -> passed; signed each deliveries 202/202, duplicate 200, cap 429, merge unchanged.
 AC#5: task cli:test PKG=./integration -- -run ^(TestExamplesValidate|TestExampleScripts)$ -count=1 -> passed. task ci -> passed in worktree on a4f66d4 and on main merge a1fc771, including security, formatting, vet, Staticcheck, all tests, race, smoke. Schema parses; docs cover default merge payload loss, each cap and expiry.
 Delivery: implementation a4f66d4c7188f79d4dfc9143ba2276beabb675ba merged as a1fc771ca1deaba16c777ea9875bd0147a586642. task check:staged passed before both commits. One independent reviewer pass: no validated findings. Changed files stay within contract; no test deleted, skipped or weakened. Source/test LSP diagnostics clean. Worktree, branch feat/noon-48, and exact associated Herdr workspace wFY removed and verified absent. No remaining blocker or resumable implementation step. Nothing pushed.
+
+Post-completion review 2026-10-17: no validated defects. Traced every due-now adapter through app.QueueRun, immediate-transaction queue admission before event-file creation, idempotency before cap, merge payload preservation, future-run counting, unchanged one-shot behavior, cooldown rejection, optional-field digest compatibility, and webhook 202/200/429 mapping. Existing store regression also covers concurrent admission at 19 queued runs. Verification: task cli:test PKG='./internal/config ./internal/store ./internal/scheduler ./internal/httpapi ./internal/cli ./internal/mcp ./integration' -- -count=1 -> all seven packages passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
