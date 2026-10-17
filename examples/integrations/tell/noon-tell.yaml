@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/tell/main/tell.schema.json
+# Loaded only by the hooks: tell --config noon-tell.yaml notify "Message".
+# Not named tell.yaml: Tell auto-discovers that as shared config and rejects routing in it.
+# Apprise reads destinations from APPRISE_URLS in the scheduler's environment.
+version: 1
+notify:
+  via: apprise

@@ -61,6 +61,7 @@ is validated by `integration/examples_test.go`.
 | Example | Level | What it shows |
 | --- | --- | --- |
 | [notifications](integrations/notifications/) | beginner → intermediate | desktop, ntfy, and Slack hooks; per-job opt-out; recovery alerts |
+| [tell](integrations/tell/) | beginner | inline `on_failure` hooks that send failure pointers through Tell and Apprise |
 | [docker-agent](integrations/docker-agent/) | advanced | agent jobs in Docker with mounted user config, secrets, and a writable reports volume |
 | [worktrunk](integrations/worktrunk/) | intermediate | Worktrunk hooks running `noon run` to set up and tear down a database per worktree |
 | [compose.yaml](compose.yaml) | intermediate | minimal production Compose service ([Docker](../docs/docker.md)) |

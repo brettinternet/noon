@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
+# A dotfiles repo that reinstalls itself each morning and tells you when it breaks.
+version: 1
+timezone: Local
+
+jobs:
+  fetch:
+    description: Fetch origin every hour without changing the working tree.
+    schedule: every 1h
+    run: [git, fetch, origin]
+
+  darwin:
+    description: Install macOS dotfiles each morning.
+    schedule: every day at 7am
+    run: make darwin
+    on_failure: >-
+      : "${APPRISE_URLS:?must be exported in the scheduler environment}" &&
+      exec tell --config noon-tell.yaml --timeout 10s notify --type failure --title dotfiles
+      "make darwin ${NOON_STATUS}. See noon logs ${NOON_RUN_ID}."
+
+  ai:
+    description: Install AI dotfiles each morning.
+    schedule: every day at 7am
+    run: make ai
+    on_failure: >-
+      : "${APPRISE_URLS:?must be exported in the scheduler environment}" &&
+      exec tell --config noon-tell.yaml --timeout 10s notify --type failure --title dotfiles
+      "make ai ${NOON_STATUS}. See noon logs ${NOON_RUN_ID}."
