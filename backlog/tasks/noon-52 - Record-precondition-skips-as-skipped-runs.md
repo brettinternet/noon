@@ -1,10 +1,10 @@
 ---
 id: NOON-52
 title: Record runs that find nothing to do as noop
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-17 17:30'
-updated_date: '2026-10-17 17:36'
+updated_date: '2026-10-17 21:12'
 labels:
   - runner
   - history
@@ -102,18 +102,52 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose private .git/noon.yaml defines `idle` (run as a /bin/sh string that exits 78, `noop_exit_code: 78`, `on_success` and `on_failure` hooks that each touch a marker file) and `plain` (exits 78, no field): `bin/noon run idle` exits 0 and prints a summary containing `noop`; `bin/noon run idle --json` reports status `noop` and exit_code 78; neither hook marker exists; `bin/noon run plain` exits 78 and `bin/noon history --json` reports it `failed`; `bin/noon history --status noop --json` lists only the `idle` runs; `bin/noon list` LAST for `idle` is not a noop.
-- [ ] #2 In the same environment, `bin/noon config check` exits 1 with file, line, and YAML path for `noop_exit_code` values 0, 125, 128, 256, "78", and for the field on a prompt job. After `bin/noon enable` with the field on a shared job, changing only its value makes `bin/noon list --json` report `needs_approval`.
-- [ ] #3 `task cli:test PKG=./internal/store -count=1` exits 0 and covers: with 60 noop runs after one succeeded and one failed run, both real runs and their logs are still retained and only the newest 10 noops remain; PreviousStatus and LastSuccess ignore noop runs.
-- [ ] #4 `task cli:test PKG=./internal/scheduler -count=1`, `task cli:test PKG=./internal/config -count=1`, and `task cli:test PKG=./internal/cli -count=1` exit 0 and cover: a scheduled run exiting with the configured code is `noop` and runs no hook; a timed-out or cancelled run is never `noop` even if the process later exits with that code; a failed -> noop -> succeeded sequence gives the success hook previous_status `failed`; the digest covers the field.
-- [ ] #5 The four example scripts and failure-triage triage.sh exit 78 when there is nothing to do, and their jobs set `noop_exit_code: 78`; notify.sh no longer reads the run log; examples/jobs.yaml uses the field; noon.schema.json accepts 1-124 and rejects other values; `task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1` exits 0. Docs in scope describe only implemented behavior. `task ci` exits 0.
+- [x] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose private .git/noon.yaml defines `idle` (run as a /bin/sh string that exits 78, `noop_exit_code: 78`, `on_success` and `on_failure` hooks that each touch a marker file) and `plain` (exits 78, no field): `bin/noon run idle` exits 0 and prints a summary containing `noop`; `bin/noon run idle --json` reports status `noop` and exit_code 78; neither hook marker exists; `bin/noon run plain` exits 78 and `bin/noon history --json` reports it `failed`; `bin/noon history --status noop --json` lists only the `idle` runs; `bin/noon list` LAST for `idle` is not a noop.
+- [x] #2 In the same environment, `bin/noon config check` exits 1 with file, line, and YAML path for `noop_exit_code` values 0, 125, 128, 256, "78", and for the field on a prompt job. After `bin/noon enable` with the field on a shared job, changing only its value makes `bin/noon list --json` report `needs_approval`.
+- [x] #3 `task cli:test PKG=./internal/store -count=1` exits 0 and covers: with 60 noop runs after one succeeded and one failed run, both real runs and their logs are still retained and only the newest 10 noops remain; PreviousStatus and LastSuccess ignore noop runs.
+- [x] #4 `task cli:test PKG=./internal/scheduler -count=1`, `task cli:test PKG=./internal/config -count=1`, and `task cli:test PKG=./internal/cli -count=1` exit 0 and cover: a scheduled run exiting with the configured code is `noop` and runs no hook; a timed-out or cancelled run is never `noop` even if the process later exits with that code; a failed -> noop -> succeeded sequence gives the success hook previous_status `failed`; the digest covers the field.
+- [x] #5 The four example scripts and failure-triage triage.sh exit 78 when there is nothing to do, and their jobs set `noop_exit_code: 78`; notify.sh no longer reads the run log; examples/jobs.yaml uses the field; noon.schema.json accepts 1-124 and rejects other values; `task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1` exits 0. Docs in scope describe only implemented behavior. `task ci` exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add validated noop exit-code config and terminal-run semantics, preserving approval and prior-result boundaries. 2. Update retention, adapters, examples and documentation. 3. Exercise every acceptance criterion, run one scoped review and task ci, commit and merge locally, finalize task and remove owned worktree.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Modified-file contract expansion: internal/cli/shell_test.go must update its exact expected completion-status array because noop is now a supported CLI status. This preserves the existing completion assertion rather than weakening it.
+
+Modified-file contract expansion: internal/tui/view.go must render the configured nonzero noop exit code with muted rather than failure-red styling in run rows and detail views, as required by the settled display contract. No new styling-only test is required.
+
+Modified-file contract expansion: internal/cli/history_test.go must include noop in its exact expected valid-status error message. Focused CLI tests identified this existing assertion; updating it preserves validation coverage for the expanded enum.
+
+Modified-file contract expansion: README.md command-table wording must document the foreground noop exit-0 exception rather than claiming noon run always returns the job exit code. This satisfies the explicit documentation Definition of Done.
+
+AC#1: task cli:build and bun /tmp/noon-52-acceptance.mjs -> PASS. Isolated HOME/config/state/temp Git repo: foreground idle returns 0 with noop summary; JSON preserves exit 78; no hook markers; plain returns 78/failed; noop history filters correctly; idle LAST is never.
+AC#2: bun /tmp/noon-52-acceptance.mjs -> PASS. Config rejects 0, 125, 128, 256, quoted 78 and prompt-job field with file:line:YAML-path; changing only shared noop_exit_code revokes approval.
+AC#3: task cli:test PKG=./internal/store -- -count=1 -> PASS (executor and independent verifier). 60 noops preserve both real result rows/logs and newest 10 noops; previous status and last success exclude noops.
+AC#4: task cli:test PKG=./internal/scheduler -- -count=1; task cli:test PKG=./internal/config -- -count=1; task cli:test PKG=./internal/cli -- -count=1 -> all PASS. Tests cover scheduled noop/no hooks, timeout/cancellation exclusion, failed-noop-success previous status, config digest and foreground/start-failure behavior. AC3/4 command correction: Task rejects bare -count=1; the documented -- separator forwards it to go test.
+AC#5: bun /tmp/noon-52-acceptance.mjs -> all five no-work example scripts exit 78 without agents/network; task cli:test PKG=./integration -- -run ^TestExamplesValidate$ -count=1 -> PASS; config schema validation test passes valid boundaries and rejects invalid values/prompt jobs. task ci -> PASS on implementation af5c523 and integrated main (merge b7c3583). Documentation and example changes match implemented behavior.
+State compatibility: bumped SQLite user_version from 9 to 10 so older binaries refuse noop-aware state; older retention/latest-run queries would otherwise mix noops into result budgets and display.
+One independent critical-correctness verification pass found no concrete defects; git diff --check and store LSP diagnostics clean. No tests deleted, skipped or weakened. Executor timeout preserved completed changes; parent completed acceptance and CI. Implementation af5c523 merged locally via b7c3583; no push. Remaining step: remove verified owned worktree/workspace and finalize task.
+
+Cleanup complete: Worktrunk removed the session-receipted feat/noon-52-noop checkout and branch; post-remove hook closed its exact Herdr workspace wG4, verified absent. No owned checkout/workspace retained; no blocker or resumable step remains.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented opt-in noop_exit_code with strict validation/approval digest, terminal noop status, no hooks/result displacement, separate retention, adapter display/filtering, examples and documentation. Verified isolated CLI acceptance, five example no-work paths, focused tests, independent verification and task ci. Committed af5c523 and merged locally via b7c3583; owned worktree/branch/workspace removed; no push.
+<!-- SECTION:FINAL_SUMMARY:END -->
