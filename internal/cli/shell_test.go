@@ -205,6 +205,26 @@ func TestShellCompletion(t *testing.T) {
 	if !slices.Contains(complete("run", "--d"), "--detach") || !slices.Contains(complete("run", "-"), "-C") {
 		t.Fatal("missing flag/alias")
 	}
+	for command, aliases := range map[string][]string{
+		"run": {"-d", "-j"}, "history": {"-n", "-s", "-j"},
+		"logs": {"-f", "-s", "-n", "-c", "-m", "-b", "-j"}, "add": {"-a", "-p", "-t", "-j"},
+	} {
+		for _, alias := range aliases {
+			if !slices.Contains(complete(command, "-"), alias) {
+				t.Fatalf("missing %s alias %s", command, alias)
+			}
+		}
+	}
+	for _, args := range [][]string{{"run", "-d", ""}, {"history", "-n", "5", ""}, {"logs", "-s", "failed", ""}, {"-j", "run", ""}} {
+		if got := complete(args...); !reflect.DeepEqual(got, []string{"local-job"}) {
+			t.Fatalf("short flag consumed selector %q: %v", args, got)
+		}
+	}
+	for _, args := range [][]string{{"add", "-p", ""}, {"add", "-a", ""}, {"add", "-t", ""}, {"history", "-n", ""}, {"logs", "-s", ""}, {"add", "--", "-j", ""}} {
+		if got := complete(args...); len(got) != 0 {
+			t.Fatalf("completed a value or literal argv %q: %v", args, got)
+		}
+	}
 	for _, command := range []string{"run", "pause", "resume", "remove", "rm", "history", "logs", "cancel"} {
 		if got := complete(command, "local"); !reflect.DeepEqual(got, []string{"local-job"}) {
 			t.Fatalf("%s: %v", command, got)

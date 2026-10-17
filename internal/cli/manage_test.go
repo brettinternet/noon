@@ -34,6 +34,10 @@ func TestAddJobs(t *testing.T) {
 			schedule           string
 		}{
 			{"argv", []string{"add", "tests", "every 30m", "--", "go", "test", "./..."}, "run:", "tests", []string{"go", "test", "./..."}, nil, nil, "every 30m"},
+			{"short flags in argv", []string{"add", "tests", "-t", "1m", "--", "echo", "-j", "--json", "-a", "-p", "-t"}, "run:", "tests", []string{"echo", "-j", "--json", "-a", "-p", "-t"}, nil, nil, ""},
+			{"short prompt", []string{"add", "review", "-a", "claude", "-p", "-j", "-t", "1m"}, "prompt:", "review", nil, ptr("-j"), nil, ""},
+			{"short prompt delimiter", []string{"add", "review", "-a", "claude", "-p", "--"}, "prompt:", "review", nil, ptr("--"), nil, ""},
+			{"short prompt long json value", []string{"add", "review", "-a=claude", "-p=--json"}, "prompt:", "review", nil, ptr("--json"), nil, ""},
 			{"schedule-like argv", []string{"add", "tests", "--", "daily", "--json"}, "run:", "tests", []string{"daily", "--json"}, nil, nil, ""},
 			{"delimiter as flag value", []string{"add", "tests", "--description", "--", "--", "daily"}, "run:", "tests", []string{"daily"}, nil, nil, ""},
 			{"shell", []string{"add", "lint", "every 30m", "--sh", "golangci-lint run ./..."}, "run:", "lint", "golangci-lint run ./...", nil, nil, "every 30m"},

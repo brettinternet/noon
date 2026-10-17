@@ -33,25 +33,25 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			&urfave.StringFlag{Name: "timezone", Usage: "Override timezone (default Local)", Sources: urfave.EnvVars("NOON_TIMEZONE")},
 			&urfave.StringFlag{Name: "state-dir", Usage: "Override per-user state directory", Sources: urfave.EnvVars("NOON_STATE_DIR")},
 
-			&urfave.BoolFlag{Name: "json", Usage: "Print structured JSON instead of human output"},
+			&urfave.BoolFlag{Name: "json", Aliases: []string{"j"}, Usage: "Print structured JSON instead of human output"},
 		},
 		Action: status,
 		Commands: []*urfave.Command{
 			shellCommand(),
 			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "data", Usage: "JSON event data, @FILE, or - for stdin (up to 256 KiB)"},
-				&urfave.BoolFlag{Name: "detach", Usage: "Queue NAME to run as soon as capacity is available"},
+				&urfave.BoolFlag{Name: "detach", Aliases: []string{"d"}, Usage: "Queue NAME to run as soon as capacity is available"},
 				&urfave.StringFlag{Name: "in", Usage: "Queue NAME after DURATION (at least 1s)"},
 				&urfave.StringFlag{Name: "at", Usage: "Queue NAME at HH:MM, YYYY-MM-DD HH:MM, or RFC 3339 time"},
 				&urfave.StringFlag{Name: "key", Usage: "Idempotency key; deduplicated while retained (newest 50 terminal runs per job)"},
 			}, Action: runJob},
 			{Name: "cancel", Usage: "Cancel a run or all active runs of a job; without an argument, list active runs", ArgsUsage: "[RUN|NAME]", Action: cancelRuns},
 			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
-				&urfave.IntFlag{Name: "limit", Value: 20, Usage: "Limit history to 1–50 runs"},
-				&urfave.StringSliceFlag{Name: "status", Usage: "Filter by status; repeat or comma-separate values"},
+				&urfave.IntFlag{Name: "limit", Aliases: []string{"n"}, Value: 20, Usage: "Limit history to `N` runs (1–50)"},
+				&urfave.StringSliceFlag{Name: "status", Aliases: []string{"s"}, Usage: "Filter by `STATUS`; repeat or comma-separate values"},
 			}, Action: historyRuns},
 			{Name: "logs", Usage: "Read a run log, follow it, or print its path", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
-				&urfave.BoolFlag{Name: "follow", Usage: "Follow a running run until it finishes"},
+				&urfave.BoolFlag{Name: "follow", Aliases: []string{"f"}, Usage: "Follow a running run until it finishes"},
 				&urfave.BoolFlag{Name: "path", Usage: "Print the absolute log path"},
 				&urfave.StringFlag{Name: "section", Value: "all", Usage: "read all, job, or hook output"},
 				&urfave.IntFlag{Name: "tail", Aliases: []string{"n"}, Usage: "keep the last 1–10000 selected lines"},
@@ -59,7 +59,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.StringFlag{Name: "match", Aliases: []string{"m"}, Usage: "select lines matching a Go RE2 regular expression"},
 				&urfave.IntFlag{Name: "context", Usage: "include 0–50 surrounding lines; requires --match"},
 				&urfave.IntFlag{Name: "limit-bytes", Aliases: []string{"b"}, Usage: "cap emitted log text in bytes"},
-				&urfave.StringSliceFlag{Name: "status", Usage: "filter by status; repeat or comma-separate values"},
+				&urfave.StringSliceFlag{Name: "status", Aliases: []string{"s"}, Usage: "Filter by `STATUS`; repeat or comma-separate values"},
 			}, Action: runLogs},
 			{Name: "enable", Usage: "Enable this checkout and approve current shared job definitions", Action: enableProject},
 			{Name: "disable", Usage: "Disable this checkout and revoke approvals; keep history", Action: disableProject},
@@ -80,11 +80,11 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Action: listJobs},
 			{Name: "add", Usage: "Add a scheduled or manual job", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "sh", Usage: "Run STRING through /bin/sh -c"},
-				&urfave.StringFlag{Name: "prompt", Usage: "Create an agent-prompt job"},
+				&urfave.StringFlag{Name: "prompt", Aliases: []string{"p"}, Usage: "Create an agent-prompt job with `TEXT`"},
 				&urfave.StringFlag{Name: "prompt-file", Usage: "Read the prompt from PATH at run time"},
-				&urfave.StringFlag{Name: "agent", Usage: "Use agent profile NAME"},
+				&urfave.StringFlag{Name: "agent", Aliases: []string{"a"}, Usage: "Use agent profile `NAME`"},
 				&urfave.StringFlag{Name: "description", Usage: "Set the job description"},
-				&urfave.StringFlag{Name: "timeout", Usage: "Set the run timeout"},
+				&urfave.StringFlag{Name: "timeout", Aliases: []string{"t"}, Usage: "Set the run timeout to `DURATION`"},
 				&urfave.BoolFlag{Name: "shared", Usage: "Write noon.yaml instead of .noon.yaml"},
 				&urfave.StringFlag{Name: "in", Usage: "Queue a run after DURATION"},
 				&urfave.StringFlag{Name: "at", Usage: "Queue a run at TIME"},
@@ -154,16 +154,17 @@ func Run(ctx context.Context, args []string, build config.BuildOpts, out, errOut
 // reaches --json. Do not mistake a string flag's value for an output flag.
 func jsonRequested(root *urfave.Command, args []string) bool {
 	valueFlags := make(map[string]bool)
-	_ = root.Walk(func(cmd *urfave.Command) error {
+	includeFlags := func(cmd *urfave.Command) {
 		for _, flag := range cmd.Flags {
-			if _, boolean := flag.(*urfave.BoolFlag); !boolean {
-				for _, name := range flag.Names() {
-					valueFlags[name] = true
-				}
+			_, boolean := flag.(*urfave.BoolFlag)
+			for _, name := range flag.Names() {
+				valueFlags[name] = !boolean
 			}
 		}
-		return nil
-	})
+	}
+	selected := root
+	includeFlags(selected)
+	positional := false
 	requested := false
 	for i := 1; i < len(args); i++ {
 		arg := args[i]
@@ -171,6 +172,12 @@ func jsonRequested(root *urfave.Command, args []string) bool {
 			return requested
 		}
 		if !strings.HasPrefix(arg, "-") {
+			if next := selected.Command(arg); !positional && next != nil {
+				selected = next
+				includeFlags(selected)
+			} else {
+				positional = true
+			}
 			continue
 		}
 		name, value, hasValue := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-"), "=")
@@ -179,7 +186,7 @@ func jsonRequested(root *urfave.Command, args []string) bool {
 			if !hasValue {
 				i++
 			}
-		case name == "json":
+		case name == "json" || name == "j":
 			if !hasValue {
 				requested = true
 			} else {

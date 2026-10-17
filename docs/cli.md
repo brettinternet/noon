@@ -12,10 +12,34 @@ These work before or after the subcommand.
 | `--config FILE` | `NOON_CONFIG` | Read only this config file |
 | `--timezone TZ` | `NOON_TIMEZONE` | Override the timezone |
 | `--state-dir DIR` | `NOON_STATE_DIR` | Override the per-user state directory |
-| `--json` | — | One JSON object on stdout |
+| `-j`, `--json` | — | One JSON object on stdout |
 
 `noon serve` accepts only `--state-dir`. Each project uses the config selection recorded by
 `noon enable`.
+
+## Short flags
+
+| Command | Short forms |
+| --- | --- |
+| All commands | `-C DIR` = `--project DIR`, `-j` = `--json`, `-h` = `--help` |
+| Root | `-v` = `--version` |
+| `history` | `-n N` = `--limit N`, `-s STATUS` = `--status STATUS` |
+| `logs` | `-f` = `--follow`, `-s STATUS` = `--status STATUS`; existing `-n/-c/-m/-b` below |
+| `run` | `-d` = `--detach` |
+| `add` | `-a NAME` = `--agent NAME`, `-p TEXT` = `--prompt TEXT`, `-t DURATION` = `--timeout DURATION` |
+
+Use separate short flags, not bundles. Values may use a space or `=` (for example,
+`-p=-j` keeps `-j` as prompt text). Everything after `add ... --` is literal command argv.
+
+Other options deliberately stay long-only:
+- Global `--config`, `--timezone`, and `--state-dir` avoid collisions with log cursors,
+  timeouts, and status filters.
+- Log `--context`, `--section`, and `--path` stay distinct from cursor, status, and prompt.
+- Run/add `--in` and `--at`, run `--data` and `--key`, and add `--sh`,
+  `--prompt-file`, and `--description` keep timing, payload, and action choices explicit.
+- `--shared`, `--local`, import `--write`, service `--print`, serve `--listen`,
+  and shell `--on-enter` are explicit scope or side-effect choices, not everyday shortcuts.
+  Hidden shell plumbing flags are not interactive shortcuts.
 
 ## Output and exit codes
 
@@ -82,7 +106,7 @@ Next: noon service install
 
 | Flag | Effect |
 | --- | --- |
-| `--detach` | Due now. Merges into a run of the same job that is already due |
+| `-d`, `--detach` | Due now. Merges into a run of the same job that is already due |
 | `--in 2h` | Separate one-shot after a duration |
 | `--at 17:00` | Separate one-shot at `HH:MM`, `YYYY-MM-DD HH:MM`, or RFC 3339 |
 | `--key KEY` | Return the existing run if this project/job already used `KEY` |
@@ -107,8 +131,8 @@ Queued runs are cancelled immediately. Running ones get the same TERM-then-KILL 
 
 ```sh
 noon history                            # newest 20 runs
-noon history tests --limit 50
-noon history --status failed,timed_out
+noon history tests -n 50                 # --limit 50
+noon history -s failed,timed_out          # --status failed,timed_out
 ```
 
 Statuses: `queued`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`, `interrupted`,
@@ -121,7 +145,7 @@ Statuses: `queued`, `running`, `succeeded`, `failed`, `timed_out`, `cancelled`, 
 noon logs                         # latest started run in this project
 noon logs tests                   # latest started run of tests
 noon logs tests --status failed   # latest failure
-noon logs 12 --follow             # wait for run 12 to start, then stream it
+noon logs 12 -f                   # --follow: wait for run 12, then stream it
 noon logs 12 -n 50                # last 50 lines
 noon logs 12 -m 'panic|FAIL' --context 3
 noon logs 12 --section job        # job output only, without hook output
@@ -137,7 +161,7 @@ noon logs 12 --path               # absolute log file path
 | `--context N` | Up to 50 lines around matches; needs `--match` |
 | `-c`, `--after-cursor B` | Read forward from absolute byte offset `B` |
 | `-b`, `--limit-bytes N` | Cap output, keeping whole lines |
-| `--status S` | Pick the latest run with these statuses |
+| `-s`, `--status S` | Pick the latest run with these statuses |
 
 Bounded reads print the resume command to stderr. JSON returns `log`, `next`, `size`, `truncated`,
 and `matched_lines`. Pass `next` back as `--after-cursor` with the same `--section`.

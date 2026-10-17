@@ -115,6 +115,15 @@ func TestJSONFailuresAreSingleObjects(t *testing.T) {
 		exit int
 		kind string
 	}{
+		{[]string{"config", "-p", "--json"}, 2, "usage"},
+		{[]string{"config", "-p", "-j"}, 2, "usage"},
+		{[]string{"config", "check", "-a", "-j"}, 2, "usage"},
+		{[]string{"-j", "--bogus"}, 2, "usage"},
+		{[]string{"--bogus", "-j"}, 2, "usage"},
+		{[]string{"history", "-n", "invalid", "-j"}, 2, "usage"},
+		{[]string{"add", "review", "-a", "claude", "-p", "--json", "--bogus", "-j"}, 2, "usage"},
+		{[]string{"--bogus", "-j=true"}, 2, "usage"},
+		{[]string{"-j", "--config", "missing.yaml", "config", "check"}, 1, "config"},
 		{[]string{"--json", "--bogus"}, 2, "usage"},
 		{[]string{"--bogus", "--json"}, 2, "usage"},
 		{[]string{"config", "--bogus", "--json"}, 2, "usage"},
@@ -156,11 +165,25 @@ func TestJSONFailuresAreSingleObjects(t *testing.T) {
 
 func TestValueFlagsAreNotMistakenForJSON(t *testing.T) {
 	sandbox(t)
-	for _, flag := range []string{"--timezone", "--project", "-C", "--config", "--state-dir"} {
+	for _, value := range []string{"--json", "-j"} {
+		for _, args := range [][]string{
+			{"--timezone"}, {"--project"}, {"-C"}, {"--config"}, {"--state-dir"},
+			{"add", "review", "-p"}, {"add", "review", "-a"}, {"add", "review", "-t"},
+			{"history", "-s"}, {"history", "-n"}, {"logs", "-s"},
+			{"config", "--config"}, {"config", "check", "-C"},
+		} {
+			argv := append(append([]string{"noon"}, args...), value, "--bogus")
+			var out, stderr bytes.Buffer
+			code := cli.Run(context.Background(), argv, config.BuildOpts{}, &out, &stderr)
+			if code != 2 || out.Len() != 0 || !strings.HasPrefix(stderr.String(), "noon: ") || !strings.Contains(stderr.String(), "\nHint: ") {
+				t.Fatalf("%v value misread: exit=%d stdout=%s stderr=%s", argv, code, &out, &stderr)
+			}
+		}
+	}
+	for _, args := range [][]string{{"noon", "--bogus", "--", "-j"}, {"noon", "--bogus", "-j=false"}} {
 		var out, stderr bytes.Buffer
-		code := cli.Run(context.Background(), []string{"noon", flag, "--json", "unexpected"}, config.BuildOpts{}, &out, &stderr)
-		if code != 2 || out.Len() != 0 || !strings.HasPrefix(stderr.String(), "noon: ") || !strings.Contains(stderr.String(), "\nHint: ") {
-			t.Fatalf("%s value misread: exit=%d stdout=%s stderr=%s", flag, code, &out, &stderr)
+		if code := cli.Run(context.Background(), args, config.BuildOpts{}, &out, &stderr); code != 2 || out.Len() != 0 || stderr.Len() == 0 {
+			t.Fatalf("unexpected JSON mode: %v stdout=%s stderr=%s", args, &out, &stderr)
 		}
 	}
 }

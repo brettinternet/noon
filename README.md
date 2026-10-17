@@ -136,7 +136,9 @@ repositories you would run by hand. Keep `.noon.yaml` out of Git.
 | `noon shell init bash` | Shell completion; optional job on `cd` |
 | `noon init` / `config` | Create `noon.yaml`; show or check settings |
 
-Commands that finish accept `--json` and print one object. Commands that take a target list
+Commands that finish accept `-j` / `--json` and print one object. Everyday shortcuts include
+`logs -f`, `history -n 5 -s failed`, `run NAME -d`, and `add NAME -a claude -p "Review" -t 10m`.
+See [short flags](docs/cli.md#short-flags) for the full mapping. Commands that take a target list
 candidates or print examples when run without one:
 
 ```console

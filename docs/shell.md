@@ -22,6 +22,9 @@ noon shell init fish | source       # ~/.config/fish/config.fish
 Completion covers commands, aliases, flags, and current job names for `run`, `pause`, `resume`,
 `remove`, `history`, `logs`, and `cancel`. It respects `-C` and `--config`. It only reads config:
 no jobs, state, network, or services. Broken config hides job names but not commands.
+Short flags are included: for example, `noon logs -<TAB>` offers `-f`, `-s`, `-n`, `-c`,
+`-m`, `-b`, and global aliases. The [short-flag mapping](cli.md#short-flags) is shared with
+command help. Completion does not suggest job names while a flag needs a value or after `--`.
 
 Bash 3.2+ works without the bash-completion package. Zsh uses its bundled completion system and
 writes no compdump. No Python, Node, or jq is needed.
