@@ -32,8 +32,8 @@ task cli:run -- --help                 # run from source
 | `task backlog` / `backlog:next` | Ready, unclaimed work |
 | `task changelog` | Changelog from Conventional Commits |
 
-Bare `task` or `task --list` lists the available checks. `task test` and `task ci` run all
-packages by default; `task cli:check` checks formatting, vet, and Staticcheck across all packages.
+Bare `task` or `task --list` lists the available checks. `task test` and `task ci` always run all
+packages; `task cli:check` checks formatting, vet, and Staticcheck across all packages.
 For focused iteration, select packages on the existing test task (still using pinned mise tools):
 
 ```sh

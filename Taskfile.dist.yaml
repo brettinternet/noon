@@ -31,7 +31,7 @@ tasks:
     cmd: { task: cli:fix }
   test:
     desc: Run tests
-    cmd: { task: cli:test }
+    cmd: { task: cli:test, vars: { PKG: ./... } }
   race:
     desc: Run tests with the race detector
     cmd: mise exec go -- go test -race ./...

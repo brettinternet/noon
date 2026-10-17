@@ -4,10 +4,11 @@ title: Expose discoverable package-scoped contributor checks
 status: Done
 assignee: []
 created_date: '2026-10-16 23:22'
-updated_date: '2026-10-17 02:29'
+updated_date: '2026-10-17 02:37'
 labels:
   - cli-ux
   - devex
+  - reviewed
 dependencies: []
 modified_files:
   - Taskfile.dist.yaml
@@ -59,4 +60,6 @@ AC#2: task --dry test -> mise exec go -- go test ./...; task --dry cli:test PKG=
 AC#3: task test, task cli:check, task check:staged -> exit 0. Defaults and CI still use ./... through mise; CLI_ARGS unchanged. Documentation distinguishes full checks from focused iteration.
 Delivery: c87c189 chore: expose package-scoped contributor checks; task ci passed on this final implementation commit (security, formatting/vet/Staticcheck, all tests, race, isolated smoke). Fast-forward merged into main. Initial full test saw scheduler TestServeQueued cancellation EOF; ten uncached focused repetitions, subsequent full suite and race suite passed without test changes.
 Review: one direct diff/behavior review corrected the single-test documentation example to an existing test. No remaining scoped defects. YAML LSP diagnostics unavailable; actual Task parsing/execution passed. Changes limited to .taskfiles/cli.yaml and docs/development.md; this provider record is required workflow bookkeeping. No tests added, deleted, skipped, or weakened; no design contract changes. No blocker. Next step: commit completion record and remove verified owned task worktree; preserve unrelated primary CLI edits and existing feat-tui-design checkout.
+
+Post-done review: ambient PKG env var silently narrowed task test/task ci to one package (PKG=./internal/cli task --dry ci -> go test ./internal/cli). Fixed by pinning PKG=./... on the top-level test call in Taskfile.dist.yaml; docs say full targets always run all packages. Verified: PKG=./internal/cli task --dry ci/test -> ./...; task cli:test PKG=./internal/config -- -run TestLoad -count=1 -> ok; task test -> exit 0.
 <!-- SECTION:NOTES:END -->
