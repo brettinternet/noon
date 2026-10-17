@@ -14,9 +14,13 @@ tasks:
   fix:
     cmd: find cmd internal -type f -name '*.go' -exec mise exec go -- gofmt -w {} +
   check:
+    desc: Check all Go formatting, vet, and Staticcheck
     cmds:
       - test -z "$(find cmd internal -type f -name '*.go' -exec mise exec go -- gofmt -l {} +)"
       - mise exec go -- go vet ./...
       - mise exec staticcheck -- staticcheck ./...
   test:
-    cmd: mise exec go -- go test ./... {{.CLI_ARGS}}
+    desc: Run Go tests (PKG selects packages; defaults to ./...)
+    vars:
+      PKG: '{{.PKG | default "./..."}}'
+    cmd: mise exec go -- go test {{.PKG}} {{.CLI_ARGS}}

@@ -17,7 +17,7 @@ task cli:run -- --help                 # run from source
 | --- | --- |
 | `task` | List tasks |
 | `task test` | Unit and CLI tests |
-| `task cli:test -- -run TestLoad` | Focused tests |
+| `task cli:test PKG=./internal/config -- -run TestLoad -count=1 -v` | Uncached, focused config tests |
 | `task cli:check` | gofmt, vet, Staticcheck |
 | `task race` | Tests with the race detector |
 | `task smoke` | Exercise the built binary in a temp environment |
@@ -32,7 +32,19 @@ task cli:run -- --help                 # run from source
 | `task backlog` / `backlog:next` | Ready, unclaimed work |
 | `task changelog` | Changelog from Conventional Commits |
 
-Iterate with focused checks. Before each commit, stage only intended files and run
+Bare `task` or `task --list` lists the available checks. `task test` and `task ci` run all
+packages by default; `task cli:check` checks formatting, vet, and Staticcheck across all packages.
+For focused iteration, select packages on the existing test task (still using pinned mise tools):
+
+```sh
+task cli:test PKG=./internal/config                            # one package
+task cli:test PKG=./internal/config -- -run '^TestLoadLayersAndPathOrigins$' # one test
+task cli:test PKG=./internal/config -- -run TestLoad -count=1 -v # uncached matching tests
+```
+
+`PKG` defaults to `./...` when omitted. Arguments after `--` are forwarded unchanged to `go test`;
+`-count=1` disables test-result caching. Use full checks before delivery, not just the focused run.
+Before each commit, stage only intended files and run
 `task check:staged`. Run `task ci` before pushing. Never push without being asked. GitHub Actions
 runs the gate on Linux and macOS, plus container smoke on Linux. The explicit tagged-release
 workflow is described below.
