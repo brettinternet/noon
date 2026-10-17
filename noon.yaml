@@ -1,4 +1,5 @@
-# Noon bootstrap settings. Jobs will be added in a later release.
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
+# Shared Noon project settings.
 # Private jobs go in .git/noon.yaml, which Git can't commit.
 version: 1
 # timezone: Local

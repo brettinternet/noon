@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json",
+  "title": "Noon project configuration",
+  "description": "Shared noon.yaml configuration. Use noon config check for schedule, duration, timezone, agent resolution, and YAML-specific validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Configuration format version.",
+      "const": 1
+    },
+    "timezone": {
+      "$ref": "#/definitions/nonBlankString",
+      "description": "Local, UTC, or an IANA timezone name such as America/Denver.",
+      "default": "Local"
+    },
+    "jobs": {
+      "type": "object",
+      "description": "Named jobs. Omit schedule for manual-only jobs.",
+      "propertyNames": { "$ref": "#/definitions/name" },
+      "additionalProperties": { "$ref": "#/definitions/job" }
+    }
+  },
+  "definitions": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "nonBlankString": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "command": {
+      "description": "A shell command string or exact argv list. The executable must not be blank; later arguments may be empty.",
+      "oneOf": [
+        { "$ref": "#/definitions/nonBlankString" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": [{ "$ref": "#/definitions/nonBlankString" }],
+          "additionalItems": { "type": "string" }
+        }
+      ]
+    },
+    "hook": {
+      "description": "A shell command or argv list; an empty list disables the user-default hook.",
+      "oneOf": [
+        { "$ref": "#/definitions/command" },
+        { "type": "array", "maxItems": 0 }
+      ]
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["run"] },
+        { "required": ["prompt"] },
+        { "required": ["prompt_file"] }
+      ],
+      "if": { "required": ["run"] },
+      "then": { "not": { "required": ["agent"] } },
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Description shown in job listings."
+        },
+        "schedule": {
+          "$ref": "#/definitions/nonBlankString",
+          "description": "Cron, macro, calendar phrase, or interval; validated by noon config check.",
+          "examples": ["every 30m", "weekdays at 9am", "0 6 * * 1"]
+        },
+        "run": { "$ref": "#/definitions/command" },
+        "prompt": {
+          "type": "string",
+          "description": "Inline agent prompt, at most 64 KiB in UTF-8 bytes (checked by Noon)."
+        },
+        "prompt_file": {
+          "allOf": [
+            { "$ref": "#/definitions/nonBlankString" },
+            { "not": { "pattern": "^/" } }
+          ],
+          "description": "Project-relative prompt file; read at run time, at most 64 KiB."
+        },
+        "agent": {
+          "$ref": "#/definitions/name",
+          "description": "Agent profile for prompt jobs; defaults to the machine's default_agent."
+        },
+        "cwd": {
+          "$ref": "#/definitions/nonBlankString",
+          "description": "Working directory, absolute or relative to the project root.",
+          "default": "."
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment overrides. Quote numbers; NOON_* names are reserved.",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "not": { "pattern": "^NOON_" }
+          },
+          "additionalProperties": { "type": "string" }
+        },
+        "timeout": {
+          "$ref": "#/definitions/nonBlankString",
+          "description": "Duration of at least 1s, or none; validated by noon config check.",
+          "default": "1h",
+          "examples": ["30s", "10m", "1h30m", "2d", "none"]
+        },
+        "overlap": {
+          "enum": ["skip", "queue"],
+          "description": "Skip overlapping runs or keep at most one pending run.",
+          "default": "skip"
+        },
+        "missed": {
+          "enum": ["run_once", "skip"],
+          "description": "How to handle schedules missed during sleep or downtime.",
+          "default": "run_once"
+        },
+        "enabled": { "type": "boolean", "default": true },
+        "cooldown": {
+          "$ref": "#/definitions/nonBlankString",
+          "description": "Minimum gap between queued requests, at least 1s; validated by noon config check."
+        },
+        "on_success": { "$ref": "#/definitions/hook" },
+        "on_failure": { "$ref": "#/definitions/hook" },
+        "webhook": {
+          "type": "object",
+          "description": "Signed webhook authentication settings.",
+          "additionalProperties": false,
+          "required": ["secret_env"],
+          "properties": {
+            "secret_env": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "Environment variable containing the webhook secret."
+            }
+          }
+        }
+      }
+    }
+  }
+}

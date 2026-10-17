@@ -56,6 +56,23 @@ Noon ignores an in-tree `.noon.yaml`, even an untracked one, because a commit ca
 filename. A project with no `.git` has no private config: `init --local`, `add` without
 `--shared`, and `import --write` refuse and suggest `noon.yaml` instead.
 
+## Editor schema
+
+The published [JSON Schema](../noon.schema.json) provides completion and structural validation
+for shared `noon.yaml` files in editors with YAML language-server support. Add this comment:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
+version: 1
+```
+
+The URL tracks `main`; replace `main` with a commit SHA to pin the schema. This schema covers
+shared project files, not user config, private `.git/noon.yaml` overrides, or all-in-one `--config`
+files. It rejects unknown fields and invalid job shapes, including conflicting actions and
+reserved environment names. Run `noon config check` for full validation: schedule and duration
+grammar, timezones, agent resolution, byte limits, and YAML-specific restrictions still need Noon.
+Use the comment, not a `$schema` YAML key, which Noon rejects as an unknown field.
+
 ## Where keys are allowed
 
 | Key | User config | `noon.yaml` | `.git/noon.yaml` |

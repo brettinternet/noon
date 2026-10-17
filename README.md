@@ -183,7 +183,7 @@ Agent-prompt jobs run your installed `claude` or `codex` CLI, or any CLI you con
 
 - [Examples](examples/README.md): runnable projects for local dev, AI workflows, and integrations
 - [Command reference](docs/cli.md): output, exit codes, queueing, history, logs, TUI
-- [Configuration](docs/configuration.md): files, precedence, job fields, agent profiles
+- [Configuration](docs/configuration.md): files, precedence, job fields, agent profiles, [editor schema](docs/configuration.md#editor-schema)
 - [Agents](docs/agents.md): MCP, agent-facing jobs, reading failures
 - [Lifecycle hooks](docs/hooks.md): notify on failure and recovery
 - [Triggers](docs/triggers.md): Git hooks, Claude Code and Codex `Stop` hooks
