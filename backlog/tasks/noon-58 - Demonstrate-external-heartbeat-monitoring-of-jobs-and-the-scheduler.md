@@ -1,10 +1,10 @@
 ---
 id: NOON-58
 title: Demonstrate external heartbeat monitoring of jobs and the scheduler
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 16:24'
-updated_date: '2026-10-18 16:37'
+updated_date: '2026-10-18 17:31'
 labels:
   - examples
   - integration
@@ -45,22 +45,41 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test PKG=./integration -- -run "^TestExamplesValidate$" -count=1` exits 0 and validates the new noon.yaml and user-config.yaml.
-- [ ] #2 `task cli:test PKG=./integration -- -run '^TestExampleHeartbeat$' -count=1 -v` exits 0 with PASS, not SKIP. Through the built binary and copied examples, a success hook hits a loopback server's base path, a failure hook hits base path + /fail, and `--user run` of the installed user-config heartbeat hits the base path. Missing/empty/malformed URL files fail without a request. A server failure whose response echoes a sentinel secret URL exits nonzero within a test deadline and leaves no URL or response body in script output or retained hook logs. Use finite retry budgets; never call an external monitor.
-- [ ] #3 `test -x examples/integrations/heartbeat/bin/noon-heartbeat` exits 0 and `rg -n "integrations/heartbeat" examples/README.md` exits 0.
+- [x] #1 `task cli:test PKG=./integration -- -run "^TestExamplesValidate$" -count=1` exits 0 and validates the new noon.yaml and user-config.yaml.
+- [x] #2 `task cli:test PKG=./integration -- -run '^TestExampleHeartbeat$' -count=1 -v` exits 0 with PASS, not SKIP. Through the built binary and copied examples, a success hook hits a loopback server's base path, a failure hook hits base path + /fail, and `--user run` of the installed user-config heartbeat hits the base path. Missing/empty/malformed URL files fail without a request. A server failure whose response echoes a sentinel secret URL exits nonzero within a test deadline and leaves no URL or response body in script output or retained hook logs. Use finite retry budgets; never call an external monitor.
+- [x] #3 `test -x examples/integrations/heartbeat/bin/noon-heartbeat` exits 0 and `rg -n "integrations/heartbeat" examples/README.md` exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add bounded secret-safe heartbeat script and project/user examples. 2. Exercise copied examples with loopback HTTP and secret-leak regression checks. 3. Run acceptance and full CI, review, commit, merge and clean owned worktree.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Refinement: foreground runs also fire hooks (internal/cli/run.go). TestExamplesValidate currently loads user-config.yaml with --config, so add real isolated --user execution. Secret leakage must be checked on an actual HTTP error, not only a missing file; raw curl diagnostics/response bodies and user .curlrc must not leak the ping credential. Healthchecks base and /fail GET forms: https://healthchecks.io/docs/http_api/.
+
+AC#1: task cli:test PKG=./integration -- -run "^TestExamplesValidate$" -count=1 -> PASS, exit 0; both new YAML files validated.
+AC#2: task cli:test PKG=./integration -- -run "^TestExampleHeartbeat$" -count=1 -v -> PASS (not SKIP), exit 0. Copied job hooks and installed --user config hit loopback base/fail endpoints; malformed files make no request; HTTP 503 retries are bounded and neither direct output nor retained hook logs leak sentinel URL/body. Redirect refusal and hostile .curlrc covered.
+AC#3: test -x examples/integrations/heartbeat/bin/noon-heartbeat && rg -n "integrations/heartbeat" examples/README.md -> exit 0, integration row found.
+Full task ci passed (security, vet, Staticcheck, all tests, race, smoke). LSP diagnostics clean. Direct general review completed with no concrete defects; independent reviewer unavailable after registry/modelScope rejected both launch attempts (no child ran). Changes stay within allowed files; no existing tests changed or weakened. Existing command/hook extension contract unchanged.
+
+Delivery: implementation commit 2296656 merged into main as 822cca4 (non-fast-forward because unrelated bulk-pause work landed concurrently). task ci passed again on the merged implementation. Verified owned Worktrunk receipt and workspace wGX shell pane; removed heartbeat-example worktree and branch through Worktrunk, including its Herdr workspace. No blocker or next resumable step remains; nothing pushed.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added external heartbeat recipe with protected URL files, bounded secret-safe curl, per-job result hooks and user-project scheduler liveness. All three acceptance commands and full CI pass; locally merged and owned worktree cleaned.
+<!-- SECTION:FINAL_SUMMARY:END -->
