@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -620,6 +622,120 @@ func TestExampleScripts(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Guard endpoint routing and credential isolation through copied examples and real curl.
+func TestExampleHeartbeat(t *testing.T) {
+	root := t.TempDir()
+	home, configHome, stateHome, stateDir := remoteDirectories(t, root)
+	env := isolatedEnvironment(home, configHome, stateHome, stateDir)
+	project := filepath.Join(root, "project")
+	if err := os.CopyFS(project, os.DirFS("../examples/integrations/heartbeat")); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path, content string, mode fs.FileMode) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(path string) string {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	var mu sync.Mutex
+	var paths []string
+	status := http.StatusOK
+	const secret = "sentinel-private-heartbeat"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Location", "/redirect-leaked")
+		w.WriteHeader(status)
+		_, _ = fmt.Fprintf(w, "response-secret http://%s/%s", r.Host, secret)
+	}))
+	defer server.Close()
+	assertPaths := func(want ...string) {
+		t.Helper()
+		mu.Lock()
+		defer mu.Unlock()
+		if strings.Join(paths, ",") != strings.Join(want, ",") {
+			t.Fatalf("paths = %v; want %v", paths, want)
+		}
+		paths = nil
+	}
+	urlFile := filepath.Join(root, "ping.url")
+	url := server.URL + "/" + secret
+	write(urlFile, url+"\n", 0o600)
+	manifestPath := filepath.Join(project, "noon.yaml")
+	manifest := strings.ReplaceAll(read(manifestPath), "/Users/me/.config/noon/job-heartbeat.url", urlFile)
+	write(manifestPath, manifest, 0o600)
+	// If curl loads this file, it leaks the URL and follows redirects.
+	write(filepath.Join(home, ".curlrc"), "verbose\nlocation\n", 0o600)
+	script := filepath.Join(project, "bin", "noon-heartbeat")
+	if err := os.Chmod(script, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := func(wantExit int, executable string, args ...string) string {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, executable, args...)
+		cmd.Dir, cmd.Env = project, env
+		output, err := cmd.CombinedOutput()
+		if ctx.Err() != nil || cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != wantExit {
+			t.Fatalf("command %s %v: %v, deadline=%v\n%s", executable, args, err, ctx.Err(), output)
+		}
+		if strings.Contains(string(output), secret) || strings.Contains(string(output), server.URL) || strings.Contains(string(output), "response-secret") {
+			t.Fatalf("credential or response leaked: %s", output)
+		}
+		return string(output)
+	}
+	run(0, noonBinary, "run", "check")
+	assertPaths("/" + secret)
+	write(filepath.Join(project, "simulate-failure"), "", 0o600)
+	run(1, noonBinary, "run", "check")
+	assertPaths("/" + secret + "/fail")
+
+	userProject := filepath.Join(configHome, "noon")
+	if err := os.MkdirAll(filepath.Join(userProject, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write(filepath.Join(userProject, "bin", "noon-heartbeat"), read(script), 0o700)
+	write(filepath.Join(userProject, "config.yaml"), read(filepath.Join(project, "user-config.yaml")), 0o600)
+	write(filepath.Join(userProject, "scheduler-heartbeat.url"), url+"\n", 0o600)
+	run(0, noonBinary, "--user", "run", "scheduler-heartbeat")
+	assertPaths("/" + secret)
+
+	run(1, script, filepath.Join(root, "missing"))
+	run(1, script, root)
+	for _, invalid := range []string{"", "not-a-url", url + "?secret=x", url + "#fragment", url + "\n\n", url + "\n" + url, "file:///etc/passwd", server.URL + "/bad%xx", "http://:80/path", "http://localhost:99999/path"} {
+		write(urlFile, invalid, 0o600)
+		run(1, script, urlFile)
+	}
+	assertPaths()
+	write(urlFile, url+"\n", 0o600)
+	mu.Lock()
+	status = http.StatusFound
+	mu.Unlock()
+	run(1, script, urlFile)
+	assertPaths("/" + secret) // Redirect must not be followed or reported as success.
+	mu.Lock()
+	status = http.StatusServiceUnavailable
+	mu.Unlock()
+	run(1, script, urlFile)
+	assertPaths("/"+secret, "/"+secret) // Bounded retry on an actual HTTP error.
+	run(1, noonBinary, "run", "check")
+	assertPaths("/"+secret+"/fail", "/"+secret+"/fail")
+	logs := run(0, noonBinary, "logs", "check", "--section", "hook")
+	if !strings.Contains(logs, "heartbeat: ping failed") {
+		t.Fatalf("missing generic hook failure: %s", logs)
 	}
 }
 
