@@ -1,0 +1,7 @@
+version: 1
+jobs:
+  check:
+    schedule: every 5m
+    run: [sh, -c, 'test ! -f simulate-failure']
+    on_success: [./bin/noon-heartbeat, /Users/me/.config/noon/job-heartbeat.url]
+    on_failure: [./bin/noon-heartbeat, /Users/me/.config/noon/job-heartbeat.url]

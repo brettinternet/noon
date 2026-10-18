@@ -1,0 +1,7 @@
+version: 1
+jobs:
+  scheduler-heartbeat:
+    schedule: every 5m
+    missed: skip
+    timeout: 20s
+    run: [./bin/noon-heartbeat, ./scheduler-heartbeat.url]

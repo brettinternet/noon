@@ -1,0 +1,33 @@
+#!/bin/sh
+# A deliberately narrow base-URL format; never echo credentials or curl errors.
+set -eu
+fail() { printf '%s\n' 'heartbeat: ping failed' >&2; exit 1; }
+[ "$#" -eq 1 ] || fail
+[ -f "$1" ] && [ -r "$1" ] || fail
+url=$(LC_ALL=C awk '
+    NR != 1 { bad = 1 }
+    NR == 1 {
+        url = $0
+        if (url !~ /^https?:\/\/[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?(\/[A-Za-z0-9._~%\/-]*)?$/) bad = 1
+        encoded = url
+        gsub(/%[0-9A-Fa-f][0-9A-Fa-f]/, "", encoded)
+        if (encoded ~ /%/) bad = 1
+        authority = url
+        sub(/^https?:\/\//, "", authority)
+        sub(/\/.*/, "", authority)
+        if (authority ~ /:/) {
+            sub(/.*:/, "", authority)
+            if (authority + 0 < 1 || authority + 0 > 65535) bad = 1
+        }
+    }
+    END { if (NR != 1 || bad) exit 1; print url }
+' "$1" 2>/dev/null) || fail
+case "${NOON_STATUS-}" in
+    failed|timed_out) url="${url%/}/fail" ;;
+esac
+# At most two 5s attempts and a 1s delay; well inside the 30s hook timeout.
+# -q must be first: ignore ~/.curlrc, including verbose/redirect/output settings.
+code=$(curl -q --silent --fail --globoff --proto '=http,https' \
+    --connect-timeout 2 --max-time 5 --retry 1 --retry-delay 1 --retry-max-time 6 \
+    --output /dev/null --write-out '%{http_code}' --url "$url" 2>/dev/null) || fail
+case "$code" in 2[0-9][0-9]) ;; *) fail ;; esac

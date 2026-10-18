@@ -63,6 +63,7 @@ is validated by `integration/examples_test.go`.
 | --- | --- | --- |
 | [remote-access](integrations/remote-access/) | intermediate | authenticated API/HTTP MCP, named Cloudflare Tunnel, optional ngrok |
 | [notifications](integrations/notifications/) | beginner → intermediate | desktop, ntfy, and Slack hooks; per-job opt-out; recovery alerts |
+| [heartbeat](integrations/heartbeat/) | intermediate | external missing-ping alerts for jobs and scheduler liveness |
 | [tell](integrations/tell/) | beginner | inline `on_failure` hooks that send failure pointers through Tell and Apprise |
 | [docker-agent](integrations/docker-agent/) | advanced | agent jobs in Docker with mounted user config, secrets, and a writable reports volume |
 | [worktrunk](integrations/worktrunk/) | intermediate | Worktrunk hooks running `noon run` to set up and tear down a database per worktree |
