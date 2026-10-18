@@ -199,6 +199,43 @@ jobs:
   tests: {enabled: false}
 ```
 
+### Working hours
+
+Use a cron hour range to keep scheduled runs inside a window, and `missed: skip` so a run missed
+while the machine slept doesn't catch up at night:
+
+```yaml
+jobs:
+  triage:
+    schedule: "*/15 8-16 * * 1-5"   # every 15 minutes, 08:00–16:45, Monday–Friday
+    missed: skip
+    run: ./scripts/triage
+```
+
+An hour range covers whole hours, so `8-16` ends at 16:45. Interval schedules (`every 15m`) count
+elapsed time and can't be limited to a window.
+
+The schedule doesn't limit queued runs from `noon run --detach`, MCP, webhooks, or hooks. To keep
+those inside the window too, check the time in the script and exit with the job's
+`noop_exit_code`. Jobs don't inherit the project timezone, so set `TZ` for `date`:
+
+```yaml
+jobs:
+  triage:
+    schedule: "*/15 8-16 * * 1-5"
+    missed: skip
+    noop_exit_code: 78
+    env:
+      TZ: America/Denver
+    run: |
+      h=$(date +%H)
+      [ "$h" -ge 8 ] && [ "$h" -lt 17 ] || exit 78
+      ./scripts/triage
+```
+
+Outside the window the run is recorded as `noop`. Prompt jobs can't use `noop_exit_code`; wrap the
+agent in a `run` script instead.
+
 `noon list` marks both kinds as overrides.
 
 ## Agent profiles
