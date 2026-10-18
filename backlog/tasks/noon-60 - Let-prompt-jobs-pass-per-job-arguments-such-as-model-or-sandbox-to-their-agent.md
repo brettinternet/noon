@@ -1,10 +1,10 @@
 ---
 id: NOON-60
 title: Let prompt jobs pass per-job arguments such as model or sandbox to their agent
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 16:33'
-updated_date: '2026-10-18 16:37'
+updated_date: '2026-10-18 17:24'
 labels:
   - agents
   - config
@@ -54,23 +54,36 @@ Modified-file contract: the modified_files list plus this task record. Updating 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test PKG=./internal/cli -- -run "^TestPromptJobs$" -count=1` exits 0; with record-agent fakes, agent_args appear after the profile command (and session flag when configured) and before prompt_args and the prompt for both stdin and argument profiles, and the effective argv of built-in-shaped codex, gemini, and opencode profiles without agent_args equals the current argv.
-- [ ] #2 `task cli:test PKG=./internal/config -- -run "^(TestLoadJobs|TestJobDigest)$" -count=1` exits 0; validation rejects agent_args on run jobs, without an explicit job agent, as an empty list, or with non-string items, with file and line in the error; the digest changes when agent_args changes and is unchanged for jobs that omit it. Extend the existing approval boundary test so editing only agent_args blocks unattended runs until reapproval; omitting agent_args preserves a pre-change digest fixture, not merely two new-code computations. Run `task cli:test PKG=./internal/cli -- -run '^TestEnableApproval$' -count=1 -v` for that approval regression.
-- [ ] #3 `task cli:test PKG=./internal/config -- -run '^TestAgentArgsSchema$' -count=1 -v` exits 0 with PASS (the regression must be added, not a no-tests match). Reuse the schema-loading approach in jobs_test.go to accept prompt/prompt_file jobs with explicit agent and valid agent_args, and reject run jobs, missing explicit agent, empty lists, and non-string items. `task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1` exits 0 with an examples/ai/agent-profiles job using agent_args.
-- [ ] #4 `rg -n "agent_args" docs/configuration.md docs/design.md docs/agents.md` and `rg -n "prompt_args" docs/configuration.md` exit 0; docs show the argv order, the explicit-agent rule, digest coverage, and the custom-profile migration note.
+- [x] #1 `task cli:test PKG=./internal/cli -- -run "^TestPromptJobs$" -count=1` exits 0; with record-agent fakes, agent_args appear after the profile command (and session flag when configured) and before prompt_args and the prompt for both stdin and argument profiles, and the effective argv of built-in-shaped codex, gemini, and opencode profiles without agent_args equals the current argv.
+- [x] #2 `task cli:test PKG=./internal/config -- -run "^(TestLoadJobs|TestJobDigest)$" -count=1` exits 0; validation rejects agent_args on run jobs, without an explicit job agent, as an empty list, or with non-string items, with file and line in the error; the digest changes when agent_args changes and is unchanged for jobs that omit it. Extend the existing approval boundary test so editing only agent_args blocks unattended runs until reapproval; omitting agent_args preserves a pre-change digest fixture, not merely two new-code computations. Run `task cli:test PKG=./internal/cli -- -run '^TestEnableApproval$' -count=1 -v` for that approval regression.
+- [x] #3 `task cli:test PKG=./internal/config -- -run '^TestAgentArgsSchema$' -count=1 -v` exits 0 with PASS (the regression must be added, not a no-tests match). Reuse the schema-loading approach in jobs_test.go to accept prompt/prompt_file jobs with explicit agent and valid agent_args, and reject run jobs, missing explicit agent, empty lists, and non-string items. `task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1` exits 0 with an examples/ai/agent-profiles job using agent_args.
+- [x] #4 `rg -n "agent_args" docs/configuration.md docs/design.md docs/agents.md` and `rg -n "prompt_args" docs/configuration.md` exit 0; docs show the argv order, the explicit-agent rule, digest coverage, and the custom-profile migration note.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Refinement: TestNoopExitCodeSchemaRange validates only noop_exit_code and cannot prove agent_args schema rules; require an actual schema regression that rejects configurations accepted by mistake. resolveAgents fills job.Agent from default_agent, so explicit-agent validation must happen before that fallback. Digest compatibility needs a pre-change fixture, and approval behavior is an authorization boundary rather than a hash-only assertion.
+
+AC#1: task cli:test PKG=./internal/cli -- -run "^TestPromptJobs$" -count=1 -> PASS; fake executables verify both prompt modes, session ordering, and unchanged built-in effective argv.
+AC#2: task cli:test PKG=./internal/config -- -run "^(TestLoadJobs|TestJobDigest)$" -count=1 and task cli:test PKG=./internal/cli -- -run "^TestEnableApproval$" -count=1 -v -> PASS. Baseline digest captured before implementation: sha256:da8bab3de841d67cb71e01dc587dbcc75ffc4d6b678a2b08347e1498092be533. Argument-only changes block queued work until reapproval.
+AC#3: task cli:test PKG=./internal/config -- -run "^TestAgentArgsSchema$" -count=1 -v -> PASS (test ran); task cli:test PKG=./integration -- -run "^TestExamplesValidate$" -count=1 -> PASS.
+AC#4: rg -n "agent_args" docs/configuration.md docs/design.md docs/agents.md and rg -n "prompt_args" docs/configuration.md -> exit 0.
+Delivery: e965c27494f1d1573ff329affc205debb581be47 fast-forward merged to main. task check:staged passed; task ci passed again on that final implementation commit. Independent reviewer found no validated defects. LSP jobs.go diagnostics clean. All changed files within contract; existing built-in command expectations intentionally split command and prompt_args while preserving effective argv. No tests deleted, skipped, or weakened; digest assertion now uses the captured constant. No real agent CLIs invoked.
+Cleanup: owned noon-60 worktree and branch removed via Worktrunk; associated Herdr workspace wGV verified gone. Unrelated pause-all checkout preserved. No remaining blocker or resumable step.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented literal per-job agent_args, explicit-agent validation, digest/approval protection, prompt_args ordering and config output, schema, documentation and examples. Delivered locally in e965c27; all acceptance and CI checks pass.
+<!-- SECTION:FINAL_SUMMARY:END -->
