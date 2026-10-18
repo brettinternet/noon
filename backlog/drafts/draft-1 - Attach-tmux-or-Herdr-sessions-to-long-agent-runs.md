@@ -4,7 +4,7 @@ title: Attach tmux or Herdr sessions to long agent runs
 status: Draft
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-18 06:43'
+updated_date: '2026-10-18 16:38'
 labels:
   - runner
   - integration
@@ -22,7 +22,7 @@ ordinal: 9000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Draft, not ready work. Promote only after the core scheduler ships and a user asks for it. Promotion rewrites this record to the ready-task standard in AGENTS.md (outcome, scope, non-goals, modified-file contract, dependencies, acceptance commands).
+Draft, not ready work. The core scheduler has shipped; promote only when a concrete user need cannot be met by the existing blocking command wrappers. Promotion rewrites this record to the ready-task standard in AGENTS.md (outcome, scope, non-goals, modified-file contract, dependencies, acceptance commands).
 
 Idea: let a long agent run happen inside an attachable tmux (or Herdr) session so a person can watch or take over, while Noon still owns the run's lifecycle: overlap, cancel, exit code, and history.
 
@@ -45,5 +45,5 @@ Evidence (scheduled Herdr agent): a `*/15` babysit job runs `agent NAME -t --wai
 1. Scheduler restart stops the agent. `noon serve` shutdown SIGTERMs every active group and records `interrupted`; the job cannot tell that from a cancel, so an upgrade or service restart closes a working agent. Surviving it needs a run whose process may outlive its owner and be re-adopted after restart: a stored session handle plus an identity/liveness check, never killing an unrelated session. This is the recovery open question.
 2. Exit code is unavailable. The agent is not the launcher child and Herdr reports `exit_code: null`, so the launcher exits 0 on any agent exit and Noon records `succeeded` for a crash. Fixing it needs the pane command to record its own status (a wrapper writing it to the state dir, or `tmux wait-for`). This is the exit-code open question.
 
-Confirmed: each `*/15` tick during a multi-hour run records a `skipped` run, and `pruneRuns` counts skips against the regular budget, so a day of skips evicts the real run log and row. Tracked separately in NOON-55; it does not depend on this draft.
+Historical observation: each `*/15` tick during a multi-hour run recorded a `skipped` run that consumed the regular retention budget. NOON-55 is now Done (v0.4.1): skips retain their newest ten rows independently and no longer evict real run history. This is resolved, not a remaining blocker for this draft.
 <!-- SECTION:NOTES:END -->

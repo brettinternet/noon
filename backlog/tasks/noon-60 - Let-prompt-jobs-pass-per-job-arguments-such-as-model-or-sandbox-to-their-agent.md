@@ -4,6 +4,7 @@ title: Let prompt jobs pass per-job arguments such as model or sandbox to their 
 status: To Do
 assignee: []
 created_date: '2026-10-18 16:33'
+updated_date: '2026-10-18 16:37'
 labels:
   - agents
   - config
@@ -24,6 +25,7 @@ modified_files:
   - docs/design.md
   - docs/agents.md
   - examples/ai/agent-profiles/**
+  - internal/cli/approval_test.go
 priority: medium
 type: feature
 ordinal: 19000
@@ -37,10 +39,10 @@ Outcome: a prompt job can choose a cheaper model, a lower effort level, or a nar
 Why: agent profiles are machine choices in user config, so today a shared job that wants `claude --model haiku` must name a profile such as `claude-cheap` that other machines lack. agent-cron sets model per job; Codex scheduled-task guidance recommends the narrowest sandbox per task. Claude (`--model`, `--effort`), Codex (`-m`, `-s/--sandbox`), and Pi (`--model`, `--thinking`, `--tools`) all take these as arguments.
 
 Settled contract:
-- New job field `agent_args`: non-empty list of strings, prompt jobs only. A job that sets it must name `agent` explicitly; `default_agent` is not used, because arguments are vendor-specific and a machine default must not feed Claude flags to Codex. Values are argv, never templated or expanded.
+- New job field `agent_args`: non-empty list of strings, prompt jobs only. A job that sets it must name `agent` explicitly; `default_agent` is not used, because arguments are vendor-specific and a machine default must not feed Claude flags to Codex. Values are argv, never templated or expanded. Reject NUL in any argv element; empty string elements remain valid literal arguments. Validate explicit agent presence from the source job before default_agent resolution.
 - `agent_args` is part of the execution digest when set; jobs without it keep their digests (same rule as `requests`). A pulled change to agent_args therefore waits for approval. Arguments can widen permissions just as `run` can; docs say approval is not a sandbox.
 - Profiles gain optional `prompt_args` (string list) for arguments that must come last. Effective argv: profile `command`, then the NOON-59 session flag and ID when configured, then job `agent_args`, then profile `prompt_args`, then the prompt when `prompt: argument`.
-- Built-ins move their tails into `prompt_args` so the effective argv without agent_args is byte-identical to today: codex `[codex, exec]` + `[-]`; gemini `[gemini]` + `[-p]`; opencode `[opencode, run]` + `[--]`; claude and pi have none. Custom profiles whose command ends in `--` or a value-taking flag must move that tail to `prompt_args` before their jobs use agent_args; docs/configuration.md says so. `noon config` shows prompt_args.
+- Built-ins move their tails into `prompt_args` so the effective argv without agent_args is byte-identical to today: codex `[codex, exec]` + `[-]`; gemini `[gemini]` + `[-p]`; opencode `[opencode, run]` + `[--]`; claude and pi have none. Custom profiles whose command ends in `--` or a value-taking flag must move that tail to `prompt_args` before their jobs use agent_args; docs/configuration.md says so. `noon config` shows prompt_args. Preserve the requested-only session-ID guarantee from NOON-59: generic agent_args are not parsed as vendor flags, so overriding session/persistence arguments can invalidate resumability. Arguments are visible configuration, not a secret channel.
 - noon.schema.json adds `agent_args` with the prompt-only and explicit-agent rules.
 
 Non-goals: a portable model or effort vocabulary mapped per vendor, `noon add` flags for agent_args, per-job environment beyond existing `env`, verifying that an agent accepts the arguments, profiles defined in shared config.
@@ -52,9 +54,9 @@ Modified-file contract: the modified_files list plus this task record. Updating 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test -- -run "^TestPromptJobs$" -count=1` exits 0; with record-agent fakes, agent_args appear after the profile command (and session flag when configured) and before prompt_args and the prompt for both stdin and argument profiles, and the effective argv of built-in-shaped codex, gemini, and opencode profiles without agent_args equals the current argv.
-- [ ] #2 `task cli:test -- -run "^(TestLoadJobs|TestJobDigest)$" -count=1` exits 0; validation rejects agent_args on run jobs, without an explicit job agent, as an empty list, or with non-string items, with file and line in the error; the digest changes when agent_args changes and is unchanged for jobs that omit it.
-- [ ] #3 `task cli:test -- -run "^TestNoopExitCodeSchemaRange$" -count=1` exits 0 and `noon.schema.json` declares agent_args; `task cli:test -- -run "^TestExamplesValidate$" -count=1` exits 0 with at least one examples/ai/agent-profiles job using agent_args.
+- [ ] #1 `task cli:test PKG=./internal/cli -- -run "^TestPromptJobs$" -count=1` exits 0; with record-agent fakes, agent_args appear after the profile command (and session flag when configured) and before prompt_args and the prompt for both stdin and argument profiles, and the effective argv of built-in-shaped codex, gemini, and opencode profiles without agent_args equals the current argv.
+- [ ] #2 `task cli:test PKG=./internal/config -- -run "^(TestLoadJobs|TestJobDigest)$" -count=1` exits 0; validation rejects agent_args on run jobs, without an explicit job agent, as an empty list, or with non-string items, with file and line in the error; the digest changes when agent_args changes and is unchanged for jobs that omit it. Extend the existing approval boundary test so editing only agent_args blocks unattended runs until reapproval; omitting agent_args preserves a pre-change digest fixture, not merely two new-code computations. Run `task cli:test PKG=./internal/cli -- -run '^TestEnableApproval$' -count=1 -v` for that approval regression.
+- [ ] #3 `task cli:test PKG=./internal/config -- -run '^TestAgentArgsSchema$' -count=1 -v` exits 0 with PASS (the regression must be added, not a no-tests match). Reuse the schema-loading approach in jobs_test.go to accept prompt/prompt_file jobs with explicit agent and valid agent_args, and reject run jobs, missing explicit agent, empty lists, and non-string items. `task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1` exits 0 with an examples/ai/agent-profiles job using agent_args.
 - [ ] #4 `rg -n "agent_args" docs/configuration.md docs/design.md docs/agents.md` and `rg -n "prompt_args" docs/configuration.md` exit 0; docs show the argv order, the explicit-agent rule, digest coverage, and the custom-profile migration note.
 <!-- AC:END -->
 
@@ -66,3 +68,9 @@ Modified-file contract: the modified_files list plus this task record. Updating 
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Refinement: TestNoopExitCodeSchemaRange validates only noop_exit_code and cannot prove agent_args schema rules; require an actual schema regression that rejects configurations accepted by mistake. resolveAgents fills job.Agent from default_agent, so explicit-agent validation must happen before that fallback. Digest compatibility needs a pre-change fixture, and approval behavior is an authorization boundary rather than a hash-only assertion.
+<!-- SECTION:NOTES:END -->

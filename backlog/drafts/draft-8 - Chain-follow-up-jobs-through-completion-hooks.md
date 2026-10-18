@@ -4,7 +4,7 @@ title: Chain follow-up jobs through completion hooks
 status: Draft
 assignee: []
 created_date: '2026-10-16 19:20'
-updated_date: '2026-10-16 22:21'
+updated_date: '2026-10-18 16:38'
 labels:
   - integration
   - hooks
@@ -16,7 +16,7 @@ dependencies: []
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Draft, not ready work. Promote only when a concrete follow-up workflow exposes a gap in the existing lifecycle hooks, then rewrite to the ready-task standard with executable acceptance commands.
 
-Problem: workflows such as build then inspect artifacts, or failed test then produce a diagnostic summary, need a follow-up job with access to the upstream result. Existing on_success/on_failure commands can already queue another job; first validate and document that composition rather than inventing a new workflow engine.
+Problem: workflows such as build then inspect artifacts, or failed test then produce a diagnostic summary, need a follow-up job with access to the upstream result. Existing on_success/on_failure commands can already queue another job; that composition already ships in examples/local-dev/pipelines and examples/ai/failure-triage, with offline execution coverage completed in NOON-35. Require a demonstrated remaining gap rather than inventing a new workflow engine.
 
 Candidate scope: verified recipes, and only demonstrated small gaps, for queueing an existing approved downstream job from completion hooks. Carry upstream run ID, project, terminal status, and retained log/event references as structured data. Use an idempotency key scoped to the upstream run and downstream job so retries do not create duplicate follow-ups while retained. Preserve the current durable completion-before-hook ordering and recorded hook failure behavior.
 
@@ -43,5 +43,5 @@ Acceptance direction when promoted: real local job A completing queues B with co
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Refinement: hook-composition recipes now ship in examples/local-dev/pipelines and examples/ai/failure-triage. NOON-35 owns their offline executable validation. Keep this as a draft for a demonstrated remaining product gap; do not promote it merely to duplicate those recipes or tests.
+Refinement: hook-composition recipes now ship in examples/local-dev/pipelines and examples/ai/failure-triage. NOON-35 completed their offline executable validation in integration/examples_test.go (TestExampleScripts). Keep this as a draft for a demonstrated remaining product gap; do not promote it merely to duplicate those recipes or tests.
 <!-- SECTION:NOTES:END -->

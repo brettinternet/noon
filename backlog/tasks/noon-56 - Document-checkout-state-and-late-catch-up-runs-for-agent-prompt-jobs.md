@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-18 16:24'
-updated_date: '2026-10-18 16:31'
+updated_date: '2026-10-18 16:38'
 labels:
   - docs
   - agents
@@ -19,6 +19,7 @@ modified_files:
   - docs/agents.md
 priority: medium
 type: docs
+ordinal: 17500
 ---
 
 ## Description
@@ -28,7 +29,7 @@ Outcome: docs/agents.md tells prompt-job authors and MCP clients three implement
 
 1. Checkout state. A scheduled prompt job runs in its `cwd` (default the project root) in the live checkout, including uncommitted changes and whatever branch is checked out. Noon never creates worktrees or changes branches (docs/design.md#execution). Point editing jobs to examples/ai/background-agents (worktree isolation) and examples/ai/container-agent (a real isolation boundary); state that neither approval nor a worktree is a sandbox.
 2. Late catch-up runs. With the default `missed: run_once`, a run after sleep or downtime starts as `NOON_TRIGGER=catch_up` with `NOON_SCHEDULED_AT` set to the first missed occurrence, possibly hours late. Show one short guard: `missed: skip` for time-sensitive jobs, or a `run` wrapper that compares `NOON_SCHEDULED_AT` with the current time and exits with the job `noop_exit_code`. Prompt jobs cannot use `noop_exit_code` directly; say so.
-3. Delayed MCP requests. `run_job` already accepts `key`, `in`, and `at` (internal/mcp/server.go runJobArgs), and the HTTP API accepts `{key,in,at,data}` (docs/cli.md), but the docs/agents.md tool table lists only `data`. Fix the row and add one example of an agent asking for a follow-up, e.g. `run_job {"name":"check-ci","in":"2h"}`, noting the job must already be approved and that `in`/`at` one-shots stay independent of due-run merging.
+3. Delayed MCP requests. `run_job` already accepts `key`, `in`, and `at` (internal/mcp/server.go runJobArgs), and the HTTP API accepts `{key,in,at,data}` (docs/cli.md), but the docs/agents.md tool table lists only `data`. Fix the row and add one example of an agent asking for a follow-up, e.g. `run_job {"name":"check-ci","in":"2h"}`, noting the project must be enabled, shared jobs need approval, private jobs do not, and execution needs a running scheduler. Explain that `in`/`at` one-shots stay independent of due-run merging.
 
 Prior art: Claude Desktop scheduled tasks (worktree toggle; warns a 9am task can run at 11pm), Codex scheduled tasks (local checkout versus dedicated worktree), Claude Code /loop one-shot follow-ups.
 
@@ -36,15 +37,15 @@ Non-goals: code changes, worktree creation or branch handling in core, a start w
 
 Dependencies: none.
 
-Modified-file contract: docs/agents.md plus this task record. Justify other paths in Implementation Notes first.
+Modified-file contract: docs/agents.md plus this task record. Record the starting commit SHA before implementation; compare scope against that SHA, not a moving main branch. Justify other paths in Implementation Notes first.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 rg -n "^\| \`run_job\` .*\`in\`.*\`at\`" docs/agents.md exits 0, and docs/agents.md contains an `in` example for run_job; every field named matches runJobArgs in internal/mcp/server.go.
+- [ ] #1 ``rg -n '^\| `run_job` .*`in`.*`at`' docs/agents.md`` exits 0, and docs/agents.md contains an `in` example for run_job; every field named matches runJobArgs in internal/mcp/server.go. The text distinguishes project enablement, shared-job approval, and scheduler availability from queue acceptance.
 - [ ] #2 rg -n "background-agents" docs/agents.md and rg -n "uncommitted" docs/agents.md each exit 0; the text states Noon never creates worktrees or changes branches and that worktrees are not a sandbox.
 - [ ] #3 rg -n "catch_up" docs/agents.md and rg -n "NOON_SCHEDULED_AT" docs/agents.md each exit 0; the guard shown uses only implemented fields and variables, and states prompt jobs cannot use noop_exit_code directly.
-- [ ] #4 git diff --name-only main -- . ":!backlog" prints only docs/agents.md.
+- [ ] #4 `git diff --check` exits 0. `git diff --name-only START_SHA -- . ':!backlog'` (replace START_SHA with the literal starting commit recorded before implementation) prints only docs/agents.md, including after committing on main.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -55,3 +56,9 @@ Modified-file contract: docs/agents.md plus this task record. Justify other path
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Refinement: use single quotes for a copyable run_job search without backtick escaping. Use a recorded starting SHA for scope checks because this repository defaults to implementation in the current checkout; main moves on commit. Queue requirements checked against docs/agents.md and docs/design.md.
+<!-- SECTION:NOTES:END -->
