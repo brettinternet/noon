@@ -326,7 +326,8 @@ func projectInput(input config.Input, project *string, requireEnabled bool) (con
 		}
 		return app.EnabledProjectInputByPath(input, stateDir, *project)
 	}
-	input.Project = project
+	// An explicit project replaces the server-wide --user selection.
+	input.Project, input.User = project, false
 	return input, nil
 }
 

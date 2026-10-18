@@ -732,7 +732,8 @@ func configPaths(project store.EnabledProject, userConfigDir string) []string {
 		return []string{filepath.Join(project.Path, "config.yaml")}
 	}
 	if project.ConfigFile.Valid {
-		return []string{project.Path, project.ConfigFile.String}
+		// Loading validates the user config even when an explicit file supplies jobs.
+		return []string{project.Path, project.ConfigFile.String, filepath.Join(userConfigDir, "noon", "config.yaml")}
 	}
 	paths := []string{
 		project.Path,

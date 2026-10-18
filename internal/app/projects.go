@@ -120,7 +120,7 @@ func EnabledRunProject(stateDir string, runID int64) (ProjectSummary, error) {
 
 func inputForProject(input config.Input, stateDir string, record store.ProjectRecord) config.Input {
 	path := record.Path
-	input.Project = &path
+	input.Project, input.User = &path, false
 	input.StateDir = &stateDir
 	input.File = nil
 	if record.ConfigFile.Valid {

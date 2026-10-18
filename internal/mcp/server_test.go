@@ -170,6 +170,29 @@ func TestMCP(t *testing.T) {
 	if userJob["name"] != "personal" || userJob["shared"] != false || userJob["approval"] != "not_required" || userJob["cwd"] != userProject {
 		t.Fatalf("MCP user job: %+v", userJob)
 	}
+	// An explicit project must override a server started with --user.
+	userInput := input
+	userInput.User = true
+	userClientTransport, userServerTransport := protocol.NewInMemoryTransports()
+	userServerSession, err := noonmcp.NewServer(userInput, "test").Connect(ctx, userServerTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userClientSession, err := protocol.NewClient(&protocol.Implementation{Name: "mcp-user-test", Version: "1.2.3"}, nil).Connect(ctx, userClientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for project, want := range map[string]string{root: "approved", userProject: "personal"} {
+		result := callTool(t, ctx, userClientSession, "list_jobs", map[string]any{"project": project})
+		view := decodeObject(t, result.StructuredContent)
+		if result.IsError || view["project"].(map[string]any)["path"] != project || !slices.ContainsFunc(view["jobs"].([]any), func(job any) bool { return job.(map[string]any)["name"] == want }) {
+			t.Fatalf("--user server list_jobs for %s: %s", project, textContent(result))
+		}
+	}
+	_ = userClientSession.Close()
+	if err := userServerSession.Wait(); err != nil {
+		t.Fatalf("MCP --user server session: %v", err)
+	}
 
 	statusResult := callTool(t, ctx, clientSession, "status", map[string]any{})
 	if statusResult.IsError || decodeObject(t, statusResult.StructuredContent)["schema_version"] != float64(1) {

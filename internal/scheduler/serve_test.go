@@ -241,9 +241,22 @@ func TestServeConfigSelectionRecovery(t *testing.T) {
 		t.Fatal("restored checkout did not reload unchanged external config")
 	}
 	fixture.step(t, serveTestStart.Add(3*time.Minute+2*time.Second))
+	// Explicit-config loads still validate the user config, so editing only it must reload.
+	userFile := filepath.Join(fixture.userConfig, "noon", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(userFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userFile, []byte("timezone: [invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.step(t, serveTestStart.Add(3*time.Minute+4*time.Second))
+	if message := fixture.configError(t); !strings.Contains(message, "config.yaml") || len(fixture.states(t)) != 1 {
+		t.Fatalf("user config edit under explicit config: error=%q states=%d", message, len(fixture.states(t)))
+	}
+	fixture.step(t, serveTestStart.Add(4*time.Minute+2*time.Second))
 	fixture.stop(t)
-	if runs := fixture.runs(t); len(runs) != 1 {
-		t.Fatalf("restored checkout runs: %+v", runs)
+	if runs := fixture.runs(t); len(runs) != 2 {
+		t.Fatalf("restored checkout runs with last-good config: %+v", runs)
 	}
 }
 
