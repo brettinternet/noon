@@ -1,10 +1,10 @@
 ---
 id: NOON-59
 title: Record a resumable agent session ID for each prompt run
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 16:32'
-updated_date: '2026-10-18 16:37'
+updated_date: '2026-10-18 17:08'
 labels:
   - agents
   - runner
@@ -57,24 +57,39 @@ Modified-file contract: the modified_files list plus this task record. No new mo
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test PKG=./internal/cli -- -run "^TestPromptJobs$" -count=1` exits 0; with a fake profile that sets session_id_flag, a foreground prompt run passes the flag and a version 4 UUID before the prompt argument, the job sees the same value in NOON_AGENT_SESSION_ID, `noon history JOB --json` reports it as agent_session_id, two runs get different IDs, and a profile without the flag gets neither argument nor variable while JSON reports null. `task cli:test PKG=./internal/config -- -run '^TestLoadJobs$' -count=1` exits 0 and rejects invalid session_id_flag values with file/line context.
-- [ ] #2 `task cli:test PKG=./internal/store -- -run "^TestStore$" -count=1` exits 0; migration to schema 11 preserves existing runs with a null agent_session_id and the existing newer-database refusal still applies. Read-only access to the prior schema does not migrate it; legacy runs remain readable with null IDs.
-- [ ] #3 `task cli:test PKG=./internal/cli -- -run "^TestHooks$" -count=1` exits 0 and an inherited or job env NOON_AGENT_SESSION_ID never reaches a command job or its hook. For a supported prompt run, the hook environment and stdin run.agent_session_id equal the child's ID, including an agent start failure.
-- [ ] #4 `rg -n "session_id_flag" docs/configuration.md` and `rg -n "agent_session_id" docs/design.md docs/agents.md` exit 0; docs/design.md lists the field in shared run JSON and the state schema version is 11.
-- [ ] #5 `task cli:test PKG=./internal/scheduler -- -run '^TestServe' -count=1 -v` exits 0 with executed cases (not a no-tests match). Scheduled and queued prompt executions persist the same ID seen in child argv, shared run JSON, and hooks. A queued run has null before dispatch; dispatch uses the current resolved profile without regenerating a stored execution ID, and cancellation before dispatch leaves it null.
+- [x] #1 `task cli:test PKG=./internal/cli -- -run "^TestPromptJobs$" -count=1` exits 0; with a fake profile that sets session_id_flag, a foreground prompt run passes the flag and a version 4 UUID before the prompt argument, the job sees the same value in NOON_AGENT_SESSION_ID, `noon history JOB --json` reports it as agent_session_id, two runs get different IDs, and a profile without the flag gets neither argument nor variable while JSON reports null. `task cli:test PKG=./internal/config -- -run '^TestLoadJobs$' -count=1` exits 0 and rejects invalid session_id_flag values with file/line context.
+- [x] #2 `task cli:test PKG=./internal/store -- -run "^TestStore$" -count=1` exits 0; migration to schema 11 preserves existing runs with a null agent_session_id and the existing newer-database refusal still applies. Read-only access to the prior schema does not migrate it; legacy runs remain readable with null IDs.
+- [x] #3 `task cli:test PKG=./internal/cli -- -run "^TestHooks$" -count=1` exits 0 and an inherited or job env NOON_AGENT_SESSION_ID never reaches a command job or its hook. For a supported prompt run, the hook environment and stdin run.agent_session_id equal the child's ID, including an agent start failure.
+- [x] #4 `rg -n "session_id_flag" docs/configuration.md` and `rg -n "agent_session_id" docs/design.md docs/agents.md` exit 0; docs/design.md lists the field in shared run JSON and the state schema version is 11.
+- [x] #5 `task cli:test PKG=./internal/scheduler -- -run '^TestServe' -count=1 -v` exits 0 with executed cases (not a no-tests match). Scheduled and queued prompt executions persist the same ID seen in child argv, shared run JSON, and hooks. A queued run has null before dispatch; dispatch uses the current resolved profile without regenerating a stored execution ID, and cancellation before dispatch leaves it null.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Refinement evidence: CLI CreateRun creates running rows, but scheduler/queue rows can exist long before dispatch; bind the requested ID to the execution, not queue insertion or read-only RunSpec (also called by doctor). Local Claude Code 2.1.302 --help confirms --session-id <uuid>; installed Pi 1.3.0 dist/cli/args.js and dist/main.js confirm --session-id creates a missing session. This verifies flag syntax, not authenticated resume behavior. Keep fake agents in automated acceptance.
+
+AC#1: task cli:test PKG=./internal/cli -- -run "^TestPromptJobs$" -count=1 and task cli:test PKG=./internal/config -- -run "^TestLoadJobs$" -count=1 -> passed; fake-agent UUID/argv/env/history, distinct runs, no-flag nulls, and invalid flag context covered.
+AC#2: task cli:test PKG=./internal/store -- -run "^TestStore$" -count=1 -> passed; schema 11 migration, legacy null reads, read-only nonmigration, and newer-schema refusal covered.
+AC#3: task cli:test PKG=./internal/cli -- -run "^TestHooks$" -count=1 -> passed; reserved inherited/job env and supported prompt hook env/JSON including start failure covered.
+AC#4: rg -n "session_id_flag" docs/configuration.md and rg -n "agent_session_id" docs/design.md docs/agents.md -> passed; design records schema 11.
+AC#5: task cli:test PKG=./internal/scheduler -- -run "^TestServe" -count=1 -v -> passed with executed cases; scheduled/queued argv/env/JSON/hooks, current profile dispatch, null pre-dispatch and cancellation covered.
+Implementation stays within modified-file contract; no dependencies added, real agents invoked, or tests deleted/skipped/weakened. Final implementation task ci passed. An initial unchanged runner pipe race test failed transiently; two subsequent full CI runs passed. Parent independently reran legacy store migration/refusal and TestServeAgentSessionIDs successfully. Review and final-commit CI/delivery pending.
+
+Delivery: implementation commit 47659998266ae14e112273be0b0a3934ed99bbcb passed task check:staged and task ci on the committed tree, then fast-forward merged into main. One independent general review reported no validated findings. All acceptance and delivery requirements satisfied; no blocker or next implementation step. Worktrunk removed the verified session-owned worktree and branch; its exact Herdr workspace wGS disappeared. No push performed.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented requested per-run UUID session IDs for supported agent profiles, schema 11 persistence and shared JSON, execution/hook environment isolation, current-profile queued dispatch, and resume guidance. All five AC passed, full CI passed on the implementation commit, independent review clean. Merged locally as 4765999; worktree and branch cleaned up.
+<!-- SECTION:FINAL_SUMMARY:END -->
