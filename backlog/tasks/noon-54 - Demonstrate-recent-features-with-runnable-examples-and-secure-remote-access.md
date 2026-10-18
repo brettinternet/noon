@@ -1,7 +1,7 @@
 ---
 id: NOON-54
 title: Demonstrate recent features with runnable examples and secure remote access
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-18 03:14'
 updated_date: '2026-10-18 03:25'
@@ -26,16 +26,16 @@ Outcome: teach remote API/MCP, per-event requests, built-in agents, platform con
 <!-- AC:BEGIN -->
 - [x] #1 task cli:test PKG=./integration -- -run "^(TestExamplesValidate|TestExampleEventRequests|TestExampleRemoteAccess)$" -count=1 -v exits 0; shipped examples preserve event payloads and deduplicate requests, and the remote walkthrough queues and reads a harmless job behind bearer authentication in isolated local state.
 - [x] #2 task cli:test PKG=./integration -- -run "^(TestExampleScripts|TestExampleVerifyGate|TestRemoteAPI)$" -count=1 exits 0; existing integrations remain intact. Manual documentation review checks named Cloudflare deployment, optional ngrok, built-in profiles, platform filtering, noop outcomes and orphan recovery against implementation and vendor sources.
-- [ ] #3 task ci exits 0 and task check:staged exits 0 before commit; no real agent calls or public tunnels are required for local verification.
+- [x] #3 task ci exits 0 and task check:staged exits 0 before commit; no real agent calls or public tunnels are required for local verification.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -51,4 +51,12 @@ AC#1: task cli:test PKG=./integration -- -run "^(TestExamplesValidate|TestExampl
 AC#2: task cli:test PKG=./integration -- -run "^(TestExampleScripts|TestExampleVerifyGate|TestRemoteAPI)$" -count=1 -> passed. Independent read-only reviewer f0c38652-f576-47c3-81ae-bca42f9cc5d1 found no validated defects in secret handling, scope, copyable commands or semantic claims. Official Cloudflare named-tunnel/ingress/Quick-Tunnel/Access and ngrok CLI sources checked. Installed cloudflared 2026.10.0 ingress validate passed; ingress rule matched noon.example.com/mcp to loopback and other.example.com/mcp to 404. Installed codex mcp add --help confirmed URL and bearer-token environment flags. Isolated direct bin/noon platform execution: mac-info -> Darwin/exit 0; arm-info -> arm64/exit 0; linux-info -> unsupported_platform/exit 1; list JSON reports platform_supported correctly.
 AC#3 partial: task ci -> passed (security, formatting/vet/Staticcheck, tests, race, smoke); log /tmp/noon-54-ci.log. Staged checks and final delivery pending. Go LSP clean; shell/YAML LSP reports unknown, so actual config validation and script execution are authoritative. Quoted existing Codex dash arguments to resolve advisory YAML syntax findings.
 Scope: examples and integration/examples_test.go only, plus this record. Reused existing remote test helpers; no dependencies, runtime features, services, public tunnels, or worktrees added. Cloudflare named tunnel is preferred; ngrok is a short optional transport. Public authenticated tunnel deployment remains unverified and explicitly documented. All generated test scheduler processes stopped; temporary platform and smoke fixtures retained under the OS temp directory for inspection.
+
+AC#3: task check:staged -> passed before implementation commit 1c50052 (format/re-stage and staged secret scan). task ci -> passed again on committed 1c50052; /tmp/noon-54-committed-ci.log records clean history secret scan, govulncheck, formatting/vet/Staticcheck, all tests, race, and smoke. No existing tests were deleted, skipped or weakened. No runtime contract changed, so docs/design.md needs no update. All acceptance criteria and Definition of Done are satisfied. No worktree was created or retained. User explicitly requested commit and push; delivery will push main after this task-finalization record is committed.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added runnable event-request and authenticated remote-access examples with a validated named Cloudflare Tunnel template and optional ngrok path. Refreshed built-in/custom agents, platform constraints, noop polling, orphan recovery, and the index. Built-binary example tests and full CI pass; independent review found no defects. Public provider connections are explicitly unverified. Implementation: 1c50052.
+<!-- SECTION:FINAL_SUMMARY:END -->
