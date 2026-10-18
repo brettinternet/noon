@@ -70,13 +70,25 @@ Each worktree is its own project. Run IDs are global.
 | `list_projects` | Enabled projects in the shared scheduler state |
 | `status` | Project dashboard, including orphaned-run blockers and the cancel remedy |
 | `list_jobs` | Jobs with descriptions, schedules, approval state |
-| `run_job` | Queue a job; optional JSON `data` |
+| `run_job` | Queue a job; optional `key`, `in` or `at`, and JSON `data` |
 | `list_runs` | Recent runs; optional `status` array; each run reports `orphaned` |
 | `get_run` | One run and a bounded log read, by `run_id` or `job` |
 | `cancel_run` | Cancel a run |
 
 `run_job` follows the same enablement and approval rules as the CLI. The client's name and version
 are recorded on queued runs as `requested_by`; that's metadata, not authority.
+
+An agent can ask for a follow-up later with `in` (a duration) or `at` (`HH:MM`, `YYYY-MM-DD
+HH:MM`, or RFC 3339), never both:
+
+```json
+{"name":"check-ci","in":"2h","key":"check-ci-pr-42"}
+```
+
+A returned run ID means the request was queued, not that it will run. The project must stay
+enabled, a shared job must be approved (private jobs need no approval), and the scheduler must be
+running when the time comes. An `in`/`at` request is a separate one-shot: it never merges into the
+job's due queued run. Reusing `key` returns the existing run instead of queuing another.
 
 Without MCP, `noon skill` prints a shell-only Agent Skills document.
 Save it to your agent's skills directory yourself. `noon skill --json` wraps it as `content`.
@@ -119,6 +131,37 @@ To run a job on an event, use [triggers](triggers.md) rather than asking the age
 A `Stop` hook that queues work doesn't block the agent; a real completion gate has to wait for the
 run and fail on failure ([example](../examples/ai/verify-loop/)). Pass context with `data` /
 `--data`; the job validates its own payload.
+
+## Scheduled prompt jobs
+
+A prompt job runs in its `cwd` (default the project root) in the live checkout: whatever branch is
+checked out, including uncommitted changes. Noon never creates worktrees or changes branches. An
+editing job can collide with your own work. Give it its own worktree
+([background-agents](../examples/ai/background-agents/)) or a container
+([container-agent](../examples/ai/container-agent/)). Neither approval nor a worktree is a
+sandbox; only the container is an isolation boundary.
+
+With the default `missed: run_once`, a run missed during sleep or downtime starts once when the
+scheduler next notices it, possibly hours late. It runs with `NOON_TRIGGER=catch_up` and
+`NOON_SCHEDULED_AT` set to the first missed occurrence (RFC 3339, UTC). For a time-sensitive job,
+set `missed: skip`. To catch up only when the run is not too late, wrap the agent in a `run`
+job; prompt jobs can't use `noop_exit_code` directly:
+
+```yaml
+jobs:
+  morning-review:
+    schedule: "weekdays at 9am"
+    noop_exit_code: 78
+    run: |
+      if [ "$NOON_TRIGGER" = catch_up ]; then
+        s=$(date -u -d "$NOON_SCHEDULED_AT" +%s 2>/dev/null ||
+          date -u -j -f %Y-%m-%dT%H:%M:%SZ "$NOON_SCHEDULED_AT" +%s)
+        [ $(( $(date +%s) - s )) -le 7200 ] || exit 78   # more than 2h late
+      fi
+      exec claude -p --permission-prompts none < prompts/review.md
+```
+
+A late run then records `noop` instead of starting the agent.
 
 ## Find and read a failure
 
