@@ -77,6 +77,9 @@ type RunDetail struct {
 
 // RunFromStore maps persisted state to the client-independent run JSON shape and inspects its owner.
 func RunFromStore(state *store.Store, run store.Run) Run {
+	if !activeStoredRun(run) {
+		return mapRunFromStore(state, run)
+	}
 	current, orphaned, err := inspectStoredRun(state, run.ID)
 	if err == nil {
 		run = current
@@ -529,8 +532,11 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 	}
 }
 
-// inspectAndMapRun adds the read-only owner check to a stored run.
+// inspectAndMapRun adds the read-only owner check to an active stored run.
 func inspectAndMapRun(state *store.Store, run store.Run) (Run, error) {
+	if !activeStoredRun(run) {
+		return mapRunFromStore(state, run), nil
+	}
 	current, orphaned, err := inspectStoredRun(state, run.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mapRunFromStore(state, run), nil

@@ -290,6 +290,16 @@ func TestDashboard(t *testing.T) {
 				if !strings.Contains(human, "removed-low") || !strings.Contains(human, "removed-high") || !strings.Contains(human, "Next: noon cancel 1") {
 					t.Fatalf("orphaned dashboard omitted removed jobs or cancel guidance:\n%s", human)
 				}
+				// Copyable cancel commands in the notice must target the same state as Next.
+				t.Setenv("NOON_STATE_DIR", cfg.StateDir)
+				_, out := diagnosticCommand(t, false, true)
+				var selected app.DashboardView
+				if err := json.Unmarshal([]byte(out), &selected); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(selected.Next, "--state-dir") || len(selected.Notices) == 0 || !strings.Contains(selected.Notices[0].Message, "("+selected.Next+")") {
+					t.Fatalf("orphan notice dropped state selector: %s", out)
+				}
 			}
 			for _, line := range strings.Split(human, "\n") {
 				if len([]rune(line)) > 80 {

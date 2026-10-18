@@ -60,8 +60,8 @@ The CLI is the product.
 
 Dashboard notices are prioritized: config errors, scheduled projects not enabled, pending
 approvals, enabled projects with an offline scheduler, orphaned runs, then queued work. An
-orphaned notice names every orphaned running run and job and says they block background runs in
-the project; it fits 80 columns and shows at most three notices. The `Next:` step follows the same
+orphaned notice names every orphaned running run and job with its copyable `noon cancel ID`
+command and says they block background runs in the project; it fits 80 columns and shows at most three notices. The `Next:` step follows the same
 order: `noon config check`, `noon enable`, `noon service install` (or `noon serve` if installed),
 `noon cancel ID` for the lowest orphaned run ID, then a runnable job or `noon add`.
 

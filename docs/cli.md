@@ -318,7 +318,8 @@ Bare `noon` and `noon status` show jobs, scheduler state, queued work, up to thr
 one `Next:` step. JSON has `project`, `scheduler`, `service`, `jobs`, `queued`, `notices`, and
 `next`. Notices rank config errors, scheduled projects not enabled, pending approvals, an offline
 enabled scheduler, orphaned runs, then queued work. An orphaned notice names each orphaned running
-run ID and job and says it blocks background runs in the project. `Next:` prioritizes config check,
+run ID and job with its copyable `noon cancel ID` command and says it blocks background runs in
+the project. `Next:` prioritizes config check,
 enablement, `noon service install` (or `noon serve` if installed), `noon cancel ID` for the lowest
 orphaned ID, then a runnable job or `noon add`. Scheduler startup takes precedence because it
 recovers orphans. `noon list` shows the same jobs with commands and next-run times; its `LAST` value

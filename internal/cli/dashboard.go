@@ -39,6 +39,12 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 		return stateError(err)
 	}
 	view.Next = guidance(cmd, view.Next)
+	for i := range view.Notices {
+		// Only this notice embeds commands; its other text is run IDs and validated job names.
+		if view.Notices[i].Code == "orphaned" {
+			view.Notices[i].Message = guidance(cmd, view.Notices[i].Message)
+		}
+	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"project": view.Project, "scheduler": view.Scheduler, "service": view.Service, "jobs": view.Jobs, "queued": view.Queued, "notices": view.Notices, "next": view.Next})
 	}
