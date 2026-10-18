@@ -317,10 +317,12 @@ worktrees, and lets one scheduler see every enabled project.
   `cancel_requested_at`, `event_file`, `depth`, `log` (`path`, `bytes`, `truncated`, `available`,
   `hook_offset`), and `hook`. Paths are absolute; absent values are null.
 - Times are UTC text, `2006-01-02T15:04:05.000Z`, so they sort as strings.
-- Retention: newest 50 non-noop terminal runs per job, with logs and event files for the newest 10;
-  noops have an independent budget of the newest 10 runs with their logs and event files. Noops
-  never count against the regular budgets. Queued and running runs are never pruned. Idempotency keys
-  and delivery IDs deduplicate only against retained runs.
+- Retention: newest 50 terminal runs per job excluding `noop` and `skipped`, with logs and event
+  files for the newest 10. Noops have an independent budget of the newest 10 runs with their logs
+  and event files; skipped runs have another independent budget of the newest 10 rows (no logs,
+  event files, or idempotency keys). These three budgets never count against one another. `missed`
+  and `expired` runs count toward the regular budget. Queued and running runs are never pruned.
+  Idempotency keys and delivery IDs deduplicate only against retained runs.
 - Recovery: a `running` run whose owner is gone becomes `interrupted` and never re-runs. Its group is
   terminated only if the recorded PGID and leader start identity still match. Queued runs that never
   started are safe to dispatch after a restart.

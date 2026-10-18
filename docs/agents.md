@@ -207,9 +207,11 @@ CLI JSON and MCP share one run object.
 
 ## Limits and safety
 
-- Noon keeps the newest 50 non-noop finished runs per job with logs and event files for the newest
-  10; noops have a separate budget of the newest 10 with logs and event files. Queued and running
-  runs are never pruned.
+- Noon keeps the newest 50 finished runs per job excluding `noop` and `skipped`, with logs and
+  event files for the newest 10. Noops have a separate budget of the newest 10 with logs and event
+  files; skipped runs have their own budget of the newest 10 rows, without logs or event files.
+  These three budgets never count against one another. `missed` and `expired` runs still count
+  toward the regular budget. Queued and running runs are never pruned.
 - A job's log keeps the first 1 MiB and the last 1 MiB, with a marker if anything was dropped.
   Hook output adds up to 64 KiB. Dropped or pruned bytes are gone.
 - Bounded reads omit an active run's unfinished last line.

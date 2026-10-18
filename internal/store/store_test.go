@@ -180,6 +180,81 @@ func TestNoopRetentionPreservesResultsAndState(t *testing.T) {
 	}
 }
 
+func TestSkippedRetentionPreservesResultsAndState(t *testing.T) {
+	state, projectID := testStore(t)
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	var results []Run
+	for i, status := range []string{"succeeded", "failed"} {
+		run, err := state.CreateRun(NewRun{ProjectID: projectID, Job: "poll", Trigger: "manual", Now: now.Add(time.Duration(i) * time.Second)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		log, err := state.RunLog(projectID, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := log.Write([]byte(status + " output\n")); err != nil {
+			t.Fatal(err)
+		}
+		logBytes, truncated, err := log.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := state.FinishRun(run.ID, projectID, run.Job, Outcome{
+			Status: status, FinishedAt: now.Add(time.Duration(i+1) * time.Second),
+			ExitCode: &i, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		run.Status = status
+		results = append(results, run)
+	}
+	if err := state.SetScheduler(SchedulerRecord{PID: 1, StartIdentity: "test", StartedAt: FormatTime(now), HeartbeatAt: FormatTime(now)}); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 60 {
+		tick := now.Add(time.Duration(i+1) * time.Minute)
+		_, err := state.ScheduleTick(tick, 1, "test", func(SchedulerSnapshot) (SchedulerPlan, error) {
+			return SchedulerPlan{Create: []ScheduledRunInput{{
+				ProjectID: projectID, Job: "poll", Status: "skipped", Trigger: "schedule", ScheduledAt: tick, DueAt: tick,
+			}}}, nil
+		}, func(SchedulerSnapshot) (DispatchPlan, error) { return DispatchPlan{}, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	runs, err := state.RunsForJob(projectID, "poll")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 12 {
+		t.Fatalf("retained %d runs; want two results and ten skips", len(runs))
+	}
+	for i, run := range runs[:10] {
+		want := FormatTime(now.Add(time.Duration(60-i) * time.Minute))
+		if run.Status != "skipped" || run.ScheduledAt.String != want {
+			t.Fatalf("retained skip %d = %+v, want occurrence %s", i, run, want)
+		}
+	}
+	for _, result := range results {
+		stored, err := state.RunByID(result.ID)
+		if err != nil || stored.Status != result.Status || !stored.LogPath.Valid {
+			t.Fatalf("real result %d not retained: %+v err=%v", result.ID, stored, err)
+		}
+		log, err := state.ReadRunLog(stored)
+		if err != nil || string(log) != result.Status+" output\n" {
+			t.Fatalf("real result log %d = %q err=%v", result.ID, log, err)
+		}
+	}
+	if previous, err := state.PreviousStatus(projectID, "poll", runs[0].ID); err != nil || previous != "failed" {
+		t.Fatalf("previous result after skips = %q err=%v, want failed", previous, err)
+	}
+	lastSuccess, found, err := state.LastSuccess(projectID, "poll")
+	if err != nil || !found || lastSuccess != results[0].StartedAt {
+		t.Fatalf("last success = %q found=%t err=%v, want %q", lastSuccess, found, err, results[0].StartedAt)
+	}
+}
+
 func deadPID(t *testing.T) int {
 	t.Helper()
 	cmd := exec.Command("sleep", "30")

@@ -758,12 +758,15 @@ func pruneRuns(tx *sql.Tx, dir string, projectID int64, job string) error {
 		return err
 	}
 	_ = rows.Close()
-	var regularRuns, noopRuns int
+	var regularRuns, noopRuns, skippedRuns int
 	for _, r := range all {
 		retainedIndex, retentionLimit := regularRuns, 50
 		if r.status == "noop" {
 			retainedIndex, retentionLimit = noopRuns, 10
 			noopRuns++
+		} else if r.status == "skipped" {
+			retainedIndex, retentionLimit = skippedRuns, 10
+			skippedRuns++
 		} else {
 			regularRuns++
 		}
