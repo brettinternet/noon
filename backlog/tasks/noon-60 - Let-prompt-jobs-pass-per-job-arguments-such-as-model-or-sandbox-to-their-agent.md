@@ -4,11 +4,12 @@ title: Let prompt jobs pass per-job arguments such as model or sandbox to their 
 status: Done
 assignee: []
 created_date: '2026-10-18 16:33'
-updated_date: '2026-10-18 17:24'
+updated_date: '2026-10-18 18:02'
 labels:
   - agents
   - config
   - runner
+  - reviewed
 dependencies:
   - NOON-59
 documentation:
@@ -80,6 +81,8 @@ AC#3: task cli:test PKG=./internal/config -- -run "^TestAgentArgsSchema$" -count
 AC#4: rg -n "agent_args" docs/configuration.md docs/design.md docs/agents.md and rg -n "prompt_args" docs/configuration.md -> exit 0.
 Delivery: e965c27494f1d1573ff329affc205debb581be47 fast-forward merged to main. task check:staged passed; task ci passed again on that final implementation commit. Independent reviewer found no validated defects. LSP jobs.go diagnostics clean. All changed files within contract; existing built-in command expectations intentionally split command and prompt_args while preserving effective argv. No tests deleted, skipped, or weakened; digest assertion now uses the captured constant. No real agent CLIs invoked.
 Cleanup: owned noon-60 worktree and branch removed via Worktrunk; associated Herdr workspace wGV verified gone. Unrelated pause-all checkout preserved. No remaining blocker or resumable step.
+
+Post-completion review 2026-10-18: implementation matches the settled contract. Verified argv order (command, session flag/ID inserted at command length, agent_args, prompt_args, prompt), explicit-agent check uses source fields before default_agent resolution, run-job/empty/non-string/NUL rejection, digest key only when set, built-in effective argv unchanged, profiles replace built-ins wholesale (no prompt_args double-append), schema rule, docs and example. Re-ran AC#1-#3 commands: all PASS. One P3 finding, not in the AC contract: inspection views omit agent_args. internal/app/inspect.go Job view has no agent_args field, so noon list --json (confirmed directly on examples/ai/agent-profiles docs-review), MCP list_jobs, and the TUI do not show permission-widening agent arguments outside the YAML. Consider adding agent_args to the inspection view. No source changes made in this review.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
