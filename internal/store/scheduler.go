@@ -31,14 +31,15 @@ type PersistedJobState struct {
 }
 
 type ScheduledRun struct {
-	ID          int64
-	ProjectID   int64
-	Job         string
-	Status      string
-	Trigger     string
-	Digest      string
-	ScheduledAt sql.NullString
-	DueAt       sql.NullString
+	ID             int64
+	ProjectID      int64
+	Job            string
+	Status         string
+	Trigger        string
+	Digest         string
+	ScheduledAt    sql.NullString
+	DueAt          sql.NullString
+	AgentSessionID sql.NullString
 }
 
 type SchedulerSnapshot struct {
@@ -73,9 +74,10 @@ type SchedulerPlan struct {
 }
 
 type DispatchPlan struct {
-	Start  []int64
-	Expire []int64
-	Cancel []int64
+	Start           []int64
+	Expire          []int64
+	Cancel          []int64
+	AgentSessionIDs map[int64]string
 }
 
 type SchedulerRecord struct {
@@ -118,7 +120,7 @@ func (s *Store) ReadSchedulerSnapshot() (SchedulerSnapshot, error) {
 		return SchedulerSnapshot{}, err
 	}
 	defer tx.Rollback()
-	return schedulerSnapshot(tx, s.hasPauses)
+	return schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID)
 }
 
 // SchedulerInfo returns the last scheduler heartbeat, or no record for old state
@@ -220,7 +222,7 @@ func (s *Store) ScheduleTick(now time.Time, pid int, identity string,
 	if n, _ := result.RowsAffected(); n != 1 {
 		return nil, errors.New("scheduler ownership was lost")
 	}
-	snapshot, err := schedulerSnapshot(tx, s.hasPauses)
+	snapshot, err := schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +263,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, run.T
 			return nil, fmt.Errorf("create scheduled run: %w", err)
 		}
 	}
-	snapshot, err = schedulerSnapshot(tx, s.hasPauses)
+	snapshot, err = schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +291,15 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, run.T
 	}
 	started := make([]Run, 0, len(dispatches.Start))
 	for _, id := range dispatches.Start {
-		if _, err := tx.Exec(`UPDATE runs SET status='running', started_at=?, owner_pid=?, owner_start=? WHERE id=? AND status='queued'`, stamp, pid, identity, id); err != nil {
+		if sessionID := dispatches.AgentSessionIDs[id]; sessionID != "" {
+			if !s.hasAgentSessionID {
+				return nil, errors.New("agent session IDs are unavailable in this state database")
+			}
+			_, err = tx.Exec(`UPDATE runs SET status='running', started_at=?, owner_pid=?, owner_start=?, agent_session_id=COALESCE(agent_session_id, ?) WHERE id=? AND status='queued'`, stamp, pid, identity, sessionID, id)
+		} else {
+			_, err = tx.Exec(`UPDATE runs SET status='running', started_at=?, owner_pid=?, owner_start=? WHERE id=? AND status='queued'`, stamp, pid, identity, id)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("start scheduled run: %w", err)
 		}
 		run, err := scanRun(tx.QueryRow(`SELECT `+s.runSelectColumns()+` FROM runs WHERE id=?`, id))
@@ -320,7 +330,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, run.T
 	return started, nil
 }
 
-func schedulerSnapshot(tx *sql.Tx, hasPauses bool) (SchedulerSnapshot, error) {
+func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID bool) (SchedulerSnapshot, error) {
 	var snapshot SchedulerSnapshot
 	projects, err := tx.Query(`SELECT p.id, p.path, p.config_file, a.job, a.digest FROM projects p LEFT JOIN approvals a ON a.project_id=p.id WHERE p.enabled=1 ORDER BY p.id, a.job`)
 	if err != nil {
@@ -386,13 +396,19 @@ func schedulerSnapshot(tx *sql.Tx, hasPauses bool) (SchedulerSnapshot, error) {
 	if err := errors.Join(states.Err(), states.Close()); err != nil {
 		return snapshot, err
 	}
-	runs, err := tx.Query(`SELECT id, project_id, job, status, trigger, digest, scheduled_at, due_at FROM runs WHERE status IN ('queued','running')`)
+	runColumns := `id, project_id, job, status, trigger, digest, scheduled_at, due_at`
+	if hasAgentSessionID {
+		runColumns += `, agent_session_id`
+	} else {
+		runColumns += `, NULL`
+	}
+	runs, err := tx.Query(`SELECT ` + runColumns + ` FROM runs WHERE status IN ('queued','running')`)
 	if err != nil {
 		return snapshot, fmt.Errorf("read scheduled runs: %w", err)
 	}
 	for runs.Next() {
 		var run ScheduledRun
-		if err := runs.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.DueAt); err != nil {
+		if err := runs.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.DueAt, &run.AgentSessionID); err != nil {
 			_ = runs.Close()
 			return snapshot, err
 		}

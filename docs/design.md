@@ -104,7 +104,10 @@ digests are in [Configuration](configuration.md).
 
 Noon runs existing agent CLIs. It has no model SDK and stores no credentials. Profiles live in user
 config because they are machine choices. Prompts are sent byte-for-byte (stdin, or appended as the
-last argument) with no templating. Context comes from environment variables, so a prompt can say
+last argument) with no templating. A profile may provide `session_id_flag`; Noon then creates and
+records a random v4 UUID when execution starts, passes it after the profile command, and sets
+`NOON_AGENT_SESSION_ID`. This is a requested ID, not proof that the agent honored it. Context comes
+from environment variables, so a prompt can say
 "summarize commits since `$NOON_LAST_SUCCESS_AT`" or "read the event in `$NOON_EVENT_FILE`".
 
 ### Schedules
@@ -254,9 +257,12 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   and the tail at the end.
 - Environment: inherited (the scheduler's or your shell's), then job `env`, then `NOON_PROJECT`,
   `NOON_JOB`, `NOON_RUN_ID`, `NOON_TRIGGER`, `NOON_SCHEDULED_AT`, `NOON_LAST_SUCCESS_AT` (start of the
-  last successful run), `NOON_DEPTH` (stored request depth + 1), `NOON_AGENT` for prompt jobs, and
-  `NOON_EVENT_FILE` when there's a payload. Depth comes from the stored run, not the scheduler's
-  environment. Noon never sources shell rc files, creates worktrees, or changes branches.
+  last successful run), `NOON_DEPTH` (stored request depth + 1), `NOON_AGENT` for prompt jobs,
+  `NOON_AGENT_SESSION_ID` only for prompt profiles with `session_id_flag`, and
+  `NOON_EVENT_FILE` when there's a payload. The session ID is stripped from
+  inherited values for command jobs and profiles without the flag. Depth comes from the stored run,
+  not the scheduler's environment. Noon never sources shell rc files, creates worktrees, or changes
+  branches.
 
 Log reading ([Command reference](cli.md#logs)):
 
@@ -300,7 +306,8 @@ worktrees, and lets one scheduler see every enabled project.
   `events/RUN_ID.json`, `locks/`, `scheduler.lock`, and the service's `scheduler.log`.
 - Migrations are an append-only list keyed by `PRAGMA user_version`, applied in one transaction. A
   newer database is refused with an upgrade hint. Read-only commands never create state. State schema
-  version 10 marks the incompatible noop status and retention semantics; older binaries refuse it.
+  version 10 marks the incompatible noop status and retention semantics; version 11 adds the nullable
+  `agent_session_id` run field. Older binaries refuse the newer database.
 - Run `status`: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`,
   `interrupted`, `skipped`, `missed`, `expired`. `noop` is a terminal run status, distinct from
   `skipped`, which means an occurrence never started because of overlap. Noops count as terminal
@@ -312,7 +319,8 @@ worktrees, and lets one scheduler see every enabled project.
   `cancel_requested_at` is a durable stop request. `depth` is the request's recursion depth
   (scheduled runs start at 0). `requested_by` is claimed identity, metadata only.
 - Shared run JSON (CLI history/logs/run, MCP, `last_run`, hook stdin): `id`, `project`, `job`,
-  `status`, `orphaned`, `trigger`, `digest`, `scheduled_at`, `created_at`, `started_at`, `finished_at`,
+  `status`, `orphaned`, `trigger`, `digest`, `agent_session_id`, `scheduled_at`, `created_at`,
+  `started_at`, `finished_at`,
   `duration_ms`, `exit_code`, `signal`, `error`, `requested_by`, `idempotency_key`, `due_at`,
   `cancel_requested_at`, `event_file`, `depth`, `log` (`path`, `bytes`, `truncated`, `available`,
   `hook_offset`), and `hook`. Paths are absolute; absent values are null.

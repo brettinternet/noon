@@ -417,7 +417,37 @@ func Serve(ctx context.Context, options ServeOptions) error {
 					return store.DispatchPlan{}, err
 				}
 				start, expire, cancel := Dispatch(now, jobs, runs)
-				return store.DispatchPlan{Start: start, Expire: expire, Cancel: cancel}, nil
+				sessionIDs := make(map[int64]string)
+				for _, id := range start {
+					var queued store.ScheduledRun
+					for _, candidate := range snapshot.Runs {
+						if candidate.ID == id {
+							queued = candidate
+							break
+						}
+					}
+					if queued.ID == 0 {
+						return store.DispatchPlan{}, fmt.Errorf("dispatch selected unknown run %d", id)
+					}
+					if queued.AgentSessionID.Valid {
+						sessionIDs[id] = queued.AgentSessionID.String
+						continue
+					}
+					cached := configs[queued.ProjectID]
+					if cached == nil || cached.config == nil {
+						continue
+					}
+					job, exists := cached.config.Jobs[queued.Job]
+					if !exists || job.AgentSessionIDFlag == "" {
+						continue
+					}
+					sessionID, err := app.NewAgentSessionID()
+					if err != nil {
+						return store.DispatchPlan{}, err
+					}
+					sessionIDs[id] = sessionID
+				}
+				return store.DispatchPlan{Start: start, Expire: expire, Cancel: cancel, AgentSessionIDs: sessionIDs}, nil
 			},
 		)
 		for _, run := range started {
@@ -857,7 +887,7 @@ func executeScheduledRun(ctx context.Context, state *store.Store, run store.Run,
 		fail(err, log)
 		return
 	}
-	spec, err := app.RunSpec(project, job, options.Environment)
+	spec, err := app.RunSpecForExecution(project, job, options.Environment, run.AgentSessionID.String)
 	if err != nil {
 		fail(err, log)
 		return

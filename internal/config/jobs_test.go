@@ -51,6 +51,15 @@ func TestNoopExitCodeSchemaRange(t *testing.T) {
 
 func TestLoadJobs(t *testing.T) {
 	t.Parallel()
+	builtins := config.BuiltInAgents()
+	if builtins["claude"].SessionIDFlag != "--session-id" || builtins["pi"].SessionIDFlag != "--session-id" {
+		t.Fatalf("session ID built-ins: claude=%q pi=%q", builtins["claude"].SessionIDFlag, builtins["pi"].SessionIDFlag)
+	}
+	for _, name := range []string{"codex", "gemini", "opencode"} {
+		if builtins[name].SessionIDFlag != "" {
+			t.Errorf("%s unexpectedly supports session IDs: %q", name, builtins[name].SessionIDFlag)
+		}
+	}
 	for _, tc := range []struct {
 		name, shared, local, user, want string
 		check                           func(*testing.T, config.Config)
@@ -149,6 +158,17 @@ func TestLoadJobs(t *testing.T) {
 		{name: "agents outside user config", shared: "agents: {team: {command: [agent]}}", want: "agents: allowed only in user config or --config files"},
 		{name: "default agent outside allowed file", shared: "default_agent: claude", want: "default_agent: allowed only in user config, .git/noon.yaml, or --config files"},
 		{name: "invalid profile prompt mode", user: "agents: {team: {command: [agent], prompt: terminal}}", want: "must be stdin or argument"},
+		{name: "session ID flag missing dash", user: "agents:\n  custom:\n    command: [agent]\n    session_id_flag: session-id\n", want: "config.yaml:4: agents.custom.session_id_flag: must be one flag token"},
+		{name: "session ID flag single dash", user: "agents:\n  custom:\n    command: [agent]\n    session_id_flag: '-'\n", want: "config.yaml:4: agents.custom.session_id_flag: must be one flag token"},
+		{name: "session ID flag double dash", user: "agents:\n  custom:\n    command: [agent]\n    session_id_flag: '--'\n", want: "config.yaml:4: agents.custom.session_id_flag: must be one flag token"},
+		{name: "session ID flag whitespace", user: "agents:\n  custom:\n    command: [agent]\n    session_id_flag: '--session id'\n", want: "config.yaml:4: agents.custom.session_id_flag: must be one flag token"},
+		{name: "session ID flag NUL", user: "agents:\n  custom:\n    command: [agent]\n    session_id_flag: \"--session\\0id\"\n", want: "config.yaml:4: agents.custom.session_id_flag: must be one flag token"},
+		{name: "session ID flag wrong type", user: "agents:\n  custom:\n    command: [agent]\n    session_id_flag: true\n", want: "config.yaml:4: agents.custom.session_id_flag: must be a string"},
+		{name: "session ID flag override", user: "agents: {claude: {command: [wrapper], session_id_flag: -s}}", check: func(t *testing.T, c config.Config) {
+			if c.Agents["claude"].SessionIDFlag != "-s" {
+				t.Fatalf("session_id_flag = %q", c.Agents["claude"].SessionIDFlag)
+			}
+		}},
 		{name: "schedule suggestion", shared: "jobs:\n  tests:\n    schedule: every day\n    run: hi", want: "noon.yaml:3: jobs.tests.schedule: every day needs a time: try every day at 9am"},
 		{name: "numeric env", shared: "jobs: {tests: {run: hi, env: {COUNT: 1}}}", want: "jobs.tests.env.COUNT: must be a string (quote numbers)"},
 		{name: "reserved env", shared: "jobs: {tests: {run: hi, env: {NOON_JOB: secret}}}", want: "NOON_ is reserved"},
@@ -261,7 +281,7 @@ func TestLoadJobs(t *testing.T) {
 		if job.Agent != "team" || job.PromptMode != "argument" || !reflect.DeepEqual(job.AgentCommand, []string{"fake-agent", "--quiet"}) {
 			t.Fatalf("resolved agent: %+v", job)
 		}
-		if !reflect.DeepEqual(cfg.Agents["codex"].Command, []string{"codex", "exec", "-"}) || !reflect.DeepEqual(cfg.Agents["claude"].Command, []string{"claude-wrapper"}) {
+		if !reflect.DeepEqual(cfg.Agents["codex"].Command, []string{"codex", "exec", "-"}) || !reflect.DeepEqual(cfg.Agents["claude"].Command, []string{"claude-wrapper"}) || cfg.Agents["claude"].SessionIDFlag != "" {
 			t.Fatalf("profiles: %+v", cfg.Agents)
 		}
 	})
@@ -393,6 +413,10 @@ func TestJobDigest(t *testing.T) {
 		}
 		if loadPrompt(base) != initial {
 			t.Fatal("user-owned agent profile command changed the job digest")
+		}
+		put(t, userConfig, "default_agent: team\nagents:\n  team:\n    command: [agent-two]\n    session_id_flag: --session-id\n")
+		if loadPrompt(base) != initial {
+			t.Fatal("user-owned session ID flag changed the job digest")
 		}
 	})
 	t.Run("requested job digest preserves execution fields", func(t *testing.T) {

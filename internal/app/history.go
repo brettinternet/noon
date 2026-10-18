@@ -27,6 +27,7 @@ type Run struct {
 	Orphaned          bool       `json:"orphaned"`
 	Trigger           string     `json:"trigger"`
 	Digest            string     `json:"digest"`
+	AgentSessionID    *string    `json:"agent_session_id"`
 	RequestedBy       *string    `json:"requested_by"`
 	IdempotencyKey    *string    `json:"idempotency_key"`
 	DueAt             *string    `json:"due_at"`
@@ -104,6 +105,9 @@ func mapRunFromStore(state *store.Store, run store.Run) Run {
 	}
 	if path, ok := state.EventFilePath(run); ok {
 		result.EventFile = &path
+	}
+	if run.AgentSessionID.Valid {
+		result.AgentSessionID = &run.AgentSessionID.String
 	}
 	if run.RequestedBy.Valid {
 		result.RequestedBy = &run.RequestedBy.String

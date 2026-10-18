@@ -163,6 +163,23 @@ jobs:
 
 A late run then records `noop` instead of starting the agent.
 
+### Resume a prompt run
+
+Profiles for Claude Code (`claude`) and Pi (`pi`) request a fresh random session ID for each run.
+Find it in `noon history JOB --json` (`runs[].agent_session_id`) or MCP `get_run` (`run.agent_session_id`):
+
+```sh
+claude --resume SESSION_ID
+pi --session-id SESSION_ID
+```
+
+Resume from the original job's working directory using the same agent installation, OS user, and
+session storage. The run's `project` path is not necessarily the job's `cwd`, and Noon does not
+store historical working directories or agent transcripts. `agent_session_id` is only the ID Noon
+requested; Noon does not verify that the agent honored it. Missing transcripts, disabled session
+persistence, or conflicting agent flags can prevent resumption. Pi creates a new session if the ID
+has no match, so a new empty conversation is not proof that the original run resumed.
+
 ## Find and read a failure
 
 These outputs come from a fixture: job `t` (run 1) prints `line-1` through `line-2000`, then

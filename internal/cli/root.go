@@ -396,7 +396,11 @@ func showConfig(_ context.Context, cmd *urfave.Command) error {
 		for i, arg := range profile.Command {
 			args[i] = strconv.Quote(arg)
 		}
-		fmt.Fprintf(cmd.Writer, "  %s: %s (%s)\n", cell(name, 80), strings.Join(args, " "), profile.Prompt)
+		sessionIDFlag := ""
+		if profile.SessionIDFlag != "" {
+			sessionIDFlag = ", session_id_flag=" + profile.SessionIDFlag
+		}
+		fmt.Fprintf(cmd.Writer, "  %s: %s (%s%s)\n", cell(name, 80), strings.Join(args, " "), profile.Prompt, sessionIDFlag)
 	}
 	fmt.Fprintln(cmd.Writer, "CLI flags override environment variables; both override files.")
 	return nil
@@ -465,12 +469,18 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 
 func configOutput(cfg config.Config) map[string]any {
 	agents := make(map[string][]string, len(cfg.Agents))
+	profiles := make(map[string]map[string]any, len(cfg.Agents))
 	for name, profile := range cfg.Agents {
 		agents[name] = profile.Command
+		view := map[string]any{"command": profile.Command, "prompt": profile.Prompt}
+		if profile.SessionIDFlag != "" {
+			view["session_id_flag"] = profile.SessionIDFlag
+		}
+		profiles[name] = view
 	}
 	return map[string]any{
 		"project": cfg.Project, "timezone": cfg.Timezone, "state_dir": cfg.StateDir,
-		"sources": cfg.Sources, "agents": agents, "default_agent": cfg.DefaultAgent,
+		"sources": cfg.Sources, "agents": agents, "agent_profiles": profiles, "default_agent": cfg.DefaultAgent,
 	}
 }
 

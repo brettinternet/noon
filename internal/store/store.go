@@ -76,19 +76,22 @@ ALTER TABLE runs ADD COLUMN hook_log_offset INTEGER;
 `, `
 -- Version 10 marks noop run status and retention semantics; older binaries must refuse this state.
 SELECT 1;
+`, `
+ALTER TABLE runs ADD COLUMN agent_session_id TEXT;
 `}
 
 type Store struct {
-	dir              string
-	db               *sql.DB
-	hasLogOverflow   bool
-	hasApprovals     bool
-	hasScheduler     bool
-	hasQueue         bool
-	hasPauses        bool
-	hasHooks         bool
-	hasTriggers      bool
-	hasHookLogOffset bool
+	dir               string
+	db                *sql.DB
+	hasLogOverflow    bool
+	hasApprovals      bool
+	hasScheduler      bool
+	hasQueue          bool
+	hasPauses         bool
+	hasHooks          bool
+	hasTriggers       bool
+	hasHookLogOffset  bool
+	hasAgentSessionID bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -127,6 +130,7 @@ type Run struct {
 	EventPath                    sql.NullString
 	Depth                        int
 	HookLogOffset                sql.NullInt64
+	AgentSessionID               sql.NullString
 }
 
 const (
@@ -167,6 +171,11 @@ func (s *Store) runSelectColumns() string {
 	} else {
 		columns += `, NULL`
 	}
+	if s.hasAgentSessionID {
+		columns += `, agent_session_id`
+	} else {
+		columns += `, NULL`
+	}
 	return columns
 }
 
@@ -201,6 +210,11 @@ func (s *Store) qualifiedRunSelectColumns() string {
 	} else {
 		columns += `, NULL`
 	}
+	if s.hasAgentSessionID {
+		columns += `, runs.agent_session_id`
+	} else {
+		columns += `, NULL`
+	}
 	return columns
 }
 
@@ -211,7 +225,7 @@ type runScanner interface {
 func scanRun(row runScanner) (Run, error) {
 	var run Run
 	var startedAt sql.NullString
-	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt, &run.HookStatus, &run.HookExitCode, &run.EventPath, &run.Depth, &run.ProjectPath, &run.HookLogOffset)
+	err := row.Scan(&run.ID, &run.ProjectID, &run.Job, &run.Status, &run.Trigger, &run.Digest, &run.ScheduledAt, &run.CreatedAt, &startedAt, &run.FinishedAt, &run.ExitCode, &run.Signal, &run.Error, &run.OwnerPID, &run.OwnerStart, &run.PGID, &run.LeaderStart, &run.LogPath, &run.LogBytes, &run.LogTruncated, &run.RequestedBy, &run.LogOverflow, &run.DueAt, &run.IdempotencyKey, &run.CancelRequestedAt, &run.HookStatus, &run.HookExitCode, &run.EventPath, &run.Depth, &run.ProjectPath, &run.HookLogOffset, &run.AgentSessionID)
 	run.StartedAt = startedAt.String
 	return run, err
 }
@@ -225,6 +239,7 @@ type NewRun struct {
 	Depth                int
 	EventData            []byte
 	EventSource          string
+	AgentSessionID       string
 }
 
 type Outcome struct {
@@ -315,6 +330,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasHooks = version >= 7
 		state.hasTriggers = version >= 8
 		state.hasHookLogOffset = version >= 9
+		state.hasAgentSessionID = version >= 11
 		return state, nil
 	}
 	for {
@@ -356,6 +372,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasHooks = true
 	state.hasTriggers = true
 	state.hasHookLogOffset = true
+	state.hasAgentSessionID = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}
@@ -461,14 +478,17 @@ ORDER BY finished_at DESC, id DESC`, projectID, job, runID)
 
 // CreateRun records the running row and event before the child is started.
 func (s *Store) CreateRun(input NewRun) (Run, error) {
+	if input.AgentSessionID != "" && !s.hasAgentSessionID {
+		return Run{}, errors.New("agent session IDs are unavailable in this state database")
+	}
 	created := FormatTime(input.Now)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return Run{}, fmt.Errorf("begin create run: %w", err)
 	}
 	defer tx.Rollback()
-	result, err := tx.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, created_at, started_at, owner_pid, owner_start, depth)
-VALUES(?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, input.Trigger, input.Digest, created, created, input.OwnerPID, input.OwnerStart, input.Depth)
+	result, err := tx.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, created_at, started_at, owner_pid, owner_start, depth, agent_session_id)
+VALUES(?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, input.Trigger, input.Digest, created, created, input.OwnerPID, input.OwnerStart, input.Depth, nullableString(input.AgentSessionID))
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "runs_one_running") || strings.Contains(err.Error(), "UNIQUE constraint failed: runs.project_id, runs.job") {
 			var existing Run
@@ -504,7 +524,11 @@ VALUES(?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, input
 	if eventPath != "" {
 		savedEventPath = sql.NullString{String: eventPath, Valid: true}
 	}
-	return Run{ID: id, ProjectID: input.ProjectID, Job: input.Job, Status: "running", Trigger: input.Trigger, Digest: input.Digest, CreatedAt: created, StartedAt: created, Depth: input.Depth, EventPath: savedEventPath}, nil
+	run := Run{ID: id, ProjectID: input.ProjectID, Job: input.Job, Status: "running", Trigger: input.Trigger, Digest: input.Digest, CreatedAt: created, StartedAt: created, Depth: input.Depth, EventPath: savedEventPath}
+	if input.AgentSessionID != "" {
+		run.AgentSessionID = sql.NullString{String: input.AgentSessionID, Valid: true}
+	}
+	return run, nil
 }
 
 // SetRunLog makes the live log path visible before the child starts writing.

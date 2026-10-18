@@ -24,7 +24,7 @@ Files (low → high precedence):
   /home/me/app/noon.yaml
   /home/me/app/.git/noon.yaml
 Agents:
-  claude: "claude" "-p" "--permission-prompts" "none" (stdin)
+  claude: "claude" "-p" "--permission-prompts" "none" (stdin, session_id_flag=--session-id)
   codex: "codex" "exec" "-" (stdin)
 CLI flags override environment variables; both override files.
 ```
@@ -253,15 +253,23 @@ agents:
   reviewer:
     command: [my-agent, --quiet]
     prompt: argument
+    session_id_flag: --session-id
 ```
 
-| Built-in | Command | Prompt delivery |
-| --- | --- | --- |
-| `claude` | `claude -p --permission-prompts none` | stdin |
-| `codex` | `codex exec -` | stdin |
-| `gemini` | `gemini -p` | Final argument |
-| `opencode` | `opencode run --` | Final argument |
-| `pi` | `pi --print` | stdin |
+| Built-in | Command | Prompt delivery | Session ID flag |
+| --- | --- | --- | --- |
+| `claude` | `claude -p --permission-prompts none` | stdin | `--session-id` |
+| `codex` | `codex exec -` | stdin | — |
+| `gemini` | `gemini -p` | Final argument | — |
+| `opencode` | `opencode run --` | Final argument | — |
+| `pi` | `pi --print` | stdin | `--session-id` |
+
+`session_id_flag` is optional and must be one flag token starting with `-`, other than `-` or `--`,
+with no whitespace or NUL. When present, Noon generates a random v4 UUID for each execution,
+places `FLAG UUID` after the profile command and before a prompt argument, and sets
+`NOON_AGENT_SESSION_ID` for the job and its hooks. Redefining a built-in replaces it wholesale, so
+an override must include `session_id_flag` to keep this behavior. `noon config` shows the flag beside
+the command.
 
 Install and authenticate the selected CLI separately. Noon does not add auto-approval or
 workspace-trust bypass flags. Configure the agent's permissions for unattended use; these profiles
@@ -272,7 +280,8 @@ the last argument. Nothing is templated, expanded, or trimmed. Unattended runs m
 a permission prompt, so profiles should deny or pre-approve permissions.
 
 A missing, unreadable, or oversized prompt file fails before the agent starts, with exit 125.
-Prompt files must be regular files. Prompt runs get `NOON_AGENT=NAME`.
+Prompt files must be regular files. Prompt runs get `NOON_AGENT=NAME`; only profiles with
+`session_id_flag` get `NOON_AGENT_SESSION_ID`. Inherited values of this reserved name are removed.
 
 ## Editing jobs
 

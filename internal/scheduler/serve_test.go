@@ -37,6 +37,155 @@ type serveFixture struct {
 	done                                chan error
 }
 
+// IDs for scheduled and queued prompt executions must stay null until dispatch,
+// then match the child argv, environment, shared run JSON, and hook payload.
+func TestServeAgentSessionIDs(t *testing.T) {
+	fixture := newServeFixture(t, "")
+	fixture.stop(t)
+
+	recordDir := filepath.Join(fixture.root, "records")
+	if err := os.Mkdir(recordDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	agent := filepath.Join(fixture.root, "record-agent")
+	agentScript := "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$RECORD_DIR/argv-$NOON_AGENT_SESSION_ID\"\nprintf '%s' \"$NOON_AGENT_SESSION_ID\" > \"$RECORD_DIR/env-$NOON_AGENT_SESSION_ID\"\n"
+	if err := os.WriteFile(agent, []byte(agentScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(fixture.root, "record-hook")
+	hookScript := "#!/bin/sh\nprintf '%s' \"$NOON_AGENT_SESSION_ID\" > \"$RECORD_DIR/hook-env-$NOON_RUN_ID\"\ncat > \"$RECORD_DIR/hook-json-$NOON_RUN_ID\"\n"
+	if err := os.WriteFile(hook, []byte(hookScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(fixture.userConfig, "noon"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeUserConfig := func(sessionIDFlag string) {
+		t.Helper()
+		userConfig := fmt.Sprintf("agents:\n  session:\n    command: [%s]\n    prompt: argument\n    session_id_flag: %s\non_success: [%s]\non_failure: [%s]\n", strconv.Quote(agent), sessionIDFlag, strconv.Quote(hook), strconv.Quote(hook))
+		if err := os.WriteFile(filepath.Join(fixture.userConfig, "noon", "config.yaml"), []byte(userConfig), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeUserConfig("--old-session-id")
+	fixture.writeConfig(t, `jobs:
+  scheduled:
+    schedule: every 1m
+    prompt: scheduled prompt
+    agent: session
+  queued:
+    prompt: queued prompt
+    agent: session
+  cancelled:
+    prompt: cancelled prompt
+    agent: session
+`)
+	fixture.environment = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + fixture.root, "RECORD_DIR=" + recordDir, "NOON_AGENT_SESSION_ID=inherited-session-leak"}
+	fixture.start(t)
+	defer fixture.stop(t)
+	fixture.step(t, serveTestStart)
+
+	queued := createQueuedRun(t, fixture, "queued", serveTestStart, "")
+	cancelled := createQueuedRun(t, fixture, "cancelled", serveTestStart, "")
+	if queued.AgentSessionID.Valid || cancelled.AgentSessionID.Valid {
+		t.Fatalf("queued runs acquired session IDs before dispatch: queued=%+v cancelled=%+v", queued.AgentSessionID, cancelled.AgentSessionID)
+	}
+	state, err := store.Open(fixture.stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelledRun, err := state.RequestCancelRun(cancelled.ID, serveTestStart)
+	if err != nil || cancelledRun.Status != "cancelled" || cancelledRun.AgentSessionID.Valid {
+		_ = state.Close()
+		t.Fatalf("cancel before dispatch = %+v err=%v, want null session ID", cancelledRun, err)
+	}
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	writeUserConfig("--session-id")
+	assertExecution := func(run store.Run, prompt string) {
+		t.Helper()
+		if !run.AgentSessionID.Valid {
+			t.Fatalf("run %d has no session ID: %+v", run.ID, run)
+		}
+		sessionID := run.AgentSessionID.String
+		if len(sessionID) != 36 || sessionID[14] != '4' || !strings.ContainsRune("89ab", rune(sessionID[19])) {
+			t.Fatalf("run %d session ID is not UUID v4: %q", run.ID, sessionID)
+		}
+		argvData, err := os.ReadFile(filepath.Join(recordDir, "argv-"+sessionID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		argv := strings.Split(strings.TrimSuffix(string(argvData), "\x00"), "\x00")
+		if fmt.Sprint(argv) != fmt.Sprint([]string{"--session-id", sessionID, prompt}) {
+			t.Fatalf("child argv = %q, want session flag and ID before prompt %q", argv, prompt)
+		}
+		if got, err := os.ReadFile(filepath.Join(recordDir, "env-"+sessionID)); err != nil || string(got) != sessionID {
+			t.Fatalf("child session environment = %q err=%v, want %s", got, err, sessionID)
+		}
+		if got, err := os.ReadFile(filepath.Join(recordDir, fmt.Sprintf("hook-env-%d", run.ID))); err != nil || string(got) != sessionID {
+			t.Fatalf("hook session environment = %q err=%v, want %s", got, err, sessionID)
+		}
+		var payload map[string]any
+		hookData, err := os.ReadFile(filepath.Join(recordDir, fmt.Sprintf("hook-json-%d", run.ID)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(hookData, &payload); err != nil {
+			t.Fatalf("hook JSON: %v", err)
+		}
+		hookRun := payload["run"].(map[string]any)
+		if hookRun["agent_session_id"] != sessionID {
+			t.Fatalf("hook run session ID = %v, want %s", hookRun["agent_session_id"], sessionID)
+		}
+		inspection, err := store.OpenExisting(fixture.stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer inspection.Close()
+		shared, err := json.Marshal(app.RunFromStore(inspection, run))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sharedRun map[string]any
+		if err := json.Unmarshal(shared, &sharedRun); err != nil || sharedRun["agent_session_id"] != sessionID {
+			t.Fatalf("shared run JSON session ID = %v err=%v, want %s", sharedRun["agent_session_id"], err, sessionID)
+		}
+	}
+
+	fixture.step(t, serveTestStart.Add(2*time.Second))
+	waitFor(t, func() bool {
+		run := fixture.runByID(t, queued.ID)
+		return run.Status == "succeeded" && run.HookStatus.String == "ok"
+	})
+	queuedRun := fixture.runByID(t, queued.ID)
+	assertExecution(queuedRun, "queued prompt")
+	fixture.step(t, serveTestStart.Add(time.Minute))
+	waitFor(t, func() bool {
+		for _, run := range fixture.runs(t) {
+			if run.Job == "scheduled" && run.Status == "succeeded" && run.HookStatus.String == "ok" {
+				return true
+			}
+		}
+		return false
+	})
+	var scheduledRun store.Run
+	for _, run := range fixture.runs(t) {
+		if run.Job == "scheduled" {
+			scheduledRun = run
+			break
+		}
+	}
+	if scheduledRun.ID == 0 || scheduledRun.Trigger != "schedule" {
+		t.Fatalf("scheduled prompt run = %+v", scheduledRun)
+	}
+	assertExecution(scheduledRun, "scheduled prompt")
+	if run := fixture.runByID(t, cancelled.ID); run.AgentSessionID.Valid || run.Status != "cancelled" {
+		t.Fatalf("cancelled pre-dispatch run = %+v", run)
+	}
+}
+
 // A newly selected config must not inherit local execution permission from the
 // old selection, and a restored checkout must recover without touching its
 // external config file.

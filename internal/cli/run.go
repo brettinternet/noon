@@ -157,7 +157,14 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return stateError(err)
 	}
-	run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: name, Trigger: "manual", Digest: job.Digest, Now: now, OwnerPID: os.Getpid(), OwnerStart: ownerStart, Depth: app.RequestDepth(os.Environ()), EventData: eventData, EventSource: "cli"})
+	sessionID := ""
+	if job.AgentSessionIDFlag != "" {
+		sessionID, err = app.NewAgentSessionID()
+		if err != nil {
+			return &Error{Code: "error", Message: err.Error()}
+		}
+	}
+	run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: name, Trigger: "manual", Digest: job.Digest, Now: now, OwnerPID: os.Getpid(), OwnerStart: ownerStart, Depth: app.RequestDepth(os.Environ()), EventData: eventData, EventSource: "cli", AgentSessionID: sessionID})
 	if err != nil {
 		return stateError(err)
 	}
@@ -228,7 +235,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 			}
 		}
 	}()
-	spec, startErr := app.RunSpec(cfg.Project, job, os.Environ())
+	spec, startErr := app.RunSpecForExecution(cfg.Project, job, os.Environ(), run.AgentSessionID.String)
 	if startErr == nil {
 		spec.Env = setRunEnv(spec.Env, "NOON_RUN_ID", strconv.FormatInt(run.ID, 10))
 		spec.Env = setRunEnv(spec.Env, "NOON_DEPTH", strconv.Itoa(run.Depth+1))

@@ -524,7 +524,7 @@ VALUES(?, ?, ?, 'manual', 'old-definition', ?, ?)`, projectID, job, status, Form
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 10 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 11 {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		for _, statement := range []string{
@@ -536,6 +536,7 @@ VALUES(?, ?, ?, 'manual', 'old-definition', ?, ?)`, projectID, job, status, Form
 			`SELECT hook_status, hook_exit_code FROM runs`,
 			`SELECT event_path, depth FROM runs`,
 			`SELECT hook_log_offset FROM runs`,
+			`SELECT agent_session_id FROM runs`,
 		} {
 			rows, err := s.db.Query(statement)
 			if err != nil {
@@ -616,8 +617,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatalf("legacy approval: %+v %v", approval, err)
 		}
 		legacy, err := state.RunByID(1)
-		if err != nil || legacy.LogOverflow {
-			t.Fatalf("legacy run = %+v err=%v, want false overflow fallback", legacy, err)
+		if err != nil || legacy.LogOverflow || legacy.AgentSessionID.Valid {
+			t.Fatalf("legacy run = %+v err=%v, want false overflow and null session ID", legacy, err)
 		}
 		runs, err := state.RunsForProject("/legacy-project", "", 10)
 		if err != nil || len(runs) != 1 || runs[0].ID != 1 || runs[0].LogOverflow {
@@ -647,12 +648,12 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 10 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 10", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 11 {
+			t.Fatalf("writer user_version=%d err=%v, want migration to 11", version, err)
 		}
 		migrated, err := writer.RunByID(1)
-		if err != nil || migrated.LogOverflow {
-			t.Fatalf("migrated legacy run = %+v err=%v", migrated, err)
+		if err != nil || migrated.LogOverflow || migrated.AgentSessionID.Valid {
+			t.Fatalf("migrated legacy run = %+v err=%v, want null session ID", migrated, err)
 		}
 	})
 
@@ -697,6 +698,63 @@ VALUES(1, 'previous', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 
 		}
 	})
 
+	t.Run("read-only v10 and migrated history have null session IDs", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, databaseName)
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, migration := range migrations[:10] {
+			if _, err := db.Exec(migration); err != nil {
+				t.Fatalf("apply previous migration %d: %v", i+1, err)
+			}
+			if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version=%d", i+1)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		created := FormatTime(time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC))
+		if _, err := db.Exec(`INSERT INTO projects(path, created_at) VALUES(?, ?)`, "/v10-project", created); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, created_at, started_at)
+VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?)`, created, created); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		reader, err := OpenExisting(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacy, err := reader.RunByID(1)
+		if err != nil || legacy.AgentSessionID.Valid {
+			t.Fatalf("read-only v10 run = %+v err=%v, want null session ID", legacy, err)
+		}
+		var version int
+		if err := reader.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 10 {
+			t.Fatalf("read-only user_version=%d err=%v, want 10", version, err)
+		}
+		if err := reader.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		writer, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer writer.Close()
+		migrated, err := writer.RunByID(1)
+		if err != nil || migrated.AgentSessionID.Valid {
+			t.Fatalf("migrated v10 run = %+v err=%v, want null session ID", migrated, err)
+		}
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 11 {
+			t.Fatalf("migrated user_version=%d err=%v, want 11", version, err)
+		}
+	})
+
 	t.Run("newer database is refused without modifying it", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, databaseName)
@@ -704,7 +762,7 @@ VALUES(1, 'previous', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=11"); err != nil {
+		if _, err := db.Exec("PRAGMA user_version=12"); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -716,8 +774,8 @@ VALUES(1, 'previous', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 11 {
-			t.Fatalf("Open error = %v, want StateTooNewError(11)", err)
+		if !errors.As(err, &newer) || newer.Version != 12 {
+			t.Fatalf("Open error = %v, want StateTooNewError(12)", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {

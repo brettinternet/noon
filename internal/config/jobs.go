@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/brettinternet/noon/internal/schedule"
 	"go.yaml.in/yaml/v3"
@@ -19,8 +20,9 @@ import (
 const MaxPromptBytes = 64 * 1024
 
 type AgentProfile struct {
-	Command []string
-	Prompt  string
+	Command       []string
+	Prompt        string
+	SessionIDFlag string
 }
 
 type Webhook struct {
@@ -28,34 +30,35 @@ type Webhook struct {
 }
 
 type Job struct {
-	Name         string
-	Description  string
-	Schedule     *schedule.Schedule
-	Run          any
-	OnSuccess    any
-	OnFailure    any
-	Prompt       *string
-	PromptFile   *string
-	Webhook      *Webhook
-	Agent        string
-	AgentCommand []string
-	PromptMode   string
-	CWD          string
-	Env          map[string]string `json:"-"`
-	Timeout      string
-	NoopExitCode int
-	Cooldown     time.Duration
-	Requests     string
-	Overlap      string
-	Missed       string
-	Enabled      bool
-	OS           []string
-	Arch         []string
-	Source       string
-	Shared       bool
-	Overrides    bool
-	Digest       string
-	execution    map[string]any
+	Name               string
+	Description        string
+	Schedule           *schedule.Schedule
+	Run                any
+	OnSuccess          any
+	OnFailure          any
+	Prompt             *string
+	PromptFile         *string
+	Webhook            *Webhook
+	Agent              string
+	AgentCommand       []string
+	PromptMode         string
+	AgentSessionIDFlag string
+	CWD                string
+	Env                map[string]string `json:"-"`
+	Timeout            string
+	NoopExitCode       int
+	Cooldown           time.Duration
+	Requests           string
+	Overlap            string
+	Missed             string
+	Enabled            bool
+	OS                 []string
+	Arch               []string
+	Source             string
+	Shared             bool
+	Overrides          bool
+	Digest             string
+	execution          map[string]any
 }
 
 var jobName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
@@ -263,11 +266,11 @@ func jobNoopExitCode(file, path string, node *yaml.Node) (int, error) {
 
 func BuiltInAgents() map[string]AgentProfile {
 	return map[string]AgentProfile{
-		"claude":   {Command: []string{"claude", "-p", "--permission-prompts", "none"}, Prompt: "stdin"},
+		"claude":   {Command: []string{"claude", "-p", "--permission-prompts", "none"}, Prompt: "stdin", SessionIDFlag: "--session-id"},
 		"codex":    {Command: []string{"codex", "exec", "-"}, Prompt: "stdin"},
 		"gemini":   {Command: []string{"gemini", "-p"}, Prompt: "argument"},
 		"opencode": {Command: []string{"opencode", "run", "--"}, Prompt: "argument"},
-		"pi":       {Command: []string{"pi", "--print"}, Prompt: "stdin"},
+		"pi":       {Command: []string{"pi", "--print"}, Prompt: "stdin", SessionIDFlag: "--session-id"},
 	}
 }
 
@@ -313,6 +316,15 @@ func (cfg *Config) applyAgents(file string, node *yaml.Node) error {
 					return jobError(file, fieldValue, field, "must be stdin or argument")
 				}
 				profile.Prompt = text
+			case "session_id_flag":
+				text, err := jobString(file, field, fieldValue)
+				if err != nil {
+					return err
+				}
+				if !validSessionIDFlag(text) {
+					return jobError(file, fieldValue, field, "must be one flag token starting with - (not - or --), with no whitespace or NUL")
+				}
+				profile.SessionIDFlag = text
 			default:
 				return jobError(file, fieldNode, field, "unknown field")
 			}
@@ -323,6 +335,18 @@ func (cfg *Config) applyAgents(file string, node *yaml.Node) error {
 		cfg.Agents[name] = profile
 	}
 	return nil
+}
+
+func validSessionIDFlag(value string) bool {
+	if !strings.HasPrefix(value, "-") || value == "-" || value == "--" {
+		return false
+	}
+	for _, r := range value {
+		if r == 0 || unicode.IsSpace(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func (cfg *Config) resolveAgents() error {
@@ -347,6 +371,7 @@ func (cfg *Config) resolveAgents() error {
 		}
 		job.AgentCommand = append([]string(nil), profile.Command...)
 		job.PromptMode = profile.Prompt
+		job.AgentSessionIDFlag = profile.SessionIDFlag
 		job.execution["agent"] = job.Agent
 		data, err := json.Marshal(job.execution)
 		if err != nil {

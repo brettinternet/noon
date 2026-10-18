@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -215,16 +216,17 @@ func TestPromptJobs(t *testing.T) {
 	if err := os.Mkdir(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\nprintf 'started\\n' >> \"$AGENT_STARTS_FILE\"\nprintf '%s\\0' \"$@\" > \"$AGENT_ARGV_FILE\"\nprintf '%s' \"$NOON_AGENT\" > \"$AGENT_NAME_FILE\"\ncat > \"$AGENT_STDIN_FILE\"\n"
+	script := "#!/bin/sh\nprintf 'started\\n' >> \"$AGENT_STARTS_FILE\"\nprintf '%s\\0' \"$@\" > \"$AGENT_ARGV_FILE\"\nprintf '%s' \"$NOON_AGENT\" > \"$AGENT_NAME_FILE\"\nprintf '%s' \"${NOON_AGENT_SESSION_ID-unset}\" > \"$AGENT_SESSION_FILE\"\ncat > \"$AGENT_STDIN_FILE\"\n"
 	for _, name := range []string{"record-agent", "codex"} {
 		if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("NOON_AGENT_SESSION_ID", "inherited-session-leak")
 	for key, name := range map[string]string{
 		"AGENT_STARTS_FILE": "starts", "AGENT_ARGV_FILE": "argv", "AGENT_NAME_FILE": "agent",
-		"AGENT_STDIN_FILE": "stdin",
+		"AGENT_STDIN_FILE": "stdin", "AGENT_SESSION_FILE": "session",
 	} {
 		t.Setenv(key, filepath.Join(root, name))
 	}
@@ -235,6 +237,10 @@ agents:
   argument:
     command: [record-agent, argument-mode]
     prompt: argument
+  session:
+    command: [record-agent, session-base]
+    prompt: argument
+    session_id_flag: --session-id
 `
 	if err := os.MkdirAll(filepath.Join(root, "user", "noon"), 0o700); err != nil {
 		t.Fatal(err)
@@ -273,6 +279,9 @@ agents:
     agent: argument
   default_profile:
     prompt: "default profile\n$HOME\n"
+  session_run:
+    prompt: "session prompt"
+    agent: session
   missing_file:
     prompt_file: prompts/missing.md
     agent: argument
@@ -324,10 +333,69 @@ agents:
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(gotArgs, tc.argv) || string(stdin) != tc.stdin || string(agent) != tc.agent || !strings.Contains(string(mustRead(t, filepath.Join(root, "starts"))), "started") {
+			session, err := os.ReadFile(filepath.Join(root, "session"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(gotArgs, tc.argv) || string(stdin) != tc.stdin || string(agent) != tc.agent || string(session) != "unset" || !strings.Contains(string(mustRead(t, filepath.Join(root, "starts"))), "started") {
 				t.Fatalf("argv=%q stdin=%q agent=%q starts=%q", gotArgs, stdin, agent, mustRead(t, filepath.Join(root, "starts")))
 			}
 		})
+	}
+	var sessionIDs []string
+	sessionPattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	for i := 0; i < 2; i++ {
+		var out, stderr bytes.Buffer
+		if code := cli.Run(context.Background(), []string{"noon", "--json", "run", "session_run"}, config.BuildOpts{}, &out, &stderr); code != 0 {
+			t.Fatalf("session run exit=%d stdout=%s stderr=%s", code, &out, &stderr)
+		}
+		var result map[string]any
+		if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+			t.Fatalf("session run JSON %q: %v", out.String(), err)
+		}
+		run := result["run"].(map[string]any)
+		sessionID, ok := run["agent_session_id"].(string)
+		if !ok || !sessionPattern.MatchString(sessionID) {
+			t.Fatalf("session ID = %v, want RFC 4122 v4 UUID", run["agent_session_id"])
+		}
+		argvData := mustRead(t, filepath.Join(root, "argv"))
+		argv := bytes.Split([]byte(argvData), []byte{0})
+		argv = argv[:len(argv)-1]
+		gotArgs := make([]string, len(argv))
+		for i := range argv {
+			gotArgs[i] = string(argv[i])
+		}
+		wantArgs := []string{"session-base", "--session-id", sessionID, "session prompt"}
+		if !reflect.DeepEqual(gotArgs, wantArgs) || mustRead(t, filepath.Join(root, "session")) != sessionID {
+			t.Fatalf("session argv=%q env=%q, want argv=%q and matching environment", gotArgs, mustRead(t, filepath.Join(root, "session")), wantArgs)
+		}
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	if sessionIDs[0] == sessionIDs[1] {
+		t.Fatalf("two prompt runs reused session ID %s", sessionIDs[0])
+	}
+	var unflaggedOut, unflaggedErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "--json", "run", "default_profile"}, config.BuildOpts{}, &unflaggedOut, &unflaggedErr); code != 0 {
+		t.Fatalf("unflagged JSON run exit=%d stdout=%s stderr=%s", code, &unflaggedOut, &unflaggedErr)
+	}
+	var unflaggedResult map[string]any
+	if err := json.Unmarshal(unflaggedOut.Bytes(), &unflaggedResult); err != nil {
+		t.Fatal(err)
+	}
+	if unflaggedResult["run"].(map[string]any)["agent_session_id"] != nil {
+		t.Fatalf("unflagged run JSON session ID = %v, want null", unflaggedResult["run"].(map[string]any)["agent_session_id"])
+	}
+	var historyOut, historyErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "--json", "history", "session_run"}, config.BuildOpts{}, &historyOut, &historyErr); code != 0 {
+		t.Fatalf("session history exit=%d stdout=%s stderr=%s", code, &historyOut, &historyErr)
+	}
+	var history map[string]any
+	if err := json.Unmarshal(historyOut.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	runs := history["runs"].([]any)
+	if len(runs) != 2 || runs[0].(map[string]any)["agent_session_id"] != sessionIDs[1] || runs[1].(map[string]any)["agent_session_id"] != sessionIDs[0] {
+		t.Fatalf("session history IDs = %+v", runs)
 	}
 	for _, name := range []string{"missing_file", "oversized_file", "fifo_file"} {
 		t.Run(name, func(t *testing.T) {
@@ -350,6 +418,14 @@ agents:
 	agents := cfg["agents"].(map[string]any)
 	if cfg["default_agent"] != "argument" || !reflect.DeepEqual(agents["claude"], []any{"record-agent", "claude-override"}) || !reflect.DeepEqual(agents["codex"], []any{"codex", "exec", "-"}) {
 		t.Fatalf("config output: %+v", cfg)
+	}
+	profiles := cfg["agent_profiles"].(map[string]any)
+	if profiles["session"].(map[string]any)["session_id_flag"] != "--session-id" || profiles["claude"].(map[string]any)["session_id_flag"] != nil {
+		t.Fatalf("agent profile config output: %+v", profiles)
+	}
+	var configOut, configErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "config"}, config.BuildOpts{}, &configOut, &configErr); code != 0 || !strings.Contains(configOut.String(), "session_id_flag=--session-id") {
+		t.Fatalf("human config omitted session_id_flag: exit=%d stdout=%s stderr=%s", code, &configOut, &configErr)
 	}
 	code, result = invoke(t, "list", "--json")
 	if code != 0 {
@@ -591,7 +667,7 @@ func TestHooks(t *testing.T) {
 	recordHook := writeScript("record-hook", `
 printf 'call\n' >> "$HOOK_CAPTURE.calls"
 cat > "$HOOK_CAPTURE.json"
-printf '%s\n' "$NOON_JOB" "$NOON_STATUS" "$NOON_EXIT_CODE" "$NOON_LOG_FILE" > "$HOOK_CAPTURE.env"
+printf '%s\n' "$NOON_JOB" "$NOON_STATUS" "$NOON_EXIT_CODE" "$NOON_LOG_FILE" "${NOON_AGENT_SESSION_ID-unset}" > "$HOOK_CAPTURE.env"
 printf '%s\n' "${NOON_PREVIOUS_STATUS-unset}" > "$HOOK_CAPTURE.previous"
 printf '%s\n' "${NOON_CONSECUTIVE_FAILURES-unset}" > "$HOOK_CAPTURE.failures"
 `)
@@ -611,17 +687,20 @@ wait
 	if err := os.MkdirAll(userConfigDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	userConfig := fmt.Sprintf("on_success: [%s]\non_failure: [%s]\n", strconv.Quote(recordHook), strconv.Quote(recordHook))
+	userConfig := fmt.Sprintf("on_success: [%s]\non_failure: [%s]\nagents:\n  start_failure:\n    command: [%s]\n    session_id_flag: --session-id\n", strconv.Quote(recordHook), strconv.Quote(recordHook), strconv.Quote(filepath.Join(root, "missing-agent")))
 	if err := os.WriteFile(filepath.Join(userConfigDir, "config.yaml"), []byte(userConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := fmt.Sprintf(`jobs:
   success:
-    run: 'true'
+    run: 'test -z "${NOON_AGENT_SESSION_ID+x}"'
   failure:
     run: [sh, -c, 'exit 7']
   flip:
     run: 'test -e ok'
+  agent_start_failure:
+    prompt: "fail to start the agent"
+    agent: start_failure
   timed_job:
     run: [sh, -c, 'sleep 5']
     timeout: 1s
@@ -650,6 +729,7 @@ wait
 	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("NOON_AGENT_SESSION_ID", "inherited-session-leak")
 	stateDir := filepath.Join(root, "state", "noon")
 	t.Setenv("NOON_STATE_DIR", stateDir)
 	state, err := store.Open(stateDir)
@@ -692,7 +772,7 @@ wait
 		}
 		return hook
 	}
-	captureSummary := func(path string, job, status, code string) map[string]any {
+	captureSummary := func(path string, job, status, code string, expectedSession ...string) map[string]any {
 		t.Helper()
 		calls := mustRead(t, path+".calls")
 		if calls != "call\n" {
@@ -715,7 +795,11 @@ wait
 			t.Fatalf("hook stdin does not show durable running transition: %+v", inputHook)
 		}
 		env := strings.Split(strings.TrimSuffix(mustRead(t, path+".env"), "\n"), "\n")
-		if len(env) != 4 || env[0] != job || env[1] != status || env[2] != code || !filepath.IsAbs(env[3]) {
+		wantSession := "unset"
+		if len(expectedSession) > 0 {
+			wantSession = expectedSession[0]
+		}
+		if len(env) != 5 || env[0] != job || env[1] != status || env[2] != code || !filepath.IsAbs(env[3]) || env[4] != wantSession {
 			t.Fatalf("hook environment = %q", env)
 		}
 		log := run["log"].(map[string]any)
@@ -774,7 +858,7 @@ wait
 	}
 
 	// Config cannot inject reserved hook metadata in the first place.
-	invalidManifest := strings.Replace(manifest, "  flip:\n", "  flip:\n    env: {NOON_PREVIOUS_STATUS: job-leak, NOON_CONSECUTIVE_FAILURES: '999'}\n", 1)
+	invalidManifest := strings.Replace(manifest, "  flip:\n", "  flip:\n    env: {NOON_PREVIOUS_STATUS: job-leak, NOON_CONSECUTIVE_FAILURES: '999', NOON_AGENT_SESSION_ID: job-leak}\n", 1)
 	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(invalidManifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -867,6 +951,17 @@ wait
 		t.Fatalf("hook log error lost original result: %+v stderr=%s", run, lastStderr)
 	}
 	hookOf(run, "on_failure", "failed", 1)
+
+	capture = setCapture("agent-start-failure-record")
+	run = runJSON("agent_start_failure", 127)
+	sessionID, ok := run["agent_session_id"].(string)
+	if !ok || sessionID == "" {
+		t.Fatalf("failed agent run has no requested session ID: %+v", run)
+	}
+	nested := captureSummary(capture, "agent_start_failure", "failed", "127", sessionID)
+	if nested["agent_session_id"] != sessionID {
+		t.Fatalf("failed run hook JSON session ID=%v, want %s", nested["agent_session_id"], sessionID)
+	}
 
 	run = runJSON("large_output", 0)
 	hookOf(run, "on_success", "ok", 0)

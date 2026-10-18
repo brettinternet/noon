@@ -84,6 +84,11 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 	env := setHookEnvironment(hookEnvironment, "NOON_PROJECT", project)
 	env = setHookEnvironment(env, "NOON_JOB", job.Name)
 	env = setHookEnvironment(env, "NOON_RUN_ID", strconv.FormatInt(stored.ID, 10))
+	sessionID := ""
+	if stored.AgentSessionID.Valid {
+		sessionID = stored.AgentSessionID.String
+	}
+	env = setHookEnvironment(env, "NOON_AGENT_SESSION_ID", sessionID)
 	env = setHookEnvironment(env, "NOON_DEPTH", strconv.Itoa(stored.Depth+1))
 	if eventPath, ok := state.EventFilePath(stored); ok {
 		env = setHookEnvironment(env, "NOON_EVENT_FILE", eventPath)
