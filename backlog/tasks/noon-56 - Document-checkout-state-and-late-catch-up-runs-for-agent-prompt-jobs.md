@@ -3,10 +3,10 @@ id: NOON-56
 title: >-
   Document checkout state, late catch-up runs, and delayed run_job requests for
   agents
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 16:24'
-updated_date: '2026-10-18 16:38'
+updated_date: '2026-10-18 16:42'
 labels:
   - docs
   - agents
@@ -42,23 +42,38 @@ Modified-file contract: docs/agents.md plus this task record. Record the startin
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ``rg -n '^\| `run_job` .*`in`.*`at`' docs/agents.md`` exits 0, and docs/agents.md contains an `in` example for run_job; every field named matches runJobArgs in internal/mcp/server.go. The text distinguishes project enablement, shared-job approval, and scheduler availability from queue acceptance.
-- [ ] #2 rg -n "background-agents" docs/agents.md and rg -n "uncommitted" docs/agents.md each exit 0; the text states Noon never creates worktrees or changes branches and that worktrees are not a sandbox.
-- [ ] #3 rg -n "catch_up" docs/agents.md and rg -n "NOON_SCHEDULED_AT" docs/agents.md each exit 0; the guard shown uses only implemented fields and variables, and states prompt jobs cannot use noop_exit_code directly.
-- [ ] #4 `git diff --check` exits 0. `git diff --name-only START_SHA -- . ':!backlog'` (replace START_SHA with the literal starting commit recorded before implementation) prints only docs/agents.md, including after committing on main.
+- [x] #1 ``rg -n '^\| `run_job` .*`in`.*`at`' docs/agents.md`` exits 0, and docs/agents.md contains an `in` example for run_job; every field named matches runJobArgs in internal/mcp/server.go. The text distinguishes project enablement, shared-job approval, and scheduler availability from queue acceptance.
+- [x] #2 rg -n "background-agents" docs/agents.md and rg -n "uncommitted" docs/agents.md each exit 0; the text states Noon never creates worktrees or changes branches and that worktrees are not a sandbox.
+- [x] #3 rg -n "catch_up" docs/agents.md and rg -n "NOON_SCHEDULED_AT" docs/agents.md each exit 0; the guard shown uses only implemented fields and variables, and states prompt jobs cannot use noop_exit_code directly.
+- [x] #4 `git diff --check` exits 0. `git diff --name-only START_SHA -- . ':!backlog'` (replace START_SHA with the literal starting commit recorded before implementation) prints only docs/agents.md, including after committing on main.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Refinement: use single quotes for a copyable run_job search without backtick escaping. Use a recorded starting SHA for scope checks because this repository defaults to implementation in the current checkout; main moves on commit. Queue requirements checked against docs/agents.md and docs/design.md.
+
+Start SHA: 7f67ee05f9c9bd8289b9f2c410bbd58e4bdf383d. Worklease claim on backlog-md noon/backlog NOON-56; implementing in worktree .worktrees/noon-56-agent-docs.
+
+Commit 799236b on main (docs/agents.md only; worktree branch rebased onto b0bf5c2, fast-forwarded, worktree removed).
+AC#1: rg -n '^\| `run_job` .*`in`.*`at`' docs/agents.md -> exit 0 (line 73); in example {"name":"check-ci","in":"2h","key":...} at line 85; fields key/in/at/data/name match runJobArgs; text separates enablement, shared-job approval (private none), running scheduler from queueing.
+AC#2: rg -n background-agents docs/agents.md -> exit 0; rg -n uncommitted docs/agents.md -> exit 0; states Noon never creates worktrees or changes branches, neither approval nor a worktree is a sandbox.
+AC#3: rg -n catch_up / rg -n NOON_SCHEDULED_AT docs/agents.md -> exit 0; guard uses missed, noop_exit_code, run, NOON_TRIGGER, NOON_SCHEDULED_AT only; states prompt jobs can't use noop_exit_code. Guard executed: 2020 catch_up -> exit 78; recent catch_up -> runs (0); schedule trigger -> runs (0); example noon.yaml accepted by noon list.
+AC#4: git diff --check -> exit 0; git diff --name-only 7f67ee05f9c9bd8289b9f2c410bbd58e4bdf383d -- . ':!backlog' -> docs/agents.md only (after commit on main).
+DoD: task ci -> exit 0 on 799236b. No tests touched. Review: one pass, no defects.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+docs/agents.md now documents live-checkout execution and isolation options, late catch_up runs with a NOON_SCHEDULED_AT guard, and run_job key/in/at with a delayed follow-up example.
+<!-- SECTION:FINAL_SUMMARY:END -->
