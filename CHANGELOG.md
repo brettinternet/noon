@@ -6,11 +6,22 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- Report orphaned runs across inspection surfaces
+- Record no-work runs as noop
+- **agents:** Add Gemini, OpenCode, and Pi profiles
+- Constrain jobs by operating system and architecture
+- Support personal jobs with --user
+- Add authenticated remote API and HTTP MCP
 - Queue each event request independently
 - **tui:** Redesign views and move shortcuts to help
 
+### Fixed
+
+- Preserve selectors in orphan notice commands
+
 ### Documentation
 
+- **examples:** Add Tell integration
 - **examples:** Add file-watch, worktrunk, and container-agent
 
 ## [v0.3.0](https://github.com/brettinternet/noon/compare/v0.2.0...v0.3.0) - 2026-10-17
