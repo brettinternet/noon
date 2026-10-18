@@ -160,33 +160,54 @@ func (s *Store) EnableAddedJob(path string, configFile *string, name, digest str
 
 // SetPaused changes background eligibility and resets schedule state on resume.
 func (s *Store) SetPaused(project, job string, paused bool, now time.Time) error {
+	_, err := s.SetJobsPaused(project, []string{job}, paused, now)
+	return err
+}
+
+// SetJobsPaused changes the selected jobs atomically and returns the number changed.
+func (s *Store) SetJobsPaused(project string, jobs []string, paused bool, now time.Time) (int, error) {
+	if len(jobs) == 0 {
+		return 0, nil
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 	var id int64
 	if err := tx.QueryRow(`SELECT id FROM projects WHERE path=?`, project).Scan(&id); err != nil {
-		return err
+		return 0, err
 	}
-	if paused {
-		_, err = tx.Exec(`INSERT INTO pauses(project_id,job,paused_at) VALUES(?,?,?) ON CONFLICT(project_id,job) DO NOTHING`, id, job, FormatTime(now))
-	} else {
-		_, err = tx.Exec(`DELETE FROM pauses WHERE project_id=? AND job=?`, id, job)
-		if err == nil {
-			_, err = tx.Exec(`DELETE FROM job_state WHERE project_id=? AND job=?`, id, job)
+	changed := 0
+	for _, job := range jobs {
+		var result sql.Result
+		if paused {
+			result, err = tx.Exec(`INSERT INTO pauses(project_id,job,paused_at) VALUES(?,?,?) ON CONFLICT(project_id,job) DO NOTHING`, id, job, FormatTime(now))
+		} else {
+			result, err = tx.Exec(`DELETE FROM pauses WHERE project_id=? AND job=?`, id, job)
+			if err == nil {
+				_, err = tx.Exec(`DELETE FROM job_state WHERE project_id=? AND job=?`, id, job)
+			}
+		}
+		if err != nil {
+			return 0, err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		changed += int(count)
+		if paused {
+			_, err = tx.Exec(`UPDATE runs SET status='cancelled',finished_at=?,error='job paused' WHERE project_id=? AND job=? AND status='queued'`, FormatTime(now), id, job)
+		}
+		if err != nil {
+			return 0, err
 		}
 	}
-	if err != nil {
-		return err
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
-	if paused {
-		_, err = tx.Exec(`UPDATE runs SET status='cancelled',finished_at=?,error='job paused' WHERE project_id=? AND job=? AND status='queued'`, FormatTime(now), id, job)
-	}
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
+	return changed, nil
 }
 
 func (s *Store) PausedJobs(project string) (map[string]bool, error) {

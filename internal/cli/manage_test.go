@@ -489,6 +489,46 @@ func TestRemoveJobs(t *testing.T) {
 	}
 }
 
+// Guards project scoping and bulk resume of independently paused jobs.
+func TestPauseResumeAll(t *testing.T) {
+	root := sandbox(t)
+	manifest := []byte("version: 1\njobs:\n  a:\n    run: [echo, a]\n  b:\n    run: [echo, b]\n")
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), manifest, 0600); err != nil {
+		t.Fatal(err)
+	}
+	userDir := filepath.Join(root, "user", "noon")
+	if err := os.MkdirAll(userDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userDir, "config.yaml"), manifest, 0600); err != nil {
+		t.Fatal(err)
+	}
+	check := func(want float64, args ...string) {
+		t.Helper()
+		code, result := invoke(t, append(args, "--json")...)
+		if code != 0 || result["changed"] != want {
+			t.Fatalf("%v: %d %+v", args, code, result)
+		}
+	}
+	check(0, "pause", "--all", "-C", t.TempDir())
+	if code, result := invoke(t, "pause", "a", "--json"); code != 0 {
+		t.Fatalf("individual pause: %d %+v", code, result)
+	}
+	check(1, "-C", root, "pause", "--all")
+	check(0, "pause", "-a")
+	// User jobs were not paused by the project operation.
+	check(2, "--user", "pause", "-a")
+	check(2, "resume", "--all")
+	check(0, "resume", "-a")
+	// Project resume must not touch the user project.
+	check(2, "--user", "resume", "--all")
+	for _, command := range []string{"pause", "resume"} {
+		if code, result := invoke(t, command, "a", "--all", "--json"); code != 2 {
+			t.Fatalf("ambiguous scope: %d %+v", code, result)
+		}
+	}
+}
+
 func TestPauseResume(t *testing.T) {
 	t.Run("paused jobs are not dispatched and resume starts from now", func(t *testing.T) {
 		f := newPauseFixture(t)

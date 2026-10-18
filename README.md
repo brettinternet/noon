@@ -157,7 +157,7 @@ suggests `noon --user add` without creating files.
 | `noon run NAME` | Run now; returns 0 when `noop_exit_code` matches |
 | `noon run NAME --detach` | Queue for the scheduler (`--in 2h`, `--at 17:00`, `--key`, `--data`) |
 | `noon cancel RUN\|NAME` | Cancel queued or running work |
-| `noon pause NAME` / `resume NAME` | Stop or restart background runs of one job |
+| `noon pause NAME` / `resume NAME` | Stop or restart background runs; `--all` / `-a` selects all current project jobs |
 | `noon history` | Recent runs (`--status failed`) |
 | `noon logs [NAME\|RUN]` | Read, search, page, or `--follow` a run log |
 | `noon enable` / `disable` | Opt this checkout in or out of background runs |

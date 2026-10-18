@@ -469,6 +469,9 @@ func pauseJob(ctx context.Context, cmd *urfave.Command) error  { return pauseRes
 func resumeJob(ctx context.Context, cmd *urfave.Command) error { return pauseResume(ctx, cmd, false) }
 func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 	args := cmd.Args().Slice()
+	if cmd.Bool("all") && len(args) != 0 {
+		return usageError("cannot combine a job name with --all", "")
+	}
 	values, e := input(cmd)
 	if e != nil {
 		return e
@@ -483,6 +486,21 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 			names = append(names, name)
 		}
 		slices.Sort(names)
+		if cmd.Bool("all") {
+			changed, err := app.SetJobsPaused(cfg.StateDir, cfg.Project, names, paused, time.Now())
+			if err != nil {
+				return stateError(err)
+			}
+			if cmd.Bool("json") {
+				return emit(cmd, map[string]any{"jobs": names, "paused": paused, "changed": changed})
+			}
+			if paused {
+				fmt.Fprintf(cmd.Writer, "Paused %d jobs (%d configured). Queued runs cancelled; running work continues.\n", changed, len(names))
+			} else {
+				fmt.Fprintf(cmd.Writer, "Resumed %d jobs (%d configured). Schedules start from now.\n", changed, len(names))
+			}
+			return nil
+		}
 		if cmd.Bool("json") {
 			return emit(cmd, map[string]any{"jobs": names})
 		}
