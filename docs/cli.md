@@ -85,6 +85,7 @@ client setup examples, see [Agents](agents.md#remote-mcp-and-json-api).
 | `history` | `-n N` = `--limit N`, `-s STATUS` = `--status STATUS` |
 | `logs` | `-f` = `--follow`, `-s STATUS` = `--status STATUS`; existing `-n/-c/-m/-b` below |
 | `run` | `-d` = `--detach` |
+| `pause`, `resume` | `-a` = `--all` |
 | `add` | `-a NAME` = `--agent NAME`, `-p TEXT` = `--prompt TEXT`, `-t DURATION` = `--timeout DURATION` |
 
 Use separate short flags, not bundles. Values may use a space or `=` (for example,
@@ -99,6 +100,22 @@ Other options deliberately stay long-only:
 - `--shared`, `--local`, import `--write`, service `--print`, serve `--listen`,
   and shell `--on-enter` are explicit scope or side-effect choices, not everyday shortcuts.
   Hidden shell plumbing flags are not interactive shortcuts.
+
+## Pausing jobs
+
+`noon pause NAME` and `noon resume NAME` change one job. Use `--all` (or `-a`)
+instead of NAME to change all currently configured jobs in the selected project atomically.
+Project discovery, `-C`, and `--user` select the scope; this never recurses into directories
+or changes other registered projects. A name and `--all` cannot be combined. Without either,
+these commands only list candidates.
+
+Pausing cancels queued runs but leaves running work alone. Jobs added later are not paused;
+use `noon disable` for a project-wide opt-out. Resuming starts schedules from now without
+catch-up. `resume --all` also resumes individually paused jobs—it is not an undo of the last
+bulk pause.
+
+Bulk output reports how many pause states changed; an empty project succeeds with zero.
+JSON includes sorted `jobs`, `paused`, and `changed` fields.
 
 ## Output and exit codes
 

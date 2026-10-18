@@ -6,6 +6,48 @@ import (
 	"time"
 )
 
+// A later job failure must roll back earlier pauses and queued cancellations.
+func TestBulkPauseAtomicity(t *testing.T) {
+	state, id := testStore(t)
+	var project string
+	if err := state.db.QueryRow("SELECT path FROM projects WHERE id=?", id).Scan(&project); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+	for _, status := range []string{"queued", "running"} {
+		if _, err := state.db.Exec("INSERT INTO runs(project_id,job,status,trigger,digest,created_at) VALUES(?, 'a', ?, 'manual', 'test', ?)", id, status, FormatTime(now)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := state.db.Exec("CREATE TRIGGER reject_pause BEFORE INSERT ON pauses WHEN NEW.job='b' BEGIN SELECT RAISE(ABORT, 'test failure'); END"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := state.SetJobsPaused(project, []string{"a", "b"}, true, now); err == nil || n != 0 {
+		t.Fatalf("expected rollback: %d %v", n, err)
+	}
+	paused, err := state.PausedJobs(project)
+	if err != nil || len(paused) != 0 {
+		t.Fatalf("partial pause: %v %v", paused, err)
+	}
+	var queued int
+	if err := state.db.QueryRow("SELECT count(*) FROM runs WHERE status='queued'").Scan(&queued); err != nil || queued != 1 {
+		t.Fatalf("queue not rolled back: %d %v", queued, err)
+	}
+	if _, err := state.db.Exec("DROP TRIGGER reject_pause"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := state.SetJobsPaused(project, []string{"a", "b"}, true, now); err != nil || n != 2 {
+		t.Fatalf("bulk pause: %d %v", n, err)
+	}
+	var cancelled, running int
+	if err := state.db.QueryRow("SELECT count(*) FROM runs WHERE status='cancelled'").Scan(&cancelled); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.db.QueryRow("SELECT count(*) FROM runs WHERE status='running'").Scan(&running); err != nil || cancelled != 1 || running != 1 {
+		t.Fatalf("run transitions: cancelled=%d running=%d err=%v", cancelled, running, err)
+	}
+}
+
 // Guards timestamp idempotency and atomic replacement of the authorization set.
 func TestApprovalTransitions(t *testing.T) {
 	state, projectID := testStore(t)

@@ -19,13 +19,21 @@ func EnableAddedJob(cfg config.Config, job config.Job, now time.Time) error {
 	return state.EnableAddedJob(cfg.Project, explicit, job.Name, job.Digest, job.Shared, now)
 }
 func SetPaused(stateDir, project, name string, paused bool, now time.Time) error {
+	_, err := SetJobsPaused(stateDir, project, []string{name}, paused, now)
+	return err
+}
+
+func SetJobsPaused(stateDir, project string, names []string, paused bool, now time.Time) (int, error) {
+	if len(names) == 0 {
+		return 0, nil
+	}
 	state, err := store.Open(stateDir)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer state.Close()
 	if _, err := state.RegisterProject(project, now); err != nil {
-		return err
+		return 0, err
 	}
-	return state.SetPaused(project, name, paused, now)
+	return state.SetJobsPaused(project, names, paused, now)
 }
