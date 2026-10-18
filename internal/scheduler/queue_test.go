@@ -103,7 +103,10 @@ func TestServeQueued(t *testing.T) {
 		defer fixture.stop(t)
 		queued := createQueuedRun(t, fixture, "tests", serveTestStart, "")
 		fixture.step(t, serveTestStart)
-		waitFor(t, func() bool { _, err := os.Stat(pidFile); return err == nil })
+		waitFor(t, func() bool {
+			data, err := os.ReadFile(pidFile)
+			return err == nil && strings.HasSuffix(string(data), "\n")
+		})
 		pidData, err := os.ReadFile(pidFile)
 		if err != nil {
 			t.Fatal(err)
