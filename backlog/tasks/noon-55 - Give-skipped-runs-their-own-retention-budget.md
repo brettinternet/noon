@@ -1,10 +1,10 @@
 ---
 id: NOON-55
 title: Give skipped runs their own retention budget
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-18 06:43'
-updated_date: '2026-10-18 06:52'
+updated_date: '2026-10-18 07:04'
 labels:
   - store
   - retention
@@ -82,4 +82,13 @@ AC#3: task ci -> exit 0 in the implementation worktree and again on merged main 
 Scheduler test fix reuses the existing shutdown-test newline readiness predicate. task cli:test PKG=./internal/scheduler -- -race -count=20 -run '^TestServeQueued/running_cancellation' -> exit 0 after correction. No tests deleted, skipped, or weakened.
 Committed 4b749d8 (retention fix, regression, docs) and 5f38a2c (PID readiness flake fix), fast-forward merged into main. task check:staged passed before each commit. Owned worktree .worktrees/fix-skipped-retention and branch removed through Worktrunk after receipt verification; associated Herdr workspace wGH removed and verified absent.
 Remaining delivery: push main, verify exact-SHA GitHub CI, publish v0.4.1 via tag workflow, then record release evidence and release the Worklease claim.
+
+Delivery verified: main pushed at 3a3bccb94aa6ef54ec4f11f58d52a4c8117e69ec; exact-SHA GitHub CI https://github.com/brettinternet/noon/actions/runs/39105601274 passed Linux/macOS task ci and Linux Docker smoke/integration. Local task ci passed on this release commit, as did task release:check VERSION=0.4.1 COMMIT=3a3bccb94aa6ef54ec4f11f58d52a4c8117e69ec BUILD_TIME=2026-10-18T06:53:02Z and task release:smoke BINARY=dist/release/v0.4.1/native-noon VERSION=0.4.1.
+Published https://github.com/brettinternet/noon/releases/tag/v0.4.1 at the verified SHA. Release workflow https://github.com/brettinternet/noon/actions/runs/39105855591 succeeded: all four native smoke checks, immutable publication, and latest/pinned mise installation on Linux/macOS x64/arm64. Release contains four archives, checksums.txt, and generated CHANGELOG.md. No remaining implementation or release blocker; only completion-record commit/push and its CI verification remain before releasing the claim.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Skipped runs now retain their newest ten rows independently, so overlap skips cannot evict real results or logs. Added the sixty-skip regression preserving PreviousStatus and LastSuccess, updated retention docs, and fixed the CI-exposed PID-file readiness race without weakening cancellation assertions. All acceptance checks and full local/GitHub CI passed; committed, merged, pushed, and published v0.4.1 with every release/install check green. Owned worktree, branch, and Herdr workspace removed.
+<!-- SECTION:FINAL_SUMMARY:END -->
