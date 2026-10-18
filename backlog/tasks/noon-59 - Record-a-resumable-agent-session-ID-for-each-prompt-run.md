@@ -4,12 +4,13 @@ title: Record a resumable agent session ID for each prompt run
 status: Done
 assignee: []
 created_date: '2026-10-18 16:32'
-updated_date: '2026-10-18 17:08'
+updated_date: '2026-10-18 17:57'
 labels:
   - agents
   - runner
   - store
   - config
+  - reviewed
 dependencies: []
 documentation:
   - docs/configuration.md
@@ -86,6 +87,8 @@ AC#5: task cli:test PKG=./internal/scheduler -- -run "^TestServe" -count=1 -v ->
 Implementation stays within modified-file contract; no dependencies added, real agents invoked, or tests deleted/skipped/weakened. Final implementation task ci passed. An initial unchanged runner pipe race test failed transiently; two subsequent full CI runs passed. Parent independently reran legacy store migration/refusal and TestServeAgentSessionIDs successfully. Review and final-commit CI/delivery pending.
 
 Delivery: implementation commit 47659998266ae14e112273be0b0a3934ed99bbcb passed task check:staged and task ci on the committed tree, then fast-forward merged into main. One independent general review reported no validated findings. All acceptance and delivery requirements satisfied; no blocker or next implementation step. Worktrunk removed the verified session-owned worktree and branch; its exact Herdr workspace wGS disappeared. No push performed.
+
+Post-completion review: no actionable defects. Verified every execution path uses RunSpecForExecution (doctor stays on read-only RunSpec), the only CreateRun caller assigns the ID before launch, dispatch reuses a stored ID via COALESCE and uses the same config snapshot as execution, flag precedes NOON-60 agent/prompt args (so opencode's '--' cannot swallow it), shared JSON/hook payload/env carry agent_session_id, and docs match. Targeted packages and task ci passed (with the NOON-58 review env fix, which also strips inherited NOON_AGENT for command jobs).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

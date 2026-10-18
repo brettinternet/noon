@@ -267,8 +267,9 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   `NOON_JOB`, `NOON_RUN_ID`, `NOON_TRIGGER`, `NOON_SCHEDULED_AT`, `NOON_LAST_SUCCESS_AT` (start of the
   last successful run), `NOON_DEPTH` (stored request depth + 1), `NOON_AGENT` for prompt jobs,
   `NOON_AGENT_SESSION_ID` only for prompt profiles with `session_id_flag`, and
-  `NOON_EVENT_FILE` when there's a payload. The session ID is stripped from
-  inherited values for command jobs and profiles without the flag. Depth comes from the stored run,
+  `NOON_EVENT_FILE` when there's a payload. Inherited run and hook metadata (`NOON_RUN_ID`,
+  `NOON_STATUS`, `NOON_EXIT_CODE`, `NOON_SCHEDULED_AT`, and the rest of the names above and in
+  hooks) is stripped, so a job started from a hook never sees its parent's values. Depth comes from the stored run,
   not the scheduler's environment. Noon never sources shell rc files, creates worktrees, or changes
   branches.
 

@@ -710,7 +710,10 @@ func TestExampleHeartbeat(t *testing.T) {
 	write(filepath.Join(userProject, "bin", "noon-heartbeat"), read(script), 0o700)
 	write(filepath.Join(userProject, "config.yaml"), read(filepath.Join(project, "user-config.yaml")), 0o600)
 	write(filepath.Join(userProject, "scheduler-heartbeat.url"), url+"\n", 0o600)
+	// A parent hook's NOON_STATUS must not turn a job's ping into a failure ping.
+	env = append(env, "NOON_STATUS=failed")
 	run(0, noonBinary, "--user", "run", "scheduler-heartbeat")
+	env = env[:len(env)-1]
 	assertPaths("/" + secret)
 
 	run(1, script, filepath.Join(root, "missing"))

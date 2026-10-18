@@ -4,11 +4,12 @@ title: Demonstrate external heartbeat monitoring of jobs and the scheduler
 status: Done
 assignee: []
 created_date: '2026-10-18 16:24'
-updated_date: '2026-10-18 17:31'
+updated_date: '2026-10-18 17:57'
 labels:
   - examples
   - integration
   - hooks
+  - reviewed
 dependencies: []
 documentation:
   - docs/hooks.md
@@ -76,6 +77,8 @@ AC#3: test -x examples/integrations/heartbeat/bin/noon-heartbeat && rg -n "integ
 Full task ci passed (security, vet, Staticcheck, all tests, race, smoke). LSP diagnostics clean. Direct general review completed with no concrete defects; independent reviewer unavailable after registry/modelScope rejected both launch attempts (no child ran). Changes stay within allowed files; no existing tests changed or weakened. Existing command/hook extension contract unchanged.
 
 Delivery: implementation commit 2296656 merged into main as 822cca4 (non-fast-forward because unrelated bulk-pause work landed concurrently). task ci passed again on the merged implementation. Verified owned Worktrunk receipt and workspace wGX shell pane; removed heartbeat-example worktree and branch through Worktrunk, including its Herdr workspace. No blocker or next resumable step remains; nothing pushed.
+
+Post-completion review: one P2 fixed. noon-heartbeat chooses /fail from NOON_STATUS, but JobEnvironment only stripped some reserved names, so hook-only metadata (NOON_STATUS, NOON_EXIT_CODE, NOON_PREVIOUS_STATUS, NOON_CONSECUTIVE_FAILURES, NOON_LOG_FILE, NOON_SCHEDULED_AT, NOON_AGENT) leaked into any job started from a hook. Reproduced: with inherited NOON_STATUS=failed, 'noon --user run scheduler-heartbeat' pinged /fail. internal/app/run.go now strips all run/hook metadata from inherited env (prompt jobs re-set NOON_AGENT; scheduler re-sets NOON_SCHEDULED_AT); TestExampleHeartbeat extended (fails without the fix); docs/design.md environment bullet updated. Otherwise verified URL validation, curl bounds/.curlrc/redirect handling, hook status routing (matchingHook: failed/timed_out -> on_failure), and user-project cwd. task ci passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
