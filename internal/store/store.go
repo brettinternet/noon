@@ -424,17 +424,39 @@ func (s *Store) LastSuccess(projectID int64, job string) (string, bool, error) {
 // PreviousStatus returns the latest retained eligible result before the caller
 // finishes its running slot. IDs alone do not order completion of queued runs.
 func (s *Store) PreviousStatus(projectID int64, job string, runID int64) (string, error) {
-	var status string
-	err := s.db.QueryRow(`SELECT status FROM runs
+	status, _, err := s.PreviousResults(projectID, job, runID)
+	return status, err
+}
+
+// PreviousResults snapshots the latest eligible status and consecutive retained
+// failures in completion order, excluding the current run.
+func (s *Store) PreviousResults(projectID int64, job string, runID int64) (string, int, error) {
+	rows, err := s.db.Query(`SELECT status FROM runs
 WHERE project_id=? AND job=? AND id!=? AND status IN ('succeeded','failed','timed_out')
-ORDER BY finished_at DESC, id DESC LIMIT 1`, projectID, job, runID).Scan(&status)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
+ORDER BY finished_at DESC, id DESC`, projectID, job, runID)
 	if err != nil {
-		return "", fmt.Errorf("read previous job status: %w", err)
+		return "", 0, fmt.Errorf("read previous job results: %w", err)
 	}
-	return status, nil
+	defer rows.Close()
+	var previous string
+	failures := 0
+	for rows.Next() {
+		var status string
+		if err := rows.Scan(&status); err != nil {
+			return "", 0, fmt.Errorf("read previous job result: %w", err)
+		}
+		if previous == "" {
+			previous = status
+		}
+		if status == "succeeded" {
+			break
+		}
+		failures++
+	}
+	if err := rows.Err(); err != nil {
+		return "", 0, fmt.Errorf("read previous job results: %w", err)
+	}
+	return previous, failures, nil
 }
 
 // CreateRun records the running row and event before the child is started.

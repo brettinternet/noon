@@ -338,7 +338,19 @@ No plugin system; commands are the integration boundary (decision-4).
   `failed`, or `timed_out` result by `finished_at` then ID, excluding the current run and noops.
   Noops never run `on_success` or `on_failure` and don't replace the previous result. Digest changes
   don't reset it. On lookup error Noon still records the job result and skips the hook.
-  Notification policy belongs in wrappers, not the core.
+  `NOON_CONSECUTIVE_FAILURES` / top-level integer `consecutive_failures` use that same
+  pre-FinishRun snapshot (stdin schema_version stays 1): current failure/timeout plus preceding
+  retained failures/timeouts in completion order, stopping at the latest success; current success
+  gives 0. Noop, skipped, missed, expired, cancelled, and interrupted neither count nor reset.
+  All triggers count, including foreground runs; digest changes, pause, and resume do not reset.
+  This is not a lifetime counter: 50 retained failures plus the current result can yield 51 before
+  pruning. Missed, expired, cancelled, and interrupted consume regular retention despite not
+  counting, so thresholds above available history are unreliable.
+  Pause/notification policy belongs in wrappers, not the core. A dispatched run can start before
+  a pausing hook finishes. Resume permits background work without resetting the streak; a
+  foreground success while paused resets it. Wrappers using a non-default store must explicitly
+  set `NOON_STATE_DIR` to the owning invocation's absolute state path: service `--state-dir`
+  is not inherited by hooks, and neither project nor log paths identify the store.
 - **Triggers** ([doc](triggers.md)): `noon run NAME --detach --key ID [--data JSON]`. The event file
   is written before the queued run is committed, so dispatch can't race it. Payloads are files,
   never interpolated. Cooldown is checked after key deduplication and requirements, before due-run

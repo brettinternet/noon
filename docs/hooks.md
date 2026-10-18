@@ -45,6 +45,7 @@ The hook runs in the job's directory with the job's environment, plus:
 | `NOON_STATUS` | `succeeded`, `failed`, or `timed_out` |
 | `NOON_EXIT_CODE` | Job exit code |
 | `NOON_LOG_FILE` | Absolute path to the run log; unset if there is none |
+| `NOON_CONSECUTIVE_FAILURES` | Consecutive retained failures including this run; decimal integer, 0 on success |
 | `NOON_PREVIOUS_STATUS` | This job's previous `succeeded`/`failed`/`timed_out` result; unset if none is retained |
 | `NOON_JOB`, `NOON_RUN_ID`, … | Same as the job ([Execution](design.md#execution)) |
 
@@ -54,6 +55,7 @@ Stdin is one JSON object. `run` has the same shape as `noon history --json`:
 {
   "schema_version": 1,
   "previous_status": null,
+  "consecutive_failures": 0,
   "project": {"path": "/home/me/app", "name": "app"},
   "run": {
     "id": 12,
@@ -93,6 +95,29 @@ Stdin is one JSON object. `run` has the same shape as `noon history --json`:
   from a run with a higher ID that finished first. If Noon can't read history, it records the job's
   result, reports the error, and skips the hook.
 - Hooks are not a sandbox. They run with your permissions and inherited secrets.
+
+## Consecutive failures and pausing
+
+`NOON_CONSECUTIVE_FAILURES` and top-level stdin `consecutive_failures` (integer) use the same
+pre-finish snapshot as `previous_status`; stdin `schema_version` remains 1. A failed or timed-out
+current run adds 1 to immediately preceding retained failures/timeouts, ordered by
+`finished_at` then ID, stopping at the latest success. A current success yields 0.
+Only `succeeded`, `failed`, and `timed_out` are results: noop, skipped, missed, expired,
+cancelled, and interrupted neither count nor reset. All triggers count, including foreground
+runs. Definition digest changes, pause, and resume do not reset the count.
+
+This is retained history, not a lifetime counter. The snapshot precedes FinishRun pruning, so
+50 retained failures plus the current failure can yield 51. Missed, expired, cancelled, and
+interrupted rows consume the regular retention budget even though they do not count.
+Thresholds above available history are not reliable.
+
+Use the [pause-after recipe](../examples/integrations/notifications/README.md#pause-after-repeated-failures)
+to pause at a threshold and then notify. A run dispatched before the hook finishes can still
+start. `noon resume NAME` re-enables background runs without resetting the count; one more
+failure can re-pause it. Use a foreground `noon run NAME` while paused to obtain a success.
+With a non-default store, explicitly set `NOON_STATE_DIR` to the same absolute state directory
+as the owning Noon invocation; service installation's `--state-dir` is not automatically
+inherited by hook subprocesses. Never infer the state directory from the project or log path.
 
 ## Notify on first failure and recovery
 

@@ -32,8 +32,9 @@ type hookPayload struct {
 		Path string `json:"path"`
 		Name string `json:"name"`
 	} `json:"project"`
-	Run            Run     `json:"run"`
-	PreviousStatus *string `json:"previous_status"`
+	Run                 Run     `json:"run"`
+	PreviousStatus      *string `json:"previous_status"`
+	ConsecutiveFailures int     `json:"consecutive_failures"`
 }
 
 // FinishRunWithHook records the run's terminal result and, when configured,
@@ -41,11 +42,17 @@ type hookPayload struct {
 func FinishRunWithHook(state *store.Store, run store.Run, project string, job config.Job, hookEnvironment []string, outcome store.Outcome) (*HookResult, error) {
 	event, command := matchingHook(outcome.Status, job)
 	var previousStatus string
+	var consecutiveFailures int
 	var lookupErr error
 	if command != nil {
 		// Snapshot while this run still owns the running slot, not after FinishRun
 		// permits a subsequent execution to complete.
-		previousStatus, lookupErr = state.PreviousStatus(run.ProjectID, run.Job, run.ID)
+		previousStatus, consecutiveFailures, lookupErr = state.PreviousResults(run.ProjectID, run.Job, run.ID)
+		if outcome.Status == "succeeded" {
+			consecutiveFailures = 0
+		} else {
+			consecutiveFailures++
+		}
 		if lookupErr == nil {
 			outcome.HookEvent = event
 		}
@@ -61,7 +68,7 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 	if err != nil {
 		return nil, err
 	}
-	payload := hookPayload{SchemaVersion: 1, Run: RunFromStore(state, stored)}
+	payload := hookPayload{SchemaVersion: 1, Run: RunFromStore(state, stored), ConsecutiveFailures: consecutiveFailures}
 	if previousStatus != "" {
 		payload.PreviousStatus = &previousStatus
 	}
@@ -86,6 +93,7 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 	env = setHookEnvironment(env, "NOON_TRIGGER", stored.Trigger)
 	env = setHookEnvironment(env, "NOON_STATUS", stored.Status)
 	env = setHookEnvironment(env, "NOON_PREVIOUS_STATUS", previousStatus)
+	env = setHookEnvironment(env, "NOON_CONSECUTIVE_FAILURES", strconv.Itoa(consecutiveFailures))
 	exitCode := 125
 	if stored.ExitCode.Valid {
 		exitCode = int(stored.ExitCode.Int64)
