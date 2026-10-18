@@ -4,7 +4,7 @@ title: Enable projects and approve shared jobs
 status: Done
 assignee: []
 created_date: '2026-10-16 01:41'
-updated_date: '2026-10-16 14:27'
+updated_date: '2026-10-18 18:13'
 labels:
   - security
   - store
@@ -86,6 +86,8 @@ AC#1: task cli:test -- -run '^TestEnableApproval$' -count=1 -v -> exit 0, --- PA
 Single independent review found invalid job configuration blocked disable. Reproduced and fixed by resolving checkout/state without reading project manifests or validating jobs; explicit state-dir allows recovery from malformed explicit/user files. Added revocation regression including broken YAML and invalid explicit jobs, retained history checks. AC#1 rerun -> PASS; AC#2 exact shell sequence rerun -> approved then needs_approval and Next: noon enable. Full task ci passed again on implementation commit fb8f7f2531b324ffd35644104309128b089aeede, which was fast-forward merged to main. task check:staged passed before commit; no tests deleted/skipped/weakened; all paths within contract. Docs/help describe implemented behavior and remain consistent with settled design. Owned worktree .worktrees/noon-18-approval and branch removed via Worktrunk; associated Herdr workspace wC4 removed by hook. No remaining blocker or resumable implementation step.
 
 Review (post-merge): enable/disable, approval states, notices, and idempotent timestamps match the contract; `noon run` stays allowed without approval. Medium finding, not fixed: with `--config FILE`, jobs are shared and need approval, but the file may also define `agents`, and the digest covers only the agent name. Changing `agents.foo.command` (e.g. from `cat` to `sh -c ...`) left an approved prompt job `approved` with an unchanged digest, so the scheduler would run an unapproved command. Recommend hashing the resolved agent command and prompt mode into prompt-job digests. Low: (1) a project-level `timezone` in `noon.yaml` is not in any job digest, so a shared edit can shift cron times without re-approval (it does reset schedule state); (2) enable output says `1 jobs · approved 1 shared jobs`. AC1 and AC2 rerun and pass.
+
+Medium finding resolved: prompt jobs whose agent profile comes from the same --config file now digest the profile's command, prompt, prompt_args, and session_id_flag; built-in and user-config profiles stay excluded. TestEnableApproval extended (fails without the fix); task ci passed. Low findings (timezone outside digests, '1 jobs' wording) intentionally left.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
