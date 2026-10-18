@@ -4,8 +4,9 @@ title: Demonstrate recent features with runnable examples and secure remote acce
 status: Done
 assignee: []
 created_date: '2026-10-18 03:14'
-updated_date: '2026-10-18 03:25'
-labels: []
+updated_date: '2026-10-18 17:49'
+labels:
+  - reviewed
 dependencies:
   - NOON-48
   - NOON-49
@@ -53,6 +54,8 @@ AC#3 partial: task ci -> passed (security, formatting/vet/Staticcheck, tests, ra
 Scope: examples and integration/examples_test.go only, plus this record. Reused existing remote test helpers; no dependencies, runtime features, services, public tunnels, or worktrees added. Cloudflare named tunnel is preferred; ngrok is a short optional transport. Public authenticated tunnel deployment remains unverified and explicitly documented. All generated test scheduler processes stopped; temporary platform and smoke fixtures retained under the OS temp directory for inspection.
 
 AC#3: task check:staged -> passed before implementation commit 1c50052 (format/re-stage and staged secret scan). task ci -> passed again on committed 1c50052; /tmp/noon-54-committed-ci.log records clean history secret scan, govulncheck, formatting/vet/Staticcheck, all tests, race, and smoke. No existing tests were deleted, skipped or weakened. No runtime contract changed, so docs/design.md needs no update. All acceptance criteria and Definition of Done are satisfied. No worktree was created or retained. User explicitly requested commit and push; delivery will push main after this task-finalization record is committed.
+
+Post-completion review: one P3 fixed. integration/examples_test.go inserted the new tests between TestExampleVerifyGate's doc comment and its func, so TestExampleEventRequests carried the verify-gate comment and TestExampleVerifyGate had none; moved the comment back. Verified doc claims against code: HTTP status mapping (202 created, 200 duplicate, 401, 409 needs_approval, disabled/unknown 404 via EnabledProjectInput/EnabledRunProject), serve --listen/--api-token-file, unauthenticated /healthz, built-in gemini/opencode/pi commands in internal/config/jobs.go, noop_exit_code 78 present in each referenced example, history/logs --status. task cli:test PKG=./integration -- -run '^(TestExamplesValidate|TestExampleEventRequests|TestExampleRemoteAccess|TestExampleScripts|TestExampleVerifyGate|TestRemoteAPI)' -count=1 passed. Full CI not rerun (comment-only source change).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

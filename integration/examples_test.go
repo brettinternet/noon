@@ -92,8 +92,6 @@ func TestExamplesValidate(t *testing.T) {
 	check(t, "-C", project)
 }
 
-// A dirty tree must not bypass verification, and repeated Stop callbacks must
-// eventually release the gate. This exercises our script, not a vendor agent.
 // Guard the copied event consumer against reading the wrong envelope field or
 // teaching merge/duplicate behavior that silently replaces the original payload.
 func TestExampleEventRequests(t *testing.T) {
@@ -249,6 +247,8 @@ func TestExampleRemoteAccess(t *testing.T) {
 	}
 }
 
+// A dirty tree must not bypass verification, and repeated Stop callbacks must
+// eventually release the gate. This exercises our script, not a vendor agent.
 func TestExampleVerifyGate(t *testing.T) {
 	for _, tool := range []string{"git", "jq"} {
 		if _, err := exec.LookPath(tool); err != nil {

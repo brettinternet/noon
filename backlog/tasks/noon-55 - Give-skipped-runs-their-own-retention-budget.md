@@ -4,10 +4,11 @@ title: Give skipped runs their own retention budget
 status: Done
 assignee: []
 created_date: '2026-10-18 06:43'
-updated_date: '2026-10-18 07:04'
+updated_date: '2026-10-18 17:49'
 labels:
   - store
   - retention
+  - reviewed
 dependencies: []
 documentation:
   - docs/design.md
@@ -85,6 +86,8 @@ Remaining delivery: push main, verify exact-SHA GitHub CI, publish v0.4.1 via ta
 
 Delivery verified: main pushed at 3a3bccb94aa6ef54ec4f11f58d52a4c8117e69ec; exact-SHA GitHub CI https://github.com/brettinternet/noon/actions/runs/39105601274 passed Linux/macOS task ci and Linux Docker smoke/integration. Local task ci passed on this release commit, as did task release:check VERSION=0.4.1 COMMIT=3a3bccb94aa6ef54ec4f11f58d52a4c8117e69ec BUILD_TIME=2026-10-18T06:53:02Z and task release:smoke BINARY=dist/release/v0.4.1/native-noon VERSION=0.4.1.
 Published https://github.com/brettinternet/noon/releases/tag/v0.4.1 at the verified SHA. Release workflow https://github.com/brettinternet/noon/actions/runs/39105855591 succeeded: all four native smoke checks, immutable publication, and latest/pinned mise installation on Linux/macOS x64/arm64. Release contains four archives, checksums.txt, and generated CHANGELOG.md. No remaining implementation or release blocker; only completion-record commit/push and its CI verification remain before releasing the claim.
+
+Post-completion review: no actionable defects. Inspected pruneRuns skipped branch (independent 10-row counter; regular/noop counters and log/event cleanup unchanged; skipped is only created by scheduler plan.go so no log/event/idempotency retention shifts), missed/expired still counted as regular, docs/design.md and docs/agents.md wording, the 60-skip regression (real logs, PreviousStatus, LastSuccess), and the queue_test PID-readiness fix (newline predicate, assertions intact). task cli:test PKG=./internal/store -- -count=1 passed; task cli:test PKG=./internal/scheduler -- -race -count=5 -run '^TestServeQueued/running_cancellation' passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
