@@ -4,7 +4,7 @@ title: Attach tmux or Herdr sessions to long agent runs
 status: Draft
 assignee: []
 created_date: '2026-10-16 00:18'
-updated_date: '2026-10-16 22:21'
+updated_date: '2026-10-18 06:25'
 labels:
   - runner
   - integration
@@ -36,3 +36,14 @@ Open questions before promotion:
 
 Constraints if promoted: opt-in per job, an isolated tmux socket in the state dir, launcher success recorded as `running` and never as finished, and no dependency for jobs that don't use it.
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Evidence (scheduled Herdr agent): a `*/15` babysit job runs `agent NAME -t --wait ...` (dotfiles 910cabe). The launcher blocks until the agent process exits and, on SIGTERM, closes the identity-checked pane. Overlap skip, real duration, cancel, and timeout therefore work today without Noon changes. Two gaps remain for a supervised-run design:
+
+1. Scheduler restart stops the agent. `noon serve` shutdown SIGTERMs every active group and records `interrupted`; the job cannot tell that from a cancel, so an upgrade or service restart closes a working agent. Surviving it needs a run whose process may outlive its owner and be re-adopted after restart: a stored session handle plus an identity/liveness check, never killing an unrelated session. This is the recovery open question.
+2. Exit code is unavailable. The agent is not the launcher child and Herdr reports `exit_code: null`, so the launcher exits 0 on any agent exit and Noon records `succeeded` for a crash. Fixing it needs the pane command to record its own status (a wrapper writing it to the state dir, or `tmux wait-for`). This is the exit-code open question.
+
+Also check before promotion: each `*/15` tick during a multi-hour run records a `skipped` run; confirm whether skipped runs count against per-job history retention.
+<!-- SECTION:NOTES:END -->
