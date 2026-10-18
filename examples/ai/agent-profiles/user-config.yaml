@@ -5,7 +5,7 @@ default_agent: claude
 agents:
   # Manual-mode Claude: unanswered prompts are denied, but settings/hooks may allow more.
   # This is NOT a read-only sandbox. Read/Grep/Glob need no approval within working dirs.
-  claude:
+  claude-manual:
     command: [claude, -p, --permission-prompts, none, --permission-mode, manual]
 
   # Claude that may edit files in the job's cwd. Still never waits for a prompt.
@@ -27,15 +27,12 @@ agents:
       - Bash(git diff *)
 
   # Codex in its read-only and workspace-write sandboxes; "-" reads the prompt from stdin.
-  codex:
-    command: [codex, exec, --sandbox, read-only, -]
+  codex-read:
+    command: [codex, exec, --sandbox, read-only, "-"]
   codex-edit:
-    command: [codex, exec, --sandbox, workspace-write, -]
+    command: [codex, exec, --sandbox, workspace-write, "-"]
 
-  # CLIs that take the prompt as an argument: Noon appends it as the final argv entry.
-  gemini:
-    command: [gemini, -p]
-    prompt: argument
+  # Gemini, OpenCode, and Pi already have built-in profiles; no entries are needed here.
 
   # A local model; no tools, so give it everything it needs in the prompt.
   ollama:

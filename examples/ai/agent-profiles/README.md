@@ -2,24 +2,39 @@
 
 **Level:** intermediate · **Shows:** `prompt`, `prompt_file`, `agent`, `default_agent`, permission modes and sandbox profiles
 
-A prompt job sends text to an agent CLI. *Which* CLI and *what it may do* is a profile in your
-user config; the project only names the profile. That keeps machine paths and permissions out of
-the repository.
+A prompt job sends text to an agent CLI. Noon includes profiles named `claude`, `codex`,
+`gemini`, `opencode`, and `pi`; they need no user-config entries. Install and authenticate the
+chosen CLI separately. Built-in profiles are launch commands, **not read-only sandboxes**.
+Permission settings, hooks, and tools remain the agent's responsibility.
+
+Custom profiles live in user config; projects only name them. This example uses distinct names
+(`claude-manual`, `codex-read`, and editing profiles) rather than silently overriding built-ins.
+The mixed manifest needs those custom profiles too: merge the supplied config before listing
+the whole project. For just a built-in job, copy that job alone to your own manifest.
 
 ```sh
-mkdir -p ~/.config/noon
-cp examples/ai/agent-profiles/user-config.yaml ~/.config/noon/config.yaml   # or merge by hand
+# Merge agents from user-config.yaml into your existing user config; do not overwrite it.
+# User config: ${XDG_CONFIG_HOME:-$HOME/.config}/noon/config.yaml
 noon config                       # lists available profiles
 noon -C examples/ai/agent-profiles list
-noon run release-notes            # streams the agent's output; stored as a normal run log
+noon -C examples/ai/agent-profiles run pi-summary   # requires an authenticated Pi CLI
+# Or: run gemini-summary / opencode-summary. These jobs have no schedule.
 ```
 
 | Job | Profile | Can change files |
 | --- | --- | --- |
-| `todo-sweep` | `claude` (manual mode) | depends on settings/hooks |
-| `docs-review` | `codex` (`--sandbox read-only`) | sandboxed shell cannot write; hooks/MCP are separate |
+| `todo-sweep` | `claude-manual` (manual mode) | depends on settings/hooks |
+| `docs-review` | `codex-read` (`--sandbox read-only`) | sandboxed shell cannot write; hooks/MCP are separate |
 | `release-notes` | `claude-git` (pre-approved `git log/describe/diff`) | depends on settings/hooks and command arguments |
 | `doc-comments` | `claude-edit` (`acceptEdits`) | yes, manual only |
+| `gemini-summary` | built-in `gemini` | depends on agent configuration; manual only |
+| `opencode-summary` | built-in `opencode` | depends on agent configuration; manual only |
+| `pi-summary` | built-in `pi` | depends on agent configuration; manual only |
+
+Noon's built-in Gemini command is `gemini -p`, OpenCode is `opencode run --` (prompt appended
+as one final argument), and Pi is `pi --print` (prompt on stdin). The request not to use tools in
+these sample prompts is an instruction, not an enforced restriction. These examples validate
+Noon's configuration without contacting a model; model execution requires your own credentials.
 
 Rules of thumb:
 
@@ -64,5 +79,5 @@ Ad hoc, without editing YAML:
 
 ```sh
 noon add pr-risks "weekdays at 9am" --prompt "List open PRs and their main risks." --agent claude-git
-noon run release-notes --in 2h      # queue a one-shot for later (needs enable + serve)
+noon -C examples/ai/agent-profiles run release-notes --in 2h      # queue a one-shot for later (needs enable + serve)
 ```

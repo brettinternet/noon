@@ -2,9 +2,11 @@ package integration
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,6 +92,161 @@ func TestExamplesValidate(t *testing.T) {
 
 // A dirty tree must not bypass verification, and repeated Stop callbacks must
 // eventually release the gate. This exercises our script, not a vendor agent.
+// Guard the copied event consumer against reading the wrong envelope field or
+// teaching merge/duplicate behavior that silently replaces the original payload.
+func TestExampleEventRequests(t *testing.T) {
+	root := t.TempDir()
+	home, configHome, stateHome, stateDir := remoteDirectories(t, root)
+	env := isolatedEnvironment(home, configHome, stateHome, stateDir)
+	project := filepath.Join(root, "project")
+	if err := os.CopyFS(project, os.DirFS("../examples/basics/event-requests")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	run := func(args ...string) []byte {
+		t.Helper()
+		command := exec.CommandContext(ctx, noonBinary, args...)
+		command.Dir, command.Env = project, env
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("noon %v: %v\n%s", args, err, output)
+		}
+		return output
+	}
+	run("enable")
+	type queuedRun struct {
+		Created bool   `json:"created"`
+		Reason  string `json:"reason"`
+		Run     struct {
+			ID        int64  `json:"id"`
+			EventFile string `json:"event_file"`
+		} `json:"run"`
+	}
+	queue := func(job, key, fixture string) queuedRun {
+		t.Helper()
+		var result queuedRun
+		output := run("run", job, "--detach", "--key", key, "--data", "@fixtures/"+fixture+".json", "--json")
+		if err := json.Unmarshal(output, &result); err != nil {
+			t.Fatalf("queue JSON: %v\n%s", err, output)
+		}
+		return result
+	}
+	refresh := queue("refresh", "refresh-first", "first")
+	merged := queue("refresh", "refresh-second", "second")
+	first := queue("event", "event-first", "first")
+	second := queue("event", "event-second", "second")
+	duplicate := queue("event", "event-first", "second")
+	if !refresh.Created || merged.Created || merged.Reason != "queued" || merged.Run.ID != refresh.Run.ID ||
+		!first.Created || !second.Created || first.Run.ID == second.Run.ID ||
+		duplicate.Created || duplicate.Reason != "duplicate" || duplicate.Run.ID != first.Run.ID {
+		t.Fatalf("unexpected queue results: %+v %+v %+v %+v %+v", refresh, merged, first, second, duplicate)
+	}
+	// Read the public event_file paths before dispatch: the duplicate's new
+	// payload must not overwrite the first event, nor the merged refresh.
+	for _, check := range []struct {
+		queued  queuedRun
+		message string
+	}{{refresh, "first event"}, {first, "first event"}, {second, "second event"}} {
+		data, err := os.ReadFile(check.queued.Run.EventFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var event struct {
+			Data struct {
+				Message string `json:"message"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(data, &event); err != nil || event.Data.Message != check.message {
+			t.Fatalf("event file = %s, err=%v; want %q", data, err, check.message)
+		}
+	}
+	_, stop := startRemoteScheduler(t, noonBinary, home, env, "--listen", "127.0.0.1:0")
+	defer stop()
+	for _, check := range []struct {
+		id      int64
+		message string
+	}{{refresh.Run.ID, "first event"}, {first.Run.ID, "first event"}, {second.Run.ID, "second event"}} {
+		run("logs", fmt.Sprint(check.id), "--follow")
+		output := run("logs", fmt.Sprint(check.id), "--section", "job", "--json")
+		var result struct {
+			Log string `json:"log"`
+		}
+		if err := json.Unmarshal(output, &result); err != nil || strings.TrimSpace(result.Log) != fmt.Sprintf(`{"message":%q}`, check.message) {
+			t.Fatalf("shipped consumer run %d: %s, %v", check.id, output, err)
+		}
+	}
+	var history struct {
+		Runs []struct {
+			Status string `json:"status"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(run("history", "--json"), &history); err != nil || len(history.Runs) != 3 {
+		t.Fatalf("expected exactly three runs: %+v, %v", history, err)
+	}
+	for _, r := range history.Runs {
+		if r.Status != "succeeded" {
+			t.Fatalf("example did not succeed: %+v", history)
+		}
+	}
+}
+
+// Exercise the shipped job, not a substitute command: malformed event consumption
+// must not look like a successful remote integration. Broader auth/MCP boundaries
+// are already covered by TestRemoteAPI.
+func TestExampleRemoteAccess(t *testing.T) {
+	root := t.TempDir()
+	home, configHome, stateHome, stateDir := remoteDirectories(t, root)
+	env := isolatedEnvironment(home, configHome, stateHome, stateDir)
+	project := filepath.Join(root, "project")
+	if err := os.CopyFS(project, os.DirFS("../examples/integrations/remote-access")); err != nil {
+		t.Fatal(err)
+	}
+	if code, output := runRemoteCommand(noonBinary, project, env, "enable"); code != 0 {
+		t.Fatalf("enable: %d\n%s", code, output)
+	}
+	token := rand.Text() + rand.Text()
+	tokenFile := filepath.Join(root, "api-token")
+	writeRemoteFile(t, tokenFile, token+"\n", 0o600)
+	address, stop := startRemoteScheduler(t, noonBinary, home, env, "--listen", "127.0.0.1:0", "--api-token-file", tokenFile)
+	defer stop()
+	baseURL := "http://" + address
+	client := &http.Client{Timeout: 45 * time.Second}
+	response, body := remoteRequest(t, client, http.MethodGet, baseURL+"/v1/projects", "", nil)
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated discovery: %d %s", response.StatusCode, body)
+	}
+	response, body = remoteRequest(t, client, http.MethodGet, baseURL+"/v1/projects", token, nil)
+	var projects struct {
+		Projects []struct {
+			ID int64 `json:"id"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal(body, &projects); err != nil || response.StatusCode != http.StatusOK || len(projects.Projects) != 1 {
+		t.Fatalf("discovery: %d %s, %v", response.StatusCode, body, err)
+	}
+	queueURL := fmt.Sprintf("%s/v1/projects/%d/jobs/show-event/runs", baseURL, projects.Projects[0].ID)
+	response, body = remoteRequest(t, client, http.MethodPost, queueURL, token, []byte(`{"key":"demo-first","data":{"message":"hello from the API"}}`))
+	var queued struct {
+		Run struct {
+			ID int64 `json:"id"`
+		} `json:"run"`
+	}
+	if err := json.Unmarshal(body, &queued); err != nil || response.StatusCode != http.StatusAccepted || queued.Run.ID == 0 {
+		t.Fatalf("queue: %d %s, %v", response.StatusCode, body, err)
+	}
+	response, body = remoteRequest(t, client, http.MethodGet, fmt.Sprintf("%s/v1/runs/%d?wait_seconds=30&log_bytes=4096", baseURL, queued.Run.ID), token, nil)
+	var result struct {
+		Run struct {
+			Status string `json:"status"`
+		} `json:"run"`
+		Log string `json:"log"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil || response.StatusCode != http.StatusOK || result.Run.Status != "succeeded" || strings.TrimSpace(result.Log) != `{"message":"hello from the API"}` {
+		t.Fatalf("shipped remote job: %d %s, %v", response.StatusCode, body, err)
+	}
+}
+
 func TestExampleVerifyGate(t *testing.T) {
 	for _, tool := range []string{"git", "jq"} {
 		if _, err := exec.LookPath(tool); err != nil {

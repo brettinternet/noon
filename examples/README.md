@@ -26,7 +26,8 @@ is validated by `integration/examples_test.go`.
 | --- | --- | --- |
 | [hello](basics/hello/) | beginner | argv vs shell jobs, the `NOON_*` job environment, a cron schedule |
 | [schedules](basics/schedules/) | beginner | every schedule form, `timezone`, `overlap`, `missed`, `timeout`, `enabled` |
-| [local-overrides](basics/local-overrides/) | beginner | `noon.yaml` vs private `.git/noon.yaml` vs user config; toggles and replacements |
+| [local-overrides](basics/local-overrides/) | beginner | config layers, toggles, replacements, and OS/architecture constraints |
+| [event-requests](basics/event-requests/) | beginner | `merge` vs `each`, preserved/discarded payloads, idempotency keys |
 | [crontab-import](basics/crontab-import/) | beginner | preview-first `noon import crontab` and what it refuses |
 
 ## Local development
@@ -46,7 +47,7 @@ is validated by `integration/examples_test.go`.
 
 | Example | Level | What it shows |
 | --- | --- | --- |
-| [agent-profiles](ai/agent-profiles/) | intermediate | `prompt`/`prompt_file` jobs, read-only vs editing profiles for Claude, Codex, Gemini, Ollama |
+| [agent-profiles](ai/agent-profiles/) | intermediate | built-in Gemini/OpenCode/Pi jobs, custom Claude/Codex permissions, Ollama |
 | [daily-standup](ai/daily-standup/) | intermediate | commits + PRs since `NOON_LAST_SUCCESS_AT` summarized into a dated note |
 | [research-digest](ai/research-digest/) | intermediate | HN/arXiv reading list and a release radar for your tools |
 | [local-llm](ai/local-llm/) | intermediate | private jobs with Ollama: model updates, warm-up, notes and failure digests |
@@ -60,6 +61,7 @@ is validated by `integration/examples_test.go`.
 
 | Example | Level | What it shows |
 | --- | --- | --- |
+| [remote-access](integrations/remote-access/) | intermediate | authenticated API/HTTP MCP, named Cloudflare Tunnel, optional ngrok |
 | [notifications](integrations/notifications/) | beginner → intermediate | desktop, ntfy, and Slack hooks; per-job opt-out; recovery alerts |
 | [tell](integrations/tell/) | beginner | inline `on_failure` hooks that send failure pointers through Tell and Apprise |
 | [docker-agent](integrations/docker-agent/) | advanced | agent jobs in Docker with mounted user config, secrets, and a writable reports volume |
@@ -71,11 +73,15 @@ is validated by `integration/examples_test.go`.
 
 - **Failure is the alarm.** Report-style jobs exit non-zero when something needs attention and
   let an `on_failure` hook notify you.
-- **Triggers are wake-ups by default.** `requests: merge` (the default used by the shipped
+- **Triggers are wake-ups by default.** `requests: merge` (used by the reconciliation
   examples) merges a due-now request into an existing queued run and drops the new payload, so jobs
   should reconcile current state. Opt into `requests: each` when each event needs its own run and
   payload; due-now each requests are capped at 20 queued runs per job, and overdue work expires
   after an hour. Jobs that cannot miss events should still reconcile outstanding work.
+- **No work is not success.** Polling jobs use `noop_exit_code: 78` when there is nothing to do.
+  `noon run` then exits 0 but stores `noop`: neither hook runs, `NOON_LAST_SUCCESS_AT` does not
+  advance, and the last meaningful result stays visible in `list`. Inspect polls with
+  `noon history --status noop` or `noon logs JOB --status noop`. Verification must still succeed.
 - **Gather deterministically, summarize with a model.** AI scripts collect facts themselves and
   give the model no tools, so untrusted input (logs, PR text, feeds) cannot make it act.
 - **Unattended means non-interactive.** Agent profiles deny or pre-approve permissions; none can

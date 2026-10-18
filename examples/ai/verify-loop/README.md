@@ -79,3 +79,24 @@ noon list --json | jq '.jobs[] | {name, description, approval}'
 The MCP server exposes `list_jobs`, `run_job`, `get_run`, `list_runs`, `cancel_run`, and
 `status`. It cannot add, edit, enable, or approve jobs, so an agent can only run what you
 approved. Without MCP, `noon skill` prints a shell-only skill document you can install yourself.
+
+## A run appears stuck or orphaned
+
+Inspect before retrying:
+
+```sh
+noon status
+noon history verify --json | jq '.runs[] | {id, status, orphaned}'
+noon logs verify --tail 80
+```
+
+`orphaned: true` means the recorded owner of an active run or hook is no longer live.
+Inspection is read-only: a running orphan keeps JSON `status: running`, even though human
+output labels it orphaned. A hook-only orphan keeps the main run's result. Follow the dashboard's
+guidance: starting the scheduler recovers orphans; otherwise explicitly cancel the affected run
+ID with `noon cancel RUN_ID`. Keep `-C PROJECT` or `--user` on these commands if that is how you
+selected the project. Cancellation does not prove verification passed; rerun and inspect.
+
+A `noop` is also **not** passed verification: no work was done. Do not configure a verification
+command's failure code as `noop_exit_code`; the foreground CLI deliberately returns 0 for noops,
+so exit-code-only gates would mistake it for success. This example's verify job does not use it.

@@ -31,6 +31,10 @@ noon run inbox                           # try it in the foreground first
 noon enable && noon service install
 ```
 
+An empty `agent-inbox/` exits 78, configured as `noop_exit_code`: `noon run inbox` returns 0
+but history records `noop`, neither hook fires, and the last meaningful result is unchanged.
+Inspect idle polls with `noon history inbox --status noop`; no agent is invoked.
+
 Things to know:
 
 - **One run per project at a time.** Noon's scheduler starts at most one run per project, so a 40

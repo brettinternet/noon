@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
+version: 1
+
+jobs:
+  show-event:
+    description: Print the supplied JSON payload without interpreting it as a command.
+    requests: each
+    run: [sh, scripts/show-event.sh]
+    timeout: 30s

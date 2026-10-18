@@ -29,3 +29,24 @@ writes to `.git/noon.yaml` by default; `--shared` writes to `noon.yaml`.
 
 Private jobs skip approval, which is why only an uncommittable file can hold them. Noon ignores
 an in-tree `.noon.yaml`.
+
+## Share jobs across machines
+
+The manual `mac-info`, `linux-info`, and `arm-info` jobs are harmless platform examples:
+
+```sh
+noon list
+noon list --json | jq '.jobs[] | {name, os, arch, platform_supported}'
+noon run mac-info      # succeeds on a darwin Noon binary; rejects on Linux
+noon run linux-info    # succeeds on a linux Noon binary; rejects on macOS
+noon run arm-info      # succeeds only with an arm64 Noon binary
+```
+
+A nonmatching job stays visible as **other platform**. Trying to run or queue it exits 1 with
+`unsupported_platform`; approval does not bypass that constraint. It is not scheduled, and
+`doctor` skips its command/cwd checks. Matching uses the **Noon binary's** GOOS/GOARCH, which may
+differ from physical hardware under emulation. Use `darwin`, not `macos`, and `amd64`, not
+`x86_64`. If both `os` and `arch` are specified, both must match.
+
+These shared jobs need no private override just because a teammate uses another platform.
+A private replacement still replaces the whole definition, including its constraints.

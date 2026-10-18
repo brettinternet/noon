@@ -15,3 +15,16 @@ jobs:
   docs:
     description: Rebuild the docs site preview.
     run: [make, docs]
+
+  mac-info:
+    description: Manual macOS-only inspection; Linux users see other platform.
+    os: [darwin]
+    run: [uname, -s]
+  linux-info:
+    description: Manual Linux-only inspection; macOS users see other platform.
+    os: [linux]
+    run: [uname, -s]
+  arm-info:
+    description: Manual inspection for an arm64 Noon binary on either supported OS.
+    arch: [arm64]
+    run: [uname, -m]

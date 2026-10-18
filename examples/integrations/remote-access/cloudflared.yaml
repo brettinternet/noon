@@ -1,0 +1,9 @@
+# Copy outside the repository and replace every placeholder before use.
+# Tunnel credentials are separate from Noon's API token; never commit either.
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /absolute/path/to/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  - hostname: noon.example.com
+    service: http://127.0.0.1:8787
+  - service: http_status:404

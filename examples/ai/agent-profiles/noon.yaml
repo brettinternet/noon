@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
-# Scheduled and on-demand agent prompts. Profiles come from user config; see user-config.yaml.
+# Built-in and custom agent profiles; see user-config.yaml for the custom names.
 version: 1
 
 jobs:
@@ -7,14 +7,14 @@ jobs:
     description: Weekly read-only review of TODO/FIXME comments, grouped and ranked.
     schedule: every friday at 3pm
     prompt_file: prompts/todo-sweep.md
-    agent: claude
+    agent: claude-manual
     timeout: 15m
 
   docs-review:
     description: Monthly read-only check that docs still match the code.
     schedule: "0 10 1 * *"
     prompt_file: prompts/docs-review.md
-    agent: codex
+    agent: codex-read
     timeout: 20m
 
   release-notes:
@@ -36,3 +36,21 @@ jobs:
       behavior rather than implementation. Change nothing else. List the files you edited.
     agent: claude-edit
     timeout: 30m
+
+  gemini-summary:
+    description: Try the built-in Gemini profile. Manual; permissions come from Gemini.
+    agent: gemini
+    prompt: Explain cron scheduling in one sentence. Do not use tools or change files.
+    timeout: 2m
+
+  opencode-summary:
+    description: Try the built-in OpenCode profile. Manual; permissions come from OpenCode.
+    agent: opencode
+    prompt: Explain cron scheduling in one sentence. Do not use tools or change files.
+    timeout: 2m
+
+  pi-summary:
+    description: Try the built-in Pi profile. Manual; permissions come from Pi.
+    agent: pi
+    prompt: Explain cron scheduling in one sentence. Do not use tools or change files.
+    timeout: 2m

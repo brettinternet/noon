@@ -15,6 +15,11 @@ noon -C examples/ai/local-llm run models-pull
 noon -C examples/ai/local-llm run model-warm
 ```
 
+`notes-digest` with no changed notes and `failures-digest` with no failures exit 78, configured
+as `noop_exit_code`. Noon records `noop`, returns CLI exit 0, and runs neither hook; no model
+is called. `noon history --status noop` shows these polls without replacing the last meaningful
+result in `noon list`.
+
 A local model has no tools, so these jobs are scripts that put everything the model needs in the
 prompt. To use Ollama for prompt jobs, add a profile in user config (see
 [agent profiles](../agent-profiles/user-config.yaml)):

@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
+version: 1
+
+jobs:
+  refresh:
+    description: Treat requests as wake-ups; only the first queued payload survives.
+    requests: merge
+    run: [sh, scripts/show-event.sh]
+  event:
+    description: Keep each request and its payload in a separate run.
+    requests: each
+    run: [sh, scripts/show-event.sh]

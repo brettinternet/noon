@@ -24,6 +24,10 @@ noon run test        # make it fail once; the hook queues triage
 noon logs triage --follow
 ```
 
+When every retained failure already has a report, `triage` exits 78 (`noop_exit_code`).
+Noon records `noop` and returns CLI exit 0 without running either hook, so there is no false
+“new report” notification. Inspect these polls with `noon history triage --status noop`.
+
 Design notes:
 
 - **The hook is only a wake-up.** If `test` and `e2e` both fail while a triage run is already
