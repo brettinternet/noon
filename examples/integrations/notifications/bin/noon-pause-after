@@ -16,6 +16,8 @@ if [ -z "$threshold" ]; then
 fi
 # awk compares decimal values without shell integer overflow.
 if awk -v count="${NOON_CONSECUTIVE_FAILURES:-0}" -v threshold="$threshold" 'BEGIN { exit !(count >= threshold) }'; then
-  noon -C "$NOON_PROJECT" pause "$NOON_JOB"
+  # A failed pause must not suppress the notification chained after it.
+  noon -C "$NOON_PROJECT" pause "$NOON_JOB" ||
+    echo "noon-pause-after: could not pause $NOON_JOB" >&2
 fi
 if [ "$#" -gt 0 ]; then exec "$@"; fi

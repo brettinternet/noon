@@ -36,6 +36,7 @@ Install `bin/noon-pause-after` alongside the other scripts and put `noon` and th
 on the scheduler's PATH. The wrapper reads `NOON_CONSECUTIVE_FAILURES`, pauses at
 `NOON_PAUSE_AFTER` (default 3; must be a positive integer), then execs the remaining
 arguments with the original stdin JSON. Invalid thresholds fail before pausing or notifying.
+If the pause itself fails, the wrapper reports it in the run log and still notifies.
 
 ```yaml
 jobs:

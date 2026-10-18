@@ -6,10 +6,11 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-10-18 16:24'
-updated_date: '2026-10-18 16:42'
+updated_date: '2026-10-18 17:52'
 labels:
   - docs
   - agents
+  - reviewed
 dependencies: []
 documentation:
   - docs/agents.md
@@ -70,6 +71,8 @@ AC#2: rg -n background-agents docs/agents.md -> exit 0; rg -n uncommitted docs/a
 AC#3: rg -n catch_up / rg -n NOON_SCHEDULED_AT docs/agents.md -> exit 0; guard uses missed, noop_exit_code, run, NOON_TRIGGER, NOON_SCHEDULED_AT only; states prompt jobs can't use noop_exit_code. Guard executed: 2020 catch_up -> exit 78; recent catch_up -> runs (0); schedule trigger -> runs (0); example noon.yaml accepted by noon list.
 AC#4: git diff --check -> exit 0; git diff --name-only 7f67ee05f9c9bd8289b9f2c410bbd58e4bdf383d -- . ':!backlog' -> docs/agents.md only (after commit on main).
 DoD: task ci -> exit 0 on 799236b. No tests touched. Review: one pass, no defects.
+
+Post-completion review: no actionable defects. Verified run_job fields (name/project/key/in/at/data) and at formats against runJobArgs in internal/mcp/server.go; separate one-shot vs due-run merge against docs/design.md and docs/cli.md; catch_up trigger and NOON_SCHEDULED_AT = first missed occurrence formatted RFC 3339 UTC (plan.go uses state.NextAt; serve.go formats time.RFC3339 UTC, so the BSD date -f pattern with Z matches); noop_exit_code rejected on prompt jobs (config/jobs.go:631); 'weekdays at 9am' parses; claude --permission-prompts none matches the built-in profile. BSD date branch checked: 2020-01-01T00:00:00Z -> 1577836800.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

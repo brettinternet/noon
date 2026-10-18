@@ -6,11 +6,12 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-10-18 16:24'
-updated_date: '2026-10-18 16:48'
+updated_date: '2026-10-18 17:52'
 labels:
   - scheduler
   - hooks
   - agents
+  - reviewed
 dependencies: []
 documentation:
   - docs/hooks.md
@@ -87,6 +88,8 @@ AC#4: rg -n "NOON_CONSECUTIVE_FAILURES" docs/hooks.md docs/design.md examples/in
 Initial task ci passed (security, vet, Staticcheck, all tests, race, smoke). Go LSP diagnostics clean for store.go and hooks.go. No files outside the contract; no tests removed or weakened. Independent scoped review pending.
 
 Delivery: implementation 6d0c074 merged locally into main as 1bae883. task ci passed on merged implementation commit 1bae883 (security, checks, all tests, race, smoke). Independent reviewer reported no validated findings; no corrections required. Worktrunk removed the verified session-owned noon-57-hook-failures worktree and branch; associated Herdr workspace wGR confirmed absent. No retained task checkout, blocker, or next implementation step. No push performed.
+
+Post-completion review: one P2 fixed. examples/integrations/notifications/bin/noon-pause-after ran 'noon pause' under set -e, so any pause failure (e.g. noon missing from the service PATH, reproduced: exit 127, chained notifier never ran) silently dropped the failure notification. Now reports 'could not pause JOB' on stderr (run log) and still execs the chained command; README notes it. Otherwise verified PreviousResults ordering/stop-at-success, hooks.go 0-on-success/+1 for failed and timed_out (matchingHook only fires for those), env leak isolation, and that a foreground run succeeds while paused as documented. task cli:test for ./internal/store TestStore, ./internal/cli TestHooks, and ./integration TestExampleNotifications passed. Full CI not rerun (example script/README only).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
