@@ -593,6 +593,7 @@ printf 'call\n' >> "$HOOK_CAPTURE.calls"
 cat > "$HOOK_CAPTURE.json"
 printf '%s\n' "$NOON_JOB" "$NOON_STATUS" "$NOON_EXIT_CODE" "$NOON_LOG_FILE" > "$HOOK_CAPTURE.env"
 printf '%s\n' "${NOON_PREVIOUS_STATUS-unset}" > "$HOOK_CAPTURE.previous"
+printf '%s\n' "${NOON_CONSECUTIVE_FAILURES-unset}" > "$HOOK_CAPTURE.failures"
 `)
 	outputHook := writeScript("output-hook", `head -c 70000 /dev/zero | tr '\000' X
 `)
@@ -726,6 +727,7 @@ wait
 
 	// One snapshot must agree in both outputs and never leak inherited/job values.
 	t.Setenv("NOON_PREVIOUS_STATUS", "inherited-leak")
+	t.Setenv("NOON_CONSECUTIVE_FAILURES", "999")
 	for i, want := range []string{"", "failed", "failed"} {
 		if i == 2 {
 			if err := os.WriteFile(filepath.Join(root, "ok"), nil, 0o600); err != nil {
@@ -742,6 +744,10 @@ wait
 		var payload map[string]any
 		if err := json.Unmarshal([]byte(mustRead(t, capture+".json")), &payload); err != nil {
 			t.Fatal(err)
+		}
+		wantCount := []int{1, 2, 0}[i]
+		if payload["consecutive_failures"] != float64(wantCount) || mustRead(t, capture+".failures") != strconv.Itoa(wantCount)+"\n" {
+			t.Fatalf("failure count mismatch: payload=%v env=%q", payload, mustRead(t, capture+".failures"))
 		}
 		value, present := payload["previous_status"]
 		if !present || (want == "" && value != nil) || (want != "" && value != want) {
@@ -768,7 +774,7 @@ wait
 	}
 
 	// Config cannot inject reserved hook metadata in the first place.
-	invalidManifest := strings.Replace(manifest, "  flip:\n", "  flip:\n    env: {NOON_PREVIOUS_STATUS: job-leak}\n", 1)
+	invalidManifest := strings.Replace(manifest, "  flip:\n", "  flip:\n    env: {NOON_PREVIOUS_STATUS: job-leak, NOON_CONSECUTIVE_FAILURES: '999'}\n", 1)
 	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(invalidManifest), 0o600); err != nil {
 		t.Fatal(err)
 	}

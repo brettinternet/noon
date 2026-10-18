@@ -30,6 +30,49 @@ How hooks fit together:
 - Each hook gets `NOON_JOB`, `NOON_STATUS`, `NOON_EXIT_CODE`, `NOON_LOG_FILE`, `NOON_PROJECT`, and
   the run as JSON on stdin; 30 seconds to finish; output is appended to the run log.
 
+## Pause after repeated failures
+
+Install `bin/noon-pause-after` alongside the other scripts and put `noon` and these scripts
+on the scheduler's PATH. The wrapper reads `NOON_CONSECUTIVE_FAILURES`, pauses at
+`NOON_PAUSE_AFTER` (default 3; must be a positive integer), then execs the remaining
+arguments with the original stdin JSON. Invalid thresholds fail before pausing or notifying.
+
+```yaml
+jobs:
+  agent-check:
+    schedule: every 1h
+    agent: claude
+    prompt: Check the repository for actionable failures.
+    on_failure: [noon-pause-after, noon-on-change]
+    on_success: [noon-on-change]
+```
+
+For a non-default state store, explicitly export its **same absolute path** in the scheduler's
+environment (or configure it in the service's environment):
+
+```sh
+export NOON_STATE_DIR=/home/me/.local/state/noon-agent
+export NOON_PAUSE_AFTER=3
+noon --state-dir "$NOON_STATE_DIR" serve
+```
+
+`noon service install` passes `--state-dir` to the service; this flag is **not** automatically
+exported to hook subprocesses. Ensure the service environment also sets `NOON_STATE_DIR` to
+that path. Do not infer it from the project directory or log file.
+
+The count includes the current failed/timed-out run and preceding retained failures/timeouts
+of the same project/job, ordered by finish time then ID, stopping at the latest success.
+Success yields 0. Noop, skipped, missed, expired, cancelled, and interrupted neither count nor
+reset. All triggers, including foreground runs, count; definition changes, pause, and resume
+do not reset. This is not a lifetime counter: a pre-pruning snapshot can include 50 retained
+failures plus the current failure (51). Missed, expired, cancelled, and interrupted consume
+regular retention despite not counting, so thresholds above available history are unreliable.
+
+A run dispatched before the hook finishes can still start. After fixing the cause,
+`noon run agent-check` can obtain a success even while paused, then `noon resume agent-check`
+re-enables background runs. Resume alone does not reset the count: the next failure can
+immediately pause again. Hook failure does not change the job result.
+
 ## First failure and recovery
 
 Configure **both** `on_failure` and `on_success` with `noon-on-change`, as in

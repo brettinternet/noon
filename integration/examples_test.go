@@ -701,4 +701,84 @@ jobs:
 		}
 	}
 	assertCapture("recovered\n")
+
+	// The wrapper must pause in the owning invocation's non-default store and
+	// preserve stdin for the chained hook, without invoking a real notifier.
+	pauseWrapper, err := os.ReadFile("../examples/integrations/notifications/bin/noon-pause-after")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pausePath := filepath.Join(bin, "noon-pause-after")
+	write(pausePath, pauseWrapper, 0o700)
+	if err := os.Symlink(noonBinary, filepath.Join(bin, "noon")); err != nil {
+		t.Fatal(err)
+	}
+	for i, entry := range env {
+		if strings.HasPrefix(entry, "PATH=") {
+			env[i] = "PATH=" + bin + string(os.PathListSeparator) + strings.TrimPrefix(entry, "PATH=")
+		}
+	}
+	env = append(env, "NOON_PAUSE_AFTER=2")
+	captureHook := filepath.Join(bin, "capture-hook")
+	write(captureHook, []byte("#!/bin/sh\ncat >> \"$CAPTURE\"\nprintf '\\n' >> \"$CAPTURE\"\n"), 0o700)
+	write(capture, nil, 0o600)
+	manifest += fmt.Sprintf("  pausing:\n    run: 'exit 1'\n    on_failure: [%q, %q]\n", pausePath, captureHook)
+	write(filepath.Join(project, "noon.yaml"), []byte(manifest), 0o600)
+	assertPaused := func(want bool) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, noonBinary, "list", "--json")
+		cmd.Dir, cmd.Env = project, env
+		output, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result struct {
+			Jobs []struct {
+				Name   string `json:"name"`
+				Paused bool   `json:"paused"`
+			} `json:"jobs"`
+		}
+		if err := json.Unmarshal(output, &result); err != nil {
+			t.Fatal(err)
+		}
+		for _, job := range result.Jobs {
+			if job.Name == "pausing" {
+				if job.Paused != want {
+					t.Fatalf("paused=%v want=%v: %s", job.Paused, want, output)
+				}
+				return
+			}
+		}
+		t.Fatalf("pausing job missing: %s", output)
+	}
+	// Invalid thresholds must fail before attempting to pause or chaining.
+	for _, threshold := range []string{"0", "-1", "bad", ""} {
+		cmd := exec.CommandContext(ctx, pausePath, captureHook)
+		cmd.Dir = project
+		cmd.Env = append(append([]string{}, env...), "NOON_PAUSE_AFTER="+threshold,
+			"NOON_CONSECUTIVE_FAILURES=9", "NOON_PROJECT="+project, "NOON_JOB=pausing")
+		if output, err := cmd.CombinedOutput(); err == nil {
+			t.Fatalf("invalid threshold %q accepted: %s", threshold, output)
+		}
+		assertPaused(false)
+		assertCapture("")
+	}
+	for i := 1; i <= 2; i++ {
+		run("pausing", 1)
+		assertPaused(i == 2)
+		data, err := os.ReadFile(capture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) != i {
+			t.Fatalf("capture calls=%d want=%d: %s", len(lines), i, data)
+		}
+		var payload struct {
+			Failures int `json:"consecutive_failures"`
+		}
+		if err := json.Unmarshal([]byte(lines[i-1]), &payload); err != nil || payload.Failures != i {
+			t.Fatalf("chained stdin=%s err=%v", lines[i-1], err)
+		}
+	}
 }

@@ -1,0 +1,21 @@
+#!/bin/sh
+# Pause repeated failures, then pass the untouched hook stdin to another command.
+set -eu
+threshold=${NOON_PAUSE_AFTER-3}
+case "$threshold" in
+  ''|*[!0-9]*)
+    echo 'NOON_PAUSE_AFTER must be a positive integer' >&2
+    exit 2
+    ;;
+esac
+# Strip leading zeros for portable decimal comparisons (no shell arithmetic).
+while [ "${threshold#0}" != "$threshold" ]; do threshold=${threshold#0}; done
+if [ -z "$threshold" ]; then
+  echo 'NOON_PAUSE_AFTER must be a positive integer' >&2
+  exit 2
+fi
+# awk compares decimal values without shell integer overflow.
+if awk -v count="${NOON_CONSECUTIVE_FAILURES:-0}" -v threshold="$threshold" 'BEGIN { exit !(count >= threshold) }'; then
+  noon -C "$NOON_PROJECT" pause "$NOON_JOB"
+fi
+if [ "$#" -gt 0 ]; then exec "$@"; fi

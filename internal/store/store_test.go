@@ -472,6 +472,10 @@ VALUES(?, ?, ?, 'manual', 'old-definition', ?, ?)`, projectID, job, status, Form
 			if got, err := s.PreviousStatus(project, "flip", current); err != nil || got != want {
 				t.Fatalf("previous=%q err=%v, want %q", got, err, want)
 			}
+			wantCount := map[string]int{"": 0, "failed": 1, "timed_out": 2, "succeeded": 0}[want]
+			if got, count, err := s.PreviousResults(project, "flip", current); err != nil || got != want || count != wantCount {
+				t.Fatalf("results=%q/%d err=%v, want %q/%d", got, count, err, want, wantCount)
+			}
 		}
 		check("")
 		insert(project, "flip", "failed", now.Add(time.Second))
@@ -491,6 +495,10 @@ VALUES(?, ?, ?, 'manual', 'old-definition', ?, ?)`, projectID, job, status, Form
 			t.Fatal(err)
 		}
 		check("timed_out")
+		insert(project, "flip", "succeeded", now.Add(2*time.Second))
+		check("succeeded")
+		insert(project, "flip", "failed", now.Add(3*time.Second))
+		check("failed") // the latest success stops the streak
 		if _, err := s.db.Exec("DELETE FROM runs WHERE project_id=? AND job=? AND id!=?", project, "flip", current); err != nil {
 			t.Fatal(err)
 		}
