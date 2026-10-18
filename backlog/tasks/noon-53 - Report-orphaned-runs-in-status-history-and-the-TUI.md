@@ -4,7 +4,7 @@ title: 'Report orphaned runs in status, history, and the TUI'
 status: Done
 assignee: []
 created_date: '2026-10-17 18:09'
-updated_date: '2026-10-17 22:28'
+updated_date: '2026-10-18 02:46'
 labels:
   - cli
   - tui
@@ -95,6 +95,8 @@ Independent verifier completed the single acceptance/review pass. Its only repor
 Delivery: implementation commit 842a1b204611dabaa6c9da381f7ab8e13725b5b6 fast-forward merged into main. task ci passed again on that final implementation commit in primary checkout. Owned worktree and branch noon-53-orphaned removed with Worktrunk after receipt verification; associated Herdr wG8 confirmed absent. No retained worktree, blocker, or next implementation step. Final task-record commit receives another task ci check before lease release.
 
 Post-completion review: no blocking defects. Inspected inspectAndMapRun/RunFromStore owner checks across history, list, dashboard, cancel, queue and MCP, read-only re-read before reporting orphaned, dashboard notice/Next ordering, CLI/TUI orphan rendering, and hook stdin (owner alive, so false). Findings (P3, unfixed): (1) internal/app/dashboard.go embeds 'noon cancel ID' in the orphaned notice text, but only view.Next passes through guidance(), so the inline command drops explicit selectors (--state-dir/NOON_STATE_DIR, --project) contrary to docs/design.md's copyable-guidance contract; either route the notice through the same selector preservation or drop the inline command and rely on Next. (2) inspectAndMapRun calls RunByID for every listed run, including terminal ones; checking activeStoredRun on the already-read row first would avoid N extra queries. (3) Listing surfaces now fail with a state error if a process-identity lookup errors (non-ENOENT), where they previously never did; matches the settled contract, noted as a robustness tradeoff. task cli:test PKG="./internal/config ./internal/store ./internal/scheduler ./internal/cli ./internal/app ./internal/tui ./internal/mcp" -- -count=1 passed. No source changes; full CI not rerun for this review.
+
+Review follow-up resolved in e659e52: (1) the CLI dashboard now passes the orphaned notice through the same selector-preserving guidance as Next (JSON and human); TestDashboard/orphaned asserts the notice's cancel command matches Next with NOON_STATE_DIR set, and fails without the fix. docs/cli.md and docs/design.md updated. (2) RunFromStore and inspectAndMapRun skip the owner check and re-read for non-active rows. (3) Kept by decision: listing surfaces surface non-ENOENT identity errors, matching the settled contract and existing get_run/logs --follow behavior; ENOENT/ESRCH are already treated as not alive. task ci passed. No remaining follow-ups.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
