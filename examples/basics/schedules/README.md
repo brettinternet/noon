@@ -33,3 +33,5 @@ Ambiguous phrases fail with a suggestion rather than a guess: `every day` asks w
 `every day at 9am`, `daily`, or `every 24h`. Six-field cron and `@reboot` are rejected.
 
 Pause without editing YAML: `noon pause heartbeat`, then `noon resume heartbeat` (no catch-up).
+`noon pause --all` pauses every job currently in the project; `noon resume --all` resumes them
+all, including jobs you paused individually. Jobs added later start unpaused.

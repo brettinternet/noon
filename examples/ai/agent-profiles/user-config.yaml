@@ -7,10 +7,12 @@ agents:
   # This is NOT a read-only sandbox. Read/Grep/Glob need no approval within working dirs.
   claude-manual:
     command: [claude, -p, --permission-prompts, none, --permission-mode, manual]
+    session_id_flag: --session-id   # custom profiles opt in; see README "Resume a run"
 
   # Claude that may edit files in the job's cwd. Still never waits for a prompt.
   claude-edit:
     command: [claude, -p, --permission-prompts, none, --permission-mode, acceptEdits]
+    session_id_flag: --session-id
 
   # Manual-mode Claude plus pre-approved Git commands; rules are not a sandbox.
   claude-git:
@@ -25,6 +27,7 @@ agents:
       - Bash(git log *)
       - Bash(git describe *)
       - Bash(git diff *)
+    session_id_flag: --session-id
 
   # Move trailing flags and the stdin marker to prompt_args so job agent_args can precede them.
   codex-read:

@@ -4,4 +4,5 @@ default_agent: claude
 agents:
   claude:
     command: [claude, -p, --permission-mode, manual, --permission-prompts, none]
+    session_id_flag: --session-id   # replaces the built-in, so restate it
 on_failure: [/workspace/scripts/ntfy.sh]

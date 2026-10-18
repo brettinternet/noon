@@ -2,6 +2,9 @@
 # Desktop notification with the job, status, and last line of output.
 # Values are passed as arguments, never spliced into AppleScript or shell source.
 last=$(tail -n 1 "${NOON_LOG_FILE:-/dev/null}" 2>/dev/null | cut -c 1-200)
+# Prompt runs from profiles with session_id_flag can be resumed with this ID.
+[ -z "${NOON_AGENT_SESSION_ID-}" ] || last="$last
+session $NOON_AGENT_SESSION_ID"
 title="$(basename "$NOON_PROJECT") · $NOON_JOB $NOON_STATUS"
 if command -v osascript >/dev/null 2>&1; then
   exec osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' "$title" "$last"

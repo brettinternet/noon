@@ -22,9 +22,10 @@ jobs:
 
   # --- Five-field cron: full control ---
   quarter-hour:
-    description: Every 15 minutes during working hours on weekdays.
-    schedule: "*/15 9-17 * * 1-5"
+    description: Every 15 minutes, 09:00–17:45, on weekdays. A slept-through tick doesn't run after hours.
+    schedule: "*/15 9-17 * * 1-5"   # an hour range covers whole hours
     run: [echo, tick]
+    missed: skip
   month-start:
     description: First day of each month at 07:00.
     schedule: "0 7 1 * *"

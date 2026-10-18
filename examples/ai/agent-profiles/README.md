@@ -1,6 +1,6 @@
 # Agent profiles and prompt jobs
 
-**Level:** intermediate · **Shows:** `prompt`, `prompt_file`, `agent`, `default_agent`, per-job `agent_args`, profile `prompt_args`, permission modes and sandbox profiles
+**Level:** intermediate · **Shows:** `prompt`, `prompt_file`, `agent`, `default_agent`, per-job `agent_args`, profile `prompt_args`, `session_id_flag`, permission modes and sandbox profiles
 
 A prompt job sends text to an agent CLI. Noon includes profiles named `claude`, `codex`,
 `gemini`, `opencode`, and `pi`; they need no user-config entries. Install and authenticate the
@@ -52,6 +52,22 @@ Rules of thumb:
   are not covered: review them like scripts.
 - Context comes from the environment. A prompt may say "read the event in `$NOON_EVENT_FILE`" or
   "summarize commits since `$NOON_LAST_SUCCESS_AT`"; Noon does no templating.
+
+## Resume a run
+
+The built-in `claude` and `pi` profiles request a fresh session ID for every run. Custom profiles
+must opt in with `session_id_flag`, as the Claude profiles in [`user-config.yaml`](user-config.yaml)
+do; redefining a built-in drops it unless restated. Read the ID back and resume from the job's
+working directory:
+
+```sh
+id=$(noon -C examples/ai/agent-profiles history pi-summary --json | jq -r '.runs[0].agent_session_id')
+pi --session-id "$id"           # Claude profiles: claude --resume "$id"
+```
+
+Hooks get the same value as `NOON_AGENT_SESSION_ID` (empty for profiles without the flag), so a
+failure notification can carry it ([notifications](../../integrations/notifications/)). Noon records
+the ID it requested; it can't confirm the agent kept a transcript.
 
 ## Verification (2026-10-16)
 

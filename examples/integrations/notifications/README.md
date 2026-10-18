@@ -4,8 +4,8 @@
 
 | Script | Sends | Needs |
 | --- | --- | --- |
-| [`noon-notify`](bin/noon-notify) | macOS / Linux desktop notification with the last log line | `osascript` or `notify-send` |
-| [`noon-ntfy`](bin/noon-ntfy) | Phone push with the log tail; high priority on failure | `NTFY_TOPIC` |
+| [`noon-notify`](bin/noon-notify) | macOS / Linux desktop notification with the last log line and any agent session ID | `osascript` or `notify-send` |
+| [`noon-ntfy`](bin/noon-ntfy) | Phone push with the log tail and any agent session ID; high priority on failure | `NTFY_TOPIC` |
 | [`noon-slack`](bin/noon-slack) | Slack message from the run JSON on stdin | `SLACK_WEBHOOK_URL`, `jq` |
 | [`noon-on-change`](bin/noon-on-change) | First unhealthy result, then "recovered" on return to success | Sibling `noon-notify` |
 
@@ -27,7 +27,8 @@ How hooks fit together:
   ([`noon.yaml`](noon.yaml)).
 - `on_failure` fires for `failed` and `timed_out`; cancelled, skipped, and interrupted runs have
   no hook. Hook failures never change the job's result.
-- Each hook gets `NOON_JOB`, `NOON_STATUS`, `NOON_EXIT_CODE`, `NOON_LOG_FILE`, `NOON_PROJECT`, and
+- Each hook gets `NOON_JOB`, `NOON_STATUS`, `NOON_EXIT_CODE`, `NOON_LOG_FILE`, `NOON_PROJECT`,
+  `NOON_AGENT_SESSION_ID` (prompt runs whose profile sets `session_id_flag`; empty otherwise), and
   the run as JSON on stdin; 30 seconds to finish; output is appended to the run log.
 
 ## Pause after repeated failures

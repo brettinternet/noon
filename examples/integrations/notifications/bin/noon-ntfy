@@ -5,7 +5,11 @@ set -eu
 : "${NTFY_TOPIC:?set NTFY_TOPIC}"
 priority=default tags=white_check_mark
 case $NOON_STATUS in failed|timed_out) priority=high tags=rotating_light ;; esac
-tail -n 20 "${NOON_LOG_FILE:-/dev/null}" 2>/dev/null | curl --fail --silent --show-error \
+{
+  tail -n 20 "${NOON_LOG_FILE:-/dev/null}" 2>/dev/null || :
+  # Prompt runs from profiles with session_id_flag can be resumed with this ID.
+  [ -z "${NOON_AGENT_SESSION_ID-}" ] || printf '\nagent session (%s): %s\n' "${NOON_AGENT-}" "$NOON_AGENT_SESSION_ID"
+} | curl --fail --silent --show-error \
   -H "Title: $(basename "$NOON_PROJECT") / $NOON_JOB: $NOON_STATUS" \
   -H "Priority: $priority" -H "Tags: $tags" \
   ${NTFY_TOKEN:+-H "Authorization: Bearer $NTFY_TOKEN"} \

@@ -6,9 +6,11 @@ timezone: America/Denver
 # Agent profiles are machine-specific: they name binaries on this machine.
 default_agent: claude
 agents:
+  # Redefining a built-in replaces it wholesale; keep session_id_flag for resumable runs.
   claude:
     command: [claude, -p, --permission-prompts, none]
     prompt: stdin
+    session_id_flag: --session-id
 
 # Hook defaults for every job in every project. A job can override them,
 # or opt out with on_failure: [].
