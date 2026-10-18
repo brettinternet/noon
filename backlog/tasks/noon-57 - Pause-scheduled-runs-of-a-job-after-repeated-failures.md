@@ -3,10 +3,10 @@ id: NOON-57
 title: >-
   Give lifecycle hooks the consecutive failure count and ship a pause-after
   recipe
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-18 16:24'
-updated_date: '2026-10-18 16:37'
+updated_date: '2026-10-18 16:48'
 labels:
   - scheduler
   - hooks
@@ -52,23 +52,45 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `task cli:test PKG=./internal/store -- -run "^TestStore$" -count=1` exits 0; a store-level case seeds results out of ID order and shows the count follows completion order, stops at the latest succeeded, includes timed_out, and ignores noop, skipped, cancelled, and interrupted rows. The same fixture verifies that retained-history exhaustion yields a bounded count, not a persisted lifetime streak.
-- [ ] #2 `task cli:test PKG=./internal/cli -- -run "^TestHooks$" -count=1` exits 0; through cli.Run, a job failing twice then succeeding gives on_failure hooks 1 then 2 in both NOON_CONSECUTIVE_FAILURES and stdin consecutive_failures, and the on_success hook 0; an inherited or job env NOON_CONSECUTIVE_FAILURES value never leaks through.
-- [ ] #3 `task cli:test PKG=./integration -- -run "^TestExampleNotifications$" -count=1 -v` exits 0 and prints PASS; through the built binary with an isolated state dir, a job using `on_failure: [noon-pause-after, <capture stub>]` with NOON_PAUSE_AFTER=2 is not paused after one failure, is paused after two (`noon list --json` reports paused true), and the capture stub ran both times. The fixture puts the built noon on PATH, sets NOON_STATE_DIR explicitly to its isolated non-default store, and verifies an invalid threshold exits nonzero without pausing. No real notifier is invoked.
-- [ ] #4 `rg -n "NOON_CONSECUTIVE_FAILURES" docs/hooks.md docs/design.md examples/integrations/notifications/README.md` matches in all three files, and the docs state the counting, retention, and no-reset rules above.
+- [x] #1 `task cli:test PKG=./internal/store -- -run "^TestStore$" -count=1` exits 0; a store-level case seeds results out of ID order and shows the count follows completion order, stops at the latest succeeded, includes timed_out, and ignores noop, skipped, cancelled, and interrupted rows. The same fixture verifies that retained-history exhaustion yields a bounded count, not a persisted lifetime streak.
+- [x] #2 `task cli:test PKG=./internal/cli -- -run "^TestHooks$" -count=1` exits 0; through cli.Run, a job failing twice then succeeding gives on_failure hooks 1 then 2 in both NOON_CONSECUTIVE_FAILURES and stdin consecutive_failures, and the on_success hook 0; an inherited or job env NOON_CONSECUTIVE_FAILURES value never leaks through.
+- [x] #3 `task cli:test PKG=./integration -- -run "^TestExampleNotifications$" -count=1 -v` exits 0 and prints PASS; through the built binary with an isolated state dir, a job using `on_failure: [noon-pause-after, <capture stub>]` with NOON_PAUSE_AFTER=2 is not paused after one failure, is paused after two (`noon list --json` reports paused true), and the capture stub ran both times. The fixture puts the built noon on PATH, sets NOON_STATE_DIR explicitly to its isolated non-default store, and verifies an invalid threshold exits nonzero without pausing. No real notifier is invoked.
+- [x] #4 `rg -n "NOON_CONSECUTIVE_FAILURES" docs/hooks.md docs/design.md examples/integrations/notifications/README.md` matches in all three files, and the docs state the counting, retention, and no-reset rules above.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Extend the existing pre-finish result snapshot with consecutive failures and expose it to hooks.
+2. Add the pause-after wrapper and document retained-history and state-directory rules.
+3. Extend existing critical regression tests; run acceptance checks and task ci; review, commit, merge locally, and clean up.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Refinement: PreviousStatus snapshots before FinishRun, so a retained-history count can include 50 prior rows plus the current outcome. internal/service/service.go passes --state-dir to serve, while JobEnvironment does not export that selected path; the wrapper recipe must explicitly preserve state selection. No new scheduler policy or core state environment field is added.
+
+AC#1: task cli:test PKG=./internal/store -- -run "^TestStore$" -count=1 -> exit 0; completion-order/tie ordering, eligible streak, success boundary, and pruned-history exhaustion verified.
+AC#2: task cli:test PKG=./internal/cli -- -run "^TestHooks$" -count=1 -> exit 0; hook env/stdin counts 1, 2, 0 and reserved metadata isolation verified.
+AC#3: task cli:test PKG=./integration -- -run "^TestExampleNotifications$" -count=1 -v -> exit 0, PASS; real binary pauses only at two failures in explicit non-default store, chained stdin captured twice, invalid thresholds rejected without pause.
+AC#4: rg -n "NOON_CONSECUTIVE_FAILURES" docs/hooks.md docs/design.md examples/integrations/notifications/README.md -> exit 0, matches all three; counting, retention, no-reset, dispatch race, and explicit state selection documented.
+Initial task ci passed (security, vet, Staticcheck, all tests, race, smoke). Go LSP diagnostics clean for store.go and hooks.go. No files outside the contract; no tests removed or weakened. Independent scoped review pending.
+
+Delivery: implementation 6d0c074 merged locally into main as 1bae883. task ci passed on merged implementation commit 1bae883 (security, checks, all tests, race, smoke). Independent reviewer reported no validated findings; no corrections required. Worktrunk removed the verified session-owned noon-57-hook-failures worktree and branch; associated Herdr workspace wGR confirmed absent. No retained task checkout, blocker, or next implementation step. No push performed.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Hooks now expose retained consecutive failures in environment and JSON from the pre-finish snapshot. Shipped and documented a threshold pause-and-chain wrapper with explicit state-store guidance. All four acceptance checks and full CI passed; independent review found no defects. Committed, merged locally, and cleaned up.
+<!-- SECTION:FINAL_SUMMARY:END -->
