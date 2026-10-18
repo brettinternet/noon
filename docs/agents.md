@@ -141,6 +141,23 @@ editing job can collide with your own work. Give it its own worktree
 ([container-agent](../examples/ai/container-agent/)). Neither approval nor a worktree is a
 sandbox; only the container is an isolation boundary.
 
+Use a job's `agent_args` for vendor-specific model, effort, or sandbox flags without requiring
+other machines to define a matching custom profile. It is a non-empty literal argv list and requires
+an explicit `agent`; Noon will not apply machine `default_agent` to those arguments. For example:
+
+```yaml
+jobs:
+  docs-review:
+    prompt_file: prompts/docs-review.md
+    agent: codex
+    agent_args: [-m, gpt-5-codex, -s, read-only]
+```
+
+`agent_args` changes the shared job's execution digest, so a pulled change needs approval again.
+Approval is not a sandbox: arguments can widen permissions, and they are visible configuration, not
+a secret channel. See [agent profiles](configuration.md#agent-profiles) for argv ordering and the
+`prompt_args` custom-profile migration rule.
+
 With the default `missed: run_once`, a run missed during sleep or downtime starts once when the
 scheduler next notices it, possibly hours late. It runs with `NOON_TRIGGER=catch_up` and
 `NOON_SCHEDULED_AT` set to the first missed occurrence (RFC 3339, UTC). For a time-sensitive job,

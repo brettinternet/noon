@@ -15,6 +15,7 @@ jobs:
     schedule: "0 10 1 * *"
     prompt_file: prompts/docs-review.md
     agent: codex-read
+    agent_args: [-m, gpt-5-codex]
     timeout: 20m
 
   release-notes:

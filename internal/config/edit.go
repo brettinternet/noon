@@ -274,6 +274,9 @@ func jobFields(job Job) map[string]any {
 		if job.Agent != "" {
 			fields["agent"] = job.Agent
 		}
+		if len(job.AgentArgs) > 0 {
+			fields["agent_args"] = job.AgentArgs
+		}
 		if job.CWD != "" {
 			fields["cwd"] = job.CWD
 		}

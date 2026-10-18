@@ -25,7 +25,7 @@ Files (low → high precedence):
   /home/me/app/.git/noon.yaml
 Agents:
   claude: "claude" "-p" "--permission-prompts" "none" (stdin, session_id_flag=--session-id)
-  codex: "codex" "exec" "-" (stdin)
+  codex: "codex" "exec" (stdin, prompt_args=["-"])
 CLI flags override environment variables; both override files.
 ```
 
@@ -162,6 +162,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `prompt` | — | Inline agent prompt, ≤ 64 KiB |
 | `prompt_file` | — | Prompt read when the run starts, ≤ 64 KiB |
 | `agent` | `default_agent` | Agent profile for prompt jobs |
+| `agent_args` | — | Non-empty literal argv list for a prompt job; requires an explicit `agent` |
 | `cwd` | project root | Absolute or project-relative; checked by `doctor`, not validation |
 | `env` | — | String values (quote numbers). `NOON_*` is reserved. Values are never printed |
 | `timeout` | `1h` | `30s`, `10m`, `1h30m`, `2d` (≥ 1s), or `none` |
@@ -251,29 +252,57 @@ agents:
   claude:
     command: [claude, -p, --permission-prompts, none, --permission-mode, acceptEdits]
   reviewer:
-    command: [my-agent, --quiet]
+    command: [my-agent]
     prompt: argument
     session_id_flag: --session-id
+    prompt_args: [--quiet]
 ```
 
-| Built-in | Command | Prompt delivery | Session ID flag |
-| --- | --- | --- | --- |
-| `claude` | `claude -p --permission-prompts none` | stdin | `--session-id` |
-| `codex` | `codex exec -` | stdin | — |
-| `gemini` | `gemini -p` | Final argument | — |
-| `opencode` | `opencode run --` | Final argument | — |
-| `pi` | `pi --print` | stdin | `--session-id` |
+| Built-in | Command | Prompt delivery | `prompt_args` | Session ID flag |
+| --- | --- | --- | --- | --- |
+| `claude` | `claude -p --permission-prompts none` | stdin | — | `--session-id` |
+| `codex` | `codex exec` | stdin | `-` | — |
+| `gemini` | `gemini` | Final argument | `-p` | — |
+| `opencode` | `opencode run` | Final argument | `--` | — |
+| `pi` | `pi --print` | stdin | — | `--session-id` |
 
 `session_id_flag` is optional and must be one flag token starting with `-`, other than `-` or `--`,
 with no whitespace or NUL. When present, Noon generates a random v4 UUID for each execution,
-places `FLAG UUID` after the profile command and before a prompt argument, and sets
-`NOON_AGENT_SESSION_ID` for the job and its hooks. Redefining a built-in replaces it wholesale, so
-an override must include `session_id_flag` to keep this behavior. `noon config` shows the flag beside
-the command.
+places `FLAG UUID` after the profile command, and sets `NOON_AGENT_SESSION_ID` for the job and its
+hooks. Redefining a built-in replaces it wholesale, so an override must include
+`session_id_flag` to keep this behavior.
 
-Install and authenticate the selected CLI separately. Noon does not add auto-approval or
-workspace-trust bypass flags. Configure the agent's permissions for unattended use; these profiles
-are not sandboxes. Pi print mode emits the final response, not intermediate tool activity.
+`prompt_args` is an optional string list in a user profile for arguments that must come after the
+job's arguments. The effective argv is the profile `command`, the session flag and ID when
+configured, the job's `agent_args`, the profile's `prompt_args`, then the prompt when
+`prompt: argument`. With `prompt: stdin`, the prompt bytes go to stdin instead. Built-ins use
+`prompt_args` for their trailing prompt flags/separators, preserving their current effective argv.
+`noon config` shows configured `prompt_args`. Noon does not parse vendor flags in `agent_args`;
+conflicting session or persistence arguments can prevent a requested session ID from being
+resumable.
+
+A custom profile whose `command` currently ends in `--` or a value-taking flag must move that tail
+(including the flag's value) to `prompt_args` before its jobs use `agent_args`; otherwise job flags
+can be consumed as the value or placed after the separator.
+
+A prompt job's `agent_args` is a non-empty list of literal argv strings, not shell text; empty
+string elements are allowed, and values are never templated or expanded. Such a job must name
+`agent` explicitly: `default_agent` is not used for vendor-specific arguments. For example:
+
+```yaml
+jobs:
+  quick-review:
+    prompt_file: prompts/review.md
+    agent: claude
+    agent_args: [--model, haiku, --effort, low]
+```
+
+`agent_args` is part of the execution digest, so a change to it in a shared job needs approval
+again. Approval covers the job definition, not the scripts or prompt files it references; it is not
+a sandbox. Arguments can widen permissions just as `run` can and are visible configuration, not a
+secret channel. Install and authenticate the selected CLI separately. Configure the agent's
+permissions for unattended use; profiles are not sandboxes. Pi print mode emits the final response,
+not intermediate tool activity.
 
 `prompt: stdin` (default) sends the exact prompt bytes on stdin. `prompt: argument` appends them as
 the last argument. Nothing is templated, expanded, or trimmed. Unattended runs must never wait on

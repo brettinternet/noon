@@ -1,6 +1,6 @@
 # Agent profiles and prompt jobs
 
-**Level:** intermediate · **Shows:** `prompt`, `prompt_file`, `agent`, `default_agent`, permission modes and sandbox profiles
+**Level:** intermediate · **Shows:** `prompt`, `prompt_file`, `agent`, `default_agent`, per-job `agent_args`, profile `prompt_args`, permission modes and sandbox profiles
 
 A prompt job sends text to an agent CLI. Noon includes profiles named `claude`, `codex`,
 `gemini`, `opencode`, and `pi`; they need no user-config entries. Install and authenticate the
@@ -24,16 +24,20 @@ noon -C examples/ai/agent-profiles run pi-summary   # requires an authenticated 
 | Job | Profile | Can change files |
 | --- | --- | --- |
 | `todo-sweep` | `claude-manual` (manual mode) | depends on settings/hooks |
-| `docs-review` | `codex-read` (`--sandbox read-only`) | sandboxed shell cannot write; hooks/MCP are separate |
+| `docs-review` | `codex-read` (`-m gpt-5-codex`, `--sandbox read-only`) | sandboxed shell cannot write; hooks/MCP are separate |
 | `release-notes` | `claude-git` (pre-approved `git log/describe/diff`) | depends on settings/hooks and command arguments |
 | `doc-comments` | `claude-edit` (`acceptEdits`) | yes, manual only |
 | `gemini-summary` | built-in `gemini` | depends on agent configuration; manual only |
 | `opencode-summary` | built-in `opencode` | depends on agent configuration; manual only |
 | `pi-summary` | built-in `pi` | depends on agent configuration; manual only |
 
-Noon's built-in Gemini command is `gemini -p`, OpenCode is `opencode run --` (prompt appended
-as one final argument), and Pi is `pi --print` (prompt on stdin). The request not to use tools in
-these sample prompts is an instruction, not an enforced restriction. These examples validate
+The `docs-review` job sets its model with per-job `agent_args`; the `codex-read` profile keeps
+its sandbox flags and stdin marker in `prompt_args`. Agent arguments follow the profile command and
+precede `prompt_args` and any argument-delivered prompt. Noon does not verify them against the CLI.
+
+Noon's built-in Gemini command is `gemini` with `prompt_args: [-p]`, OpenCode is `opencode run`
+with `prompt_args: [--]` (prompt appended as one final argument), and Pi is `pi --print` (prompt
+on stdin). The request not to use tools in these sample prompts is an instruction, not an enforced restriction. These examples validate
 Noon's configuration without contacting a model; model execution requires your own credentials.
 
 Rules of thumb:

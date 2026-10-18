@@ -155,4 +155,21 @@ func TestEnableApproval(t *testing.T) {
 	if got := snapshot(); got.ConfigFile.Valid {
 		t.Fatalf("automatic config not restored: %+v", got)
 	}
+
+	// Changing only per-job agent arguments must revoke a shared job's approval.
+	agentManifest := "jobs:\n  review:\n    prompt: review\n    agent: claude\n    agent_args: [--model, haiku]\n"
+	write("noon.yaml", agentManifest)
+	write(".git/noon.yaml", "{}\n")
+	enable()
+	check(true, map[string]string{"review": "approved"})
+	write("noon.yaml", strings.Replace(agentManifest, "haiku", "sonnet", 1))
+	check(true, map[string]string{"review": "needs_approval"})
+	if code, result := invoke(t, "run", "review", "--detach", "--json"); code != 1 || result["error"].(map[string]any)["code"] != "needs_approval" {
+		t.Fatalf("changed agent_args queued unattended work: exit=%d result=%+v", code, result)
+	}
+	enable()
+	check(true, map[string]string{"review": "approved"})
+	if code, result := invoke(t, "run", "review", "--detach", "--json"); code != 0 {
+		t.Fatalf("reapproved agent_args did not queue: exit=%d result=%+v", code, result)
+	}
 }

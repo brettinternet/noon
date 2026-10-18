@@ -106,8 +106,16 @@ Noon runs existing agent CLIs. It has no model SDK and stores no credentials. Pr
 config because they are machine choices. Prompts are sent byte-for-byte (stdin, or appended as the
 last argument) with no templating. A profile may provide `session_id_flag`; Noon then creates and
 records a random v4 UUID when execution starts, passes it after the profile command, and sets
-`NOON_AGENT_SESSION_ID`. This is a requested ID, not proof that the agent honored it. Context comes
-from environment variables, so a prompt can say
+`NOON_AGENT_SESSION_ID`. This is a requested ID, not proof that the agent honored it.
+
+A prompt job may set `agent_args` to a non-empty list of literal argv strings; it must name `agent`
+explicitly rather than inherit the machine's `default_agent`. Effective argv order is profile
+`command`, requested session flag and ID, job `agent_args`, profile `prompt_args`, then an argument
+delivered prompt. `prompt_args` holds profile-specific trailing flags or separators; built-ins use
+it to keep their existing effective argv. Changes to `agent_args` change the shared job's execution
+digest and require approval again. Approval is not a sandbox: arguments can widen permissions just
+as `run` can, and arguments are visible configuration, not a secret channel. Context comes from
+environment variables, so a prompt can say
 "summarize commits since `$NOON_LAST_SUCCESS_AT`" or "read the event in `$NOON_EVENT_FILE`".
 
 ### Schedules

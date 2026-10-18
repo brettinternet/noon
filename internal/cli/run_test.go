@@ -217,7 +217,7 @@ func TestPromptJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := "#!/bin/sh\nprintf 'started\\n' >> \"$AGENT_STARTS_FILE\"\nprintf '%s\\0' \"$@\" > \"$AGENT_ARGV_FILE\"\nprintf '%s' \"$NOON_AGENT\" > \"$AGENT_NAME_FILE\"\nprintf '%s' \"${NOON_AGENT_SESSION_ID-unset}\" > \"$AGENT_SESSION_FILE\"\ncat > \"$AGENT_STDIN_FILE\"\n"
-	for _, name := range []string{"record-agent", "codex"} {
+	for _, name := range []string{"record-agent", "codex", "gemini", "opencode"} {
 		if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -241,6 +241,11 @@ agents:
     command: [record-agent, session-base]
     prompt: argument
     session_id_flag: --session-id
+    prompt_args: [--profile-tail, session-tail]
+  stdin_session:
+    command: [record-agent, stdin-session-base]
+    session_id_flag: --session-id
+    prompt_args: [--profile-tail, stdin-tail]
 `
 	if err := os.MkdirAll(filepath.Join(root, "user", "noon"), 0o700); err != nil {
 		t.Fatal(err)
@@ -282,6 +287,17 @@ agents:
   session_run:
     prompt: "session prompt"
     agent: session
+    agent_args: [--model, haiku]
+  stdin_args:
+    prompt: "stdin profile prompt\n"
+    agent: stdin_session
+    agent_args: [--model, haiku, '', --effort, low]
+  builtin_gemini:
+    prompt: "built-in gemini prompt"
+    agent: gemini
+  builtin_opencode:
+    prompt: "built-in opencode prompt"
+    agent: opencode
   missing_file:
     prompt_file: prompts/missing.md
     agent: argument
@@ -303,6 +319,8 @@ agents:
 		{"inline_stdin", "claude", []string{"claude-override"}, "inline stdin first\ninline second line\nliteral $HOME\n"},
 		{"file_stdin", "codex", []string{"exec", "-"}, filePrompts["stdin.md"]},
 		{"inline_argument", "argument", []string{"argument-mode", "inline argument first\ninline second line\nliteral $HOME\n"}, ""},
+		{"builtin_gemini", "gemini", []string{"-p", "built-in gemini prompt"}, ""},
+		{"builtin_opencode", "opencode", []string{"run", "--", "built-in opencode prompt"}, ""},
 		{"file_argument", "argument", []string{"argument-mode", filePrompts["argument.md"]}, ""},
 		{"default_profile", "argument", []string{"argument-mode", "default profile\n$HOME\n"}, ""},
 	} {
@@ -365,7 +383,7 @@ agents:
 		for i := range argv {
 			gotArgs[i] = string(argv[i])
 		}
-		wantArgs := []string{"session-base", "--session-id", sessionID, "session prompt"}
+		wantArgs := []string{"session-base", "--session-id", sessionID, "--model", "haiku", "--profile-tail", "session-tail", "session prompt"}
 		if !reflect.DeepEqual(gotArgs, wantArgs) || mustRead(t, filepath.Join(root, "session")) != sessionID {
 			t.Fatalf("session argv=%q env=%q, want argv=%q and matching environment", gotArgs, mustRead(t, filepath.Join(root, "session")), wantArgs)
 		}
@@ -373,6 +391,25 @@ agents:
 	}
 	if sessionIDs[0] == sessionIDs[1] {
 		t.Fatalf("two prompt runs reused session ID %s", sessionIDs[0])
+	}
+	var stdinArgsOut, stdinArgsErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "--json", "run", "stdin_args"}, config.BuildOpts{}, &stdinArgsOut, &stdinArgsErr); code != 0 {
+		t.Fatalf("stdin args run exit=%d stdout=%s stderr=%s", code, &stdinArgsOut, &stdinArgsErr)
+	}
+	stdinSessionID := mustRead(t, filepath.Join(root, "session"))
+	if !sessionPattern.MatchString(stdinSessionID) {
+		t.Fatalf("stdin session ID = %q, want RFC 4122 v4 UUID", stdinSessionID)
+	}
+	stdinArgvData := mustRead(t, filepath.Join(root, "argv"))
+	stdinArgv := bytes.Split([]byte(stdinArgvData), []byte{0})
+	stdinArgv = stdinArgv[:len(stdinArgv)-1]
+	gotStdinArgs := make([]string, len(stdinArgv))
+	for i := range stdinArgv {
+		gotStdinArgs[i] = string(stdinArgv[i])
+	}
+	wantStdinArgs := []string{"stdin-session-base", "--session-id", stdinSessionID, "--model", "haiku", "", "--effort", "low", "--profile-tail", "stdin-tail"}
+	if !reflect.DeepEqual(gotStdinArgs, wantStdinArgs) || mustRead(t, filepath.Join(root, "stdin")) != "stdin profile prompt\n" {
+		t.Fatalf("stdin args argv=%q stdin=%q want argv=%q", gotStdinArgs, mustRead(t, filepath.Join(root, "stdin")), wantStdinArgs)
 	}
 	var unflaggedOut, unflaggedErr bytes.Buffer
 	if code := cli.Run(context.Background(), []string{"noon", "--json", "run", "default_profile"}, config.BuildOpts{}, &unflaggedOut, &unflaggedErr); code != 0 {
@@ -416,15 +453,15 @@ agents:
 	}
 	cfg := result["config"].(map[string]any)
 	agents := cfg["agents"].(map[string]any)
-	if cfg["default_agent"] != "argument" || !reflect.DeepEqual(agents["claude"], []any{"record-agent", "claude-override"}) || !reflect.DeepEqual(agents["codex"], []any{"codex", "exec", "-"}) {
+	if cfg["default_agent"] != "argument" || !reflect.DeepEqual(agents["claude"], []any{"record-agent", "claude-override"}) || !reflect.DeepEqual(agents["codex"], []any{"codex", "exec"}) {
 		t.Fatalf("config output: %+v", cfg)
 	}
 	profiles := cfg["agent_profiles"].(map[string]any)
-	if profiles["session"].(map[string]any)["session_id_flag"] != "--session-id" || profiles["claude"].(map[string]any)["session_id_flag"] != nil {
+	if profiles["session"].(map[string]any)["session_id_flag"] != "--session-id" || profiles["claude"].(map[string]any)["session_id_flag"] != nil || !reflect.DeepEqual(profiles["session"].(map[string]any)["prompt_args"], []any{"--profile-tail", "session-tail"}) {
 		t.Fatalf("agent profile config output: %+v", profiles)
 	}
 	var configOut, configErr bytes.Buffer
-	if code := cli.Run(context.Background(), []string{"noon", "config"}, config.BuildOpts{}, &configOut, &configErr); code != 0 || !strings.Contains(configOut.String(), "session_id_flag=--session-id") {
+	if code := cli.Run(context.Background(), []string{"noon", "config"}, config.BuildOpts{}, &configOut, &configErr); code != 0 || !strings.Contains(configOut.String(), "session_id_flag=--session-id") || !strings.Contains(configOut.String(), `prompt_args=["--profile-tail", "session-tail"]`) {
 		t.Fatalf("human config omitted session_id_flag: exit=%d stdout=%s stderr=%s", code, &configOut, &configErr)
 	}
 	code, result = invoke(t, "list", "--json")

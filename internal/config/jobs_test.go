@@ -1,9 +1,7 @@
 package config_test
 
 import (
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -49,6 +47,42 @@ func TestNoopExitCodeSchemaRange(t *testing.T) {
 	}
 }
 
+func TestAgentArgsSchema(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "noon.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := func(job map[string]any) map[string]any {
+		return map[string]any{"jobs": map[string]any{"review": job}}
+	}
+	for _, job := range []map[string]any{
+		{"prompt": "review", "agent": "claude", "agent_args": []any{"--model", "haiku", ""}},
+		{"prompt_file": "prompts/review.md", "agent": "codex", "agent_args": []any{"-s", "read-only"}},
+	} {
+		if err := resolved.Validate(instance(job)); err != nil {
+			t.Errorf("schema rejected valid agent_args job %+v: %v", job, err)
+		}
+	}
+	for _, job := range []map[string]any{
+		{"run": "true", "agent_args": []any{"--model"}},
+		{"prompt": "review", "agent_args": []any{"--model"}},
+		{"prompt": "review", "agent": "claude", "agent_args": []any{}},
+		{"prompt": "review", "agent": "claude", "agent_args": []any{"--model", float64(1)}},
+	} {
+		if err := resolved.Validate(instance(job)); err == nil {
+			t.Errorf("schema accepted invalid agent_args job %+v", job)
+		}
+	}
+}
+
 func TestLoadJobs(t *testing.T) {
 	t.Parallel()
 	builtins := config.BuiltInAgents()
@@ -58,6 +92,18 @@ func TestLoadJobs(t *testing.T) {
 	for _, name := range []string{"codex", "gemini", "opencode"} {
 		if builtins[name].SessionIDFlag != "" {
 			t.Errorf("%s unexpectedly supports session IDs: %q", name, builtins[name].SessionIDFlag)
+		}
+	}
+	for _, tc := range []struct {
+		name, command, promptArg string
+	}{
+		{name: "codex", command: "codex exec", promptArg: "-"},
+		{name: "gemini", command: "gemini", promptArg: "-p"},
+		{name: "opencode", command: "opencode run", promptArg: "--"},
+	} {
+		profile := builtins[tc.name]
+		if got := strings.Join(profile.Command, " "); got != tc.command || !reflect.DeepEqual(profile.PromptArgs, []string{tc.promptArg}) {
+			t.Errorf("%s profile = command %q prompt_args %q, want %q and [%q]", tc.name, got, profile.PromptArgs, tc.command, tc.promptArg)
 		}
 	}
 	for _, tc := range []struct {
@@ -111,6 +157,23 @@ func TestLoadJobs(t *testing.T) {
 				t.Fatalf("requests = %q, want each", got)
 			}
 		}},
+		{name: "agent args allow literal empty item", shared: "jobs:\n  review:\n    prompt: review\n    agent: claude\n    agent_args: [--model, haiku, '', --effort, low]\n", check: func(t *testing.T, c config.Config) {
+			if got := c.Jobs["review"].AgentArgs; !reflect.DeepEqual(got, []string{"--model", "haiku", "", "--effort", "low"}) {
+				t.Fatalf("agent_args = %#v", got)
+			}
+		}},
+		{name: "agent args on run job", shared: "jobs: {tests: {run: hi, agent: claude, agent_args: [--model]}}", want: "noon.yaml:1: jobs.tests.agent_args: only valid for prompt or prompt_file jobs"},
+		{name: "agent args require explicit agent despite default", shared: "jobs:\n  review:\n    prompt: review\n    agent_args: [--model]\n", user: "default_agent: claude\n", want: "noon.yaml:4: jobs.review.agent_args: requires an explicit agent on the job"},
+		{name: "agent args empty list", shared: "jobs:\n  review:\n    prompt: review\n    agent: claude\n    agent_args: []\n", want: "noon.yaml:5: jobs.review.agent_args: must be a non-empty list of strings"},
+		{name: "agent args non-string item", shared: "jobs:\n  review:\n    prompt: review\n    agent: claude\n    agent_args: [--model, 1]\n", want: "noon.yaml:5: jobs.review.agent_args: must be a string"},
+		{name: "agent args NUL", shared: "jobs:\n  review:\n    prompt: review\n    agent: claude\n    agent_args: [--model, \"\\0\"]\n", want: "noon.yaml:5: jobs.review.agent_args: must not contain NUL"},
+		{name: "profile prompt args", user: "agents:\n  custom:\n    command: [agent]\n    prompt_args: [--tail, '']\n", check: func(t *testing.T, c config.Config) {
+			if got := c.Agents["custom"].PromptArgs; !reflect.DeepEqual(got, []string{"--tail", ""}) {
+				t.Fatalf("profile prompt_args = %#v", got)
+			}
+		}},
+		{name: "profile prompt args scalar", user: "agents:\n  custom:\n    command: [agent]\n    prompt_args: --tail\n", want: "config.yaml:4: agents.custom.prompt_args: must be a string list"},
+		{name: "profile prompt args non-string item", user: "agents:\n  custom:\n    command: [agent]\n    prompt_args: [--tail, 1]\n", want: "config.yaml:4: agents.custom.prompt_args: must be a string"},
 		{name: "noop exit code", shared: "jobs:\n  tests:\n    run: 'true'\n    noop_exit_code: 78\n", check: func(t *testing.T, c config.Config) {
 			if got := c.Jobs["tests"].NoopExitCode; got != 78 {
 				t.Fatalf("noop_exit_code = %d, want 78", got)
@@ -281,7 +344,7 @@ func TestLoadJobs(t *testing.T) {
 		if job.Agent != "team" || job.PromptMode != "argument" || !reflect.DeepEqual(job.AgentCommand, []string{"fake-agent", "--quiet"}) {
 			t.Fatalf("resolved agent: %+v", job)
 		}
-		if !reflect.DeepEqual(cfg.Agents["codex"].Command, []string{"codex", "exec", "-"}) || !reflect.DeepEqual(cfg.Agents["claude"].Command, []string{"claude-wrapper"}) || cfg.Agents["claude"].SessionIDFlag != "" {
+		if !reflect.DeepEqual(cfg.Agents["codex"].Command, []string{"codex", "exec"}) || !reflect.DeepEqual(cfg.Agents["codex"].PromptArgs, []string{"-"}) || !reflect.DeepEqual(cfg.Agents["claude"].Command, []string{"claude-wrapper"}) || cfg.Agents["claude"].SessionIDFlag != "" {
 			t.Fatalf("profiles: %+v", cfg.Agents)
 		}
 	})
@@ -400,9 +463,13 @@ func TestJobDigest(t *testing.T) {
 		}
 		base := "    prompt: review\n    agent: team\n"
 		initial := loadPrompt(base)
-		want := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(`{"agent":"team","prompt":"review"}`)))
-		if initial != want {
-			t.Fatalf("canonical prompt digest = %s, want %s", initial, want)
+		// Captured from the pre-agent_args parser before this feature was implemented.
+		const preAgentArgsDigest = "sha256:da8bab3de841d67cb71e01dc587dbcc75ffc4d6b678a2b08347e1498092be533"
+		if initial != preAgentArgsDigest {
+			t.Fatalf("prompt job without agent_args changed its pre-feature digest: %s", initial)
+		}
+		if loadPrompt("    prompt: review\n    agent: team\n    agent_args: [--model, haiku]\n") == initial {
+			t.Fatal("agent_args was omitted from the prompt job digest")
 		}
 		if loadPrompt("    prompt: changed\n    agent: team\n") == initial || loadPrompt("    prompt_file: prompts/review.md\n    agent: team\n") == initial || loadPrompt("    prompt: review\n    agent: claude\n") == initial {
 			t.Fatal("prompt, prompt-file, or agent changes did not change the digest")

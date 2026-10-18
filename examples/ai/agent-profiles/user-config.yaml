@@ -26,11 +26,13 @@ agents:
       - Bash(git describe *)
       - Bash(git diff *)
 
-  # Codex in its read-only and workspace-write sandboxes; "-" reads the prompt from stdin.
+  # Move trailing flags and the stdin marker to prompt_args so job agent_args can precede them.
   codex-read:
-    command: [codex, exec, --sandbox, read-only, "-"]
+    command: [codex, exec]
+    prompt_args: [--sandbox, read-only, "-"]
   codex-edit:
-    command: [codex, exec, --sandbox, workspace-write, "-"]
+    command: [codex, exec]
+    prompt_args: [--sandbox, workspace-write, "-"]
 
   # Gemini, OpenCode, and Pi already have built-in profiles; no entries are needed here.
 

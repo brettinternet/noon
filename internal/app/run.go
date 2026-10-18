@@ -66,6 +66,8 @@ func RunSpec(project string, job config.Job, inherited []string) (runner.Spec, e
 			}
 		}
 		spec.Argv = append([]string(nil), job.AgentCommand...)
+		spec.Argv = append(spec.Argv, job.AgentArgs...)
+		spec.Argv = append(spec.Argv, job.AgentPromptArgs...)
 		if job.PromptMode == "argument" {
 			spec.Argv = append(spec.Argv, string(prompt))
 		} else {

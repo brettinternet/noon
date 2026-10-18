@@ -400,7 +400,15 @@ func showConfig(_ context.Context, cmd *urfave.Command) error {
 		if profile.SessionIDFlag != "" {
 			sessionIDFlag = ", session_id_flag=" + profile.SessionIDFlag
 		}
-		fmt.Fprintf(cmd.Writer, "  %s: %s (%s%s)\n", cell(name, 80), strings.Join(args, " "), profile.Prompt, sessionIDFlag)
+		promptArgs := ""
+		if len(profile.PromptArgs) > 0 {
+			quoted := make([]string, len(profile.PromptArgs))
+			for i, arg := range profile.PromptArgs {
+				quoted[i] = strconv.Quote(arg)
+			}
+			promptArgs = ", prompt_args=[" + strings.Join(quoted, ", ") + "]"
+		}
+		fmt.Fprintf(cmd.Writer, "  %s: %s (%s%s%s)\n", cell(name, 80), strings.Join(args, " "), profile.Prompt, sessionIDFlag, promptArgs)
 	}
 	fmt.Fprintln(cmd.Writer, "CLI flags override environment variables; both override files.")
 	return nil
@@ -475,6 +483,9 @@ func configOutput(cfg config.Config) map[string]any {
 		view := map[string]any{"command": profile.Command, "prompt": profile.Prompt}
 		if profile.SessionIDFlag != "" {
 			view["session_id_flag"] = profile.SessionIDFlag
+		}
+		if len(profile.PromptArgs) > 0 {
+			view["prompt_args"] = profile.PromptArgs
 		}
 		profiles[name] = view
 	}

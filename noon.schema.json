@@ -69,6 +69,13 @@
         {
           "if": { "required": ["noop_exit_code"] },
           "then": { "required": ["run"] }
+        },
+        {
+          "if": { "required": ["agent_args"] },
+          "then": {
+            "required": ["agent"],
+            "anyOf": [{ "required": ["prompt"] }, { "required": ["prompt_file"] }]
+          }
         }
       ],
       "if": { "required": ["run"] },
@@ -104,6 +111,12 @@
         "agent": {
           "$ref": "#/definitions/name",
           "description": "Agent profile for prompt jobs; defaults to the machine's default_agent."
+        },
+        "agent_args": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Literal argv for a prompt job. Requires an explicit agent; values are not templated or expanded."
         },
         "cwd": {
           "$ref": "#/definitions/nonBlankString",

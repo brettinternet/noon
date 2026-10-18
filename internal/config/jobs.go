@@ -22,6 +22,7 @@ const MaxPromptBytes = 64 * 1024
 type AgentProfile struct {
 	Command       []string
 	Prompt        string
+	PromptArgs    []string
 	SessionIDFlag string
 }
 
@@ -40,7 +41,9 @@ type Job struct {
 	PromptFile         *string
 	Webhook            *Webhook
 	Agent              string
+	AgentArgs          []string
 	AgentCommand       []string
+	AgentPromptArgs    []string
 	PromptMode         string
 	AgentSessionIDFlag string
 	CWD                string
@@ -267,9 +270,9 @@ func jobNoopExitCode(file, path string, node *yaml.Node) (int, error) {
 func BuiltInAgents() map[string]AgentProfile {
 	return map[string]AgentProfile{
 		"claude":   {Command: []string{"claude", "-p", "--permission-prompts", "none"}, Prompt: "stdin", SessionIDFlag: "--session-id"},
-		"codex":    {Command: []string{"codex", "exec", "-"}, Prompt: "stdin"},
-		"gemini":   {Command: []string{"gemini", "-p"}, Prompt: "argument"},
-		"opencode": {Command: []string{"opencode", "run", "--"}, Prompt: "argument"},
+		"codex":    {Command: []string{"codex", "exec"}, Prompt: "stdin", PromptArgs: []string{"-"}},
+		"gemini":   {Command: []string{"gemini"}, Prompt: "argument", PromptArgs: []string{"-p"}},
+		"opencode": {Command: []string{"opencode", "run"}, Prompt: "argument", PromptArgs: []string{"--"}},
 		"pi":       {Command: []string{"pi", "--print"}, Prompt: "stdin", SessionIDFlag: "--session-id"},
 	}
 }
@@ -316,6 +319,17 @@ func (cfg *Config) applyAgents(file string, node *yaml.Node) error {
 					return jobError(file, fieldValue, field, "must be stdin or argument")
 				}
 				profile.Prompt = text
+			case "prompt_args":
+				if fieldValue.Kind != yaml.SequenceNode || fieldValue.Tag != "!!seq" {
+					return jobError(file, fieldValue, field, "must be a string list")
+				}
+				for _, arg := range fieldValue.Content {
+					text, err := jobString(file, field, arg)
+					if err != nil {
+						return err
+					}
+					profile.PromptArgs = append(profile.PromptArgs, text)
+				}
 			case "session_id_flag":
 				text, err := jobString(file, field, fieldValue)
 				if err != nil {
@@ -370,6 +384,7 @@ func (cfg *Config) resolveAgents() error {
 			return fmt.Errorf("job %q: unknown agent %q; known agents: %s", name, job.Agent, strings.Join(agentNames(cfg.Agents), ", "))
 		}
 		job.AgentCommand = append([]string(nil), profile.Command...)
+		job.AgentPromptArgs = append([]string(nil), profile.PromptArgs...)
 		job.PromptMode = profile.Prompt
 		job.AgentSessionIDFlag = profile.SessionIDFlag
 		job.execution["agent"] = job.Agent
@@ -513,6 +528,21 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				return Job{}, jobError(file, value, field, "must be a valid agent profile name")
 			}
 			job.Agent, execution[key] = text, text
+		case "agent_args":
+			if value.Kind != yaml.SequenceNode || value.Tag != "!!seq" || len(value.Content) == 0 {
+				return Job{}, jobError(file, value, field, "must be a non-empty list of strings")
+			}
+			for _, arg := range value.Content {
+				text, err := jobString(file, field, arg)
+				if err != nil {
+					return Job{}, err
+				}
+				if strings.IndexByte(text, 0) >= 0 {
+					return Job{}, jobError(file, arg, field, "must not contain NUL")
+				}
+				job.AgentArgs = append(job.AgentArgs, text)
+			}
+			execution[key] = job.AgentArgs
 		case "env":
 			env, err := jobMapping(file, field, value)
 			if err != nil {
@@ -600,6 +630,14 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 	}
 	if value := fields["noop_exit_code"]; value != nil && job.Run == nil {
 		return Job{}, jobError(file, value, path+".noop_exit_code", "only valid for run jobs")
+	}
+	if value := fields["agent_args"]; value != nil {
+		if job.Run != nil {
+			return Job{}, jobError(file, value, path+".agent_args", "only valid for prompt or prompt_file jobs")
+		}
+		if fields["agent"] == nil {
+			return Job{}, jobError(file, value, path+".agent_args", "requires an explicit agent on the job")
+		}
 	}
 	if job.Requests == "each" && fields["cooldown"] != nil {
 		return Job{}, jobError(file, fields["cooldown"], path+".cooldown", "cannot be used with requests: each")
