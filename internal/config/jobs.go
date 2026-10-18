@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -24,6 +25,8 @@ type AgentProfile struct {
 	Prompt        string
 	PromptArgs    []string
 	SessionIDFlag string
+	// shared marks a profile from an approval-gated --config file; its fields join prompt-job digests.
+	shared bool
 }
 
 type Webhook struct {
@@ -277,7 +280,7 @@ func BuiltInAgents() map[string]AgentProfile {
 	}
 }
 
-func (cfg *Config) applyAgents(file string, node *yaml.Node) error {
+func (cfg *Config) applyAgents(file string, node *yaml.Node, shared bool) error {
 	profiles, err := jobMapping(file, "agents", node)
 	if err != nil {
 		return err
@@ -291,7 +294,7 @@ func (cfg *Config) applyAgents(file string, node *yaml.Node) error {
 		if _, err := jobMapping(file, path, profiles[name]); err != nil {
 			return err
 		}
-		profile := AgentProfile{Prompt: "stdin"}
+		profile := AgentProfile{Prompt: "stdin", shared: shared}
 		for j := 0; j < len(value.Content); j += 2 {
 			fieldNode, fieldValue := value.Content[j], value.Content[j+1]
 			field := path + "." + fieldNode.Value
@@ -388,7 +391,13 @@ func (cfg *Config) resolveAgents() error {
 		job.PromptMode = profile.Prompt
 		job.AgentSessionIDFlag = profile.SessionIDFlag
 		job.execution["agent"] = job.Agent
-		data, err := json.Marshal(job.execution)
+		digested := job.execution
+		if profile.shared {
+			// The profile shares the job's approval-gated source, so changing what it runs needs approval.
+			digested = maps.Clone(job.execution)
+			digested["agent_profile"] = map[string]any{"command": profile.Command, "prompt": profile.Prompt, "prompt_args": profile.PromptArgs, "session_id_flag": profile.SessionIDFlag}
+		}
+		data, err := json.Marshal(digested)
 		if err != nil {
 			return err
 		}

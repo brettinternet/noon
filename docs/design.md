@@ -237,7 +237,9 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   can add `.noon.yaml` despite ignore rules, so Noon never loads it.
 - The digest covers what runs and when (schedule, action, agent, cwd, env, timeout, overlap, missed,
   cooldown, hooks, webhook, `os`, `arch`, and `requests` when explicitly set), not the description, and not
-  referenced file contents. Omitting `requests` preserves existing job digests.
+  referenced file contents. Omitting `requests` preserves existing job digests. A prompt job's
+  digest also covers its agent profile when that profile comes from the same `--config` file;
+  built-in and user-config profiles are machine choices and stay out.
 - `noon add` enables the project when the new job has a schedule or queued run, and approves only
   that job. Foreground `noon run NAME` is explicit and needs no approval; anything the scheduler
   runs (scheduled, catch-up, queued, webhook) does.

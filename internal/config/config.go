@@ -402,7 +402,7 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 		if kind != "user" && kind != "explicit" {
 			return jobError(path, node, "agents", "allowed only in user config or --config files")
 		}
-		if err := cfg.applyAgents(path, node); err != nil {
+		if err := cfg.applyAgents(path, node, kind == "explicit"); err != nil {
 			return err
 		}
 	}

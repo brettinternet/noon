@@ -144,6 +144,15 @@ func TestEnableApproval(t *testing.T) {
 			t.Fatalf("notice: %d %s %s", code, &out, &stderr)
 		}
 	}
+	// A profile defined in the approval-gated file must not change what an approved job runs.
+	profiles := "agents:\n  foo: {command: [cat]}\njobs:\n  p: {schedule: daily, prompt: hi, agent: foo}\n  r: {schedule: daily, run: 'true'}\n"
+	write("explicit.yaml", profiles)
+	enable("--config", "explicit.yaml")
+	check(true, map[string]string{"p": "approved", "r": "approved"}, "--config", "explicit.yaml")
+	for _, change := range []string{"{command: [sh, -c, cat]}", "{command: [cat], prompt_args: [-n]}", "{command: [cat], prompt: argument}", "{command: [cat], session_id_flag: --id}"} {
+		write("explicit.yaml", strings.Replace(profiles, "{command: [cat]}", change, 1))
+		check(true, map[string]string{"p": "needs_approval", "r": "approved"}, "--config", "explicit.yaml")
+	}
 	write("explicit.yaml", "jobs: {t: {run: 'true', invalid: field}}\n")
 	if code, result := invoke(t, "disable", "--config", "explicit.yaml", "--json"); code != 0 {
 		t.Fatalf("disable invalid explicit job: %d %+v", code, result)

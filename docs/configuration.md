@@ -361,8 +361,10 @@ The digest is a SHA-256 of the job's execution fields: schedule, action, agent n
 timeout, `noop_exit_code`, overlap, missed, cooldown, hooks, webhook, and platform constraints
 (`os` and `arch`). `requests` joins the digest only when
 explicitly present, so jobs that omit it keep their existing digest and approval. Changing the
-description doesn't require re-approval. Agent profile commands and user-config hook defaults are
-yours and excluded. **The digest doesn't cover the contents of referenced scripts or prompt files.**
+description doesn't require re-approval. A prompt job whose agent profile is defined in the same
+`--config` file also digests that profile's `command`, `prompt`, `prompt_args`, and
+`session_id_flag`. Built-in and user-config profiles and user-config hook defaults are yours and
+excluded. **The digest doesn't cover the contents of referenced scripts or prompt files.**
 
 `noon enable` records the project's canonical path and its config selection (automatic files or
 the absolute `--config` path), then approves every current shared job. Re-running it keeps
