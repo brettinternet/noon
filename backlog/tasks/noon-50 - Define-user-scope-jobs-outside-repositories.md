@@ -4,7 +4,7 @@ title: Run personal jobs from user config with --user
 status: Done
 assignee: []
 created_date: '2026-10-16 01:43'
-updated_date: '2026-10-17 21:08'
+updated_date: '2026-10-18 18:07'
 labels:
   - config
   - cli
@@ -122,6 +122,8 @@ Independent acceptance verification passed. Only concrete correction was restori
 Delivery: f2623b5 fast-forward merged into main. Owned worktree and branch feat/noon-50-user-jobs removed using Worktrunk; exact Herdr workspace wG1 disappeared. No retained checkout/workspace, no push. No blocker or next resumable implementation step.
 
 Post-completion review 2026-10-17: two P2 findings, independently source-traced and confirmed by parent against current callers. (1) internal/mcp/server.go:312-330 projectInput sets input.Project but preserves input.User. A server started with noon --user mcp therefore rejects list_jobs with any explicit absolute project, including the user directory, at internal/config/config.go:197-199 (--user conflicts with --project). Clear User when an MCP request supplies project; add regression coverage for explicit user-directory and repository selection from a user-default server. (2) internal/scheduler/serve.go:700-706 configPaths omits user config.yaml for explicit-config projects, although internal/config/config.go:121-123 validates that file on load. Editing only a user job after initial load is therefore invisible to reloadProject (serve.go:556-563): no config error is recorded until a watched path changes or forced reload. Include the user config in watched paths; verify invalid user edits report an error while retaining the last-good snapshot. Findings are static traces, not dedicated executable reproductions; no source fixes made in this review. Verification: task cli:test with config, store, scheduler, httpapi, cli, mcp and integration packages and -- -count=1 passed; task test passed across all packages. Existing suites do not cover these two combinations. reviewed denotes review completed, not defect-free approval.
+
+Review findings resolved in fe36eb8: explicit MCP/HTTP project selection clears --user (internal/mcp/server.go projectInput, internal/app/projects.go inputForProject); configPaths watches user config.yaml for explicit-config projects. Regressions added to TestMCP and TestServeConfigSelectionRecovery; both fail without the fix. task ci passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
