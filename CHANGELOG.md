@@ -6,7 +6,21 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- Capture log receipt timestamps
+
+### Fixed
+
+- **store:** Keep log timing honest after failures and stale sidecars
+
+## [v0.7.0](https://github.com/brettinternet/noon/compare/v0.6.0...v0.7.0) - 2026-10-19
+
+### Added
+
 - **cli:** Support multiple job targets
+
+### Documentation
+
+- Refresh changelog
 
 ## [v0.6.0](https://github.com/brettinternet/noon/compare/v0.5.0...v0.6.0) - 2026-10-19
 
