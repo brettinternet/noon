@@ -86,7 +86,13 @@ func (l *RunLog) Write(p []byte) (int, error) {
 			}
 			l.tail = append(l.tail, p...)
 		}
-		l.tailTiming = append(l.tailTiming, TimingRecord{Start: tailStart, End: tailStart + int64(len(p)), UnixMilli: at.UnixMilli()})
+		// Tail records are contiguous; merging same-millisecond writes bounds them
+		// by distinct receipt times rather than by write count.
+		if last := len(l.tailTiming) - 1; last >= 0 && l.tailTiming[last].End == tailStart && l.tailTiming[last].UnixMilli == at.UnixMilli() {
+			l.tailTiming[last].End += int64(len(p))
+		} else {
+			l.tailTiming = append(l.tailTiming, TimingRecord{Start: tailStart, End: tailStart + int64(len(p)), UnixMilli: at.UnixMilli()})
+		}
 		l.clipTailTiming(l.first + l.tailBytes - int64(len(l.tail)))
 		l.lastByte, l.hasLastByte = p[len(p)-1], true
 	}
@@ -123,15 +129,8 @@ func (l *RunLog) Close() (bytes int64, truncated bool, err error) {
 		l.writeErr = l.file.Sync()
 	}
 	if l.timing != nil {
-		if err := l.timing.Sync(); err != nil {
-			l.disableTiming()
-		} else if err := l.timing.Close(); err != nil {
-			path := l.timing.Name()
-			l.timing = nil
-			_ = os.Remove(path)
-		} else {
-			l.timing = nil
-		}
+		_ = l.timing.Sync()
+		l.disableTiming()
 	}
 	if closeErr := l.file.Close(); l.writeErr == nil {
 		l.writeErr = closeErr
@@ -157,14 +156,15 @@ func (l *RunLog) appendTiming(records []TimingRecord) {
 	}
 }
 
+// disableTiming stops further capture but keeps records already written, so
+// earlier lines stay timed and later lines become unavailable. Readers ignore
+// a torn final record.
 func (l *RunLog) disableTiming() {
 	if l.timing == nil {
 		return
 	}
-	path := l.timing.Name()
 	_ = l.timing.Close()
 	l.timing = nil
-	_ = os.Remove(path)
 }
 
 func (l *RunLog) clipTailTiming(start int64) {
@@ -172,10 +172,8 @@ func (l *RunLog) clipTailTiming(start int64) {
 	for first < len(l.tailTiming) && l.tailTiming[first].End <= start {
 		first++
 	}
-	if first > 0 {
-		copy(l.tailTiming, l.tailTiming[first:])
-		l.tailTiming = l.tailTiming[:len(l.tailTiming)-first]
-	}
+	// Reslicing keeps dropping amortized O(1); append reallocates only live records.
+	l.tailTiming = l.tailTiming[first:]
 	if len(l.tailTiming) > 0 && l.tailTiming[0].Start < start {
 		l.tailTiming[0].Start = start
 	}

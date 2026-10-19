@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -129,7 +130,13 @@ func (s *Store) ReadRunLogWithTiming(run Run) ([]byte, []TimingRecord, error) {
 	return data, readTimingRecords(timingPath(filepath.Join(s.dir, relative))), nil
 }
 
+// newTimingFile is called only after the log was created exclusively, so any
+// existing sidecar is stale (for example from a reused run ID) and must not be
+// read as timing for the new log.
 func newTimingFile(path string) *os.File {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil

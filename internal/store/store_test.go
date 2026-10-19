@@ -584,8 +584,49 @@ func TestRunLogTimingFailureDoesNotFailRawWrites(t *testing.T) {
 	}
 	run.LogPath = sql.NullString{String: log.Path(), Valid: true}
 	data, records, err := state.ReadRunLogWithTiming(run)
-	if err != nil || string(data) != "first\nsecond\n" || len(records) != 0 {
-		t.Fatalf("sidecar failure changed raw output or exposed partial timing: data=%q records=%+v err=%v", data, records, err)
+	if err != nil || string(data) != "first\nsecond\n" {
+		t.Fatalf("sidecar failure changed raw output: data=%q err=%v", data, err)
+	}
+	if _, ok := TimingAt(records, 0); !ok {
+		t.Fatal("sidecar failure discarded timing captured before it")
+	}
+	if _, ok := TimingAt(records, int64(len("first\n"))); ok {
+		t.Fatal("line written after sidecar failure acquired a timestamp")
+	}
+}
+
+func TestRunLogReplacesStaleTimingSidecar(t *testing.T) {
+	state, project := testStore(t)
+	run := createTestRun(t, state, project, "stale")
+	dir := filepath.Join(state.dir, "logs", fmt.Sprint(project))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// An orphaned sidecar from an earlier run with the same ID must not time the new log.
+	stale := make([]byte, timingRecordSize)
+	binary.LittleEndian.PutUint64(stale[8:16], 100)
+	binary.LittleEndian.PutUint64(stale[16:24], 1)
+	if err := os.WriteFile(timingPath(filepath.Join(dir, fmt.Sprintf("%d.log", run.ID))), stale, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	log, err := state.RunLog(project, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log.now = func() time.Time { return time.UnixMilli(5000) }
+	if _, err := log.Write([]byte("fresh\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := log.Close(); err != nil {
+		t.Fatal(err)
+	}
+	run.LogPath = sql.NullString{String: log.Path(), Valid: true}
+	_, records, err := state.ReadRunLogWithTiming(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := TimingAt(records, 0); !ok || got != 5000 {
+		t.Fatalf("new log timing=%d covered=%t; want fresh capture 5000", got, ok)
 	}
 }
 
