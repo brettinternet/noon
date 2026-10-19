@@ -1,10 +1,10 @@
 ---
 id: NOON-61
 title: Capture log timestamps and expose optional timestamped views
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-19 17:50'
-updated_date: '2026-10-19 17:59'
+updated_date: '2026-10-19 19:44'
 labels: []
 dependencies:
   - NOON-25
@@ -51,17 +51,47 @@ Dependencies: NOON-25 (bounded raw log reads), NOON-28 (hook sections), NOON-13 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 mise exec -- task cli:test PKG="./internal/store ./internal/runner ./internal/app" -- -count=1 -> exit 0. Extend existing critical-path tests after implementation to verify, with an injected clock: first-byte receipt timing across split writes/partial lines and interleaved stdout/stderr, UTC persistence, head/tail truncation rebasing with the omission marker uncovered, hook output timing rebased past its marker, sidecar removal with retention, and that a missing, torn, or short sidecar yields unavailable lines (never neighbouring times) while raw bytes and cursors stay unchanged.
-- [ ] #2 mise exec -- task cli:test PKG=./internal/cli -- -count=1 -> exit 0. Observable CLI checks cover --timestamps/-t, local offset and millisecond formatting, the unavailable placeholder, prefix order with --match/--context, unchanged default and foreground output, timestamped follow without newline buffering or duplicate prefixes on resumed partial lines, raw cursor continuity across bounded/search/section reads, --json line_times only with --timestamps, and --path with --timestamps rejected.
-- [ ] #3 mise exec -- task cli:test PKG="./internal/mcp ./internal/httpapi ./internal/tui" -- -count=1 -> exit 0. MCP timestamps:true and HTTP timestamps=true return line_times keyed by absolute line-start offsets; default payloads are byte-for-byte unchanged. TUI shows timestamps by default and toggles them without losing follow/search position; unavailable historical timing renders as the placeholder.
-- [ ] #4 mise exec -- task cli:build && mise exec -- task ci -> exit 0. Help and README/docs explain opt-in CLI/JSON/MCP/HTTP timestamps, default-on TUI display and toggle, receipt-versus-production time, local display/UTC storage, partial lines, the line_times schema, the sidecar file in the state layout, and historical-log behavior. Manually exercise the built CLI and TUI using isolated HOME/config/state and a local shell job with split writes (e.g. printf partial; sleep 1; printf rest); record exact commands and observed output in task notes.
+- [x] #1 mise exec -- task cli:test PKG="./internal/store ./internal/runner ./internal/app" -- -count=1 -> exit 0. Extend existing critical-path tests after implementation to verify, with an injected clock: first-byte receipt timing across split writes/partial lines and interleaved stdout/stderr, UTC persistence, head/tail truncation rebasing with the omission marker uncovered, hook output timing rebased past its marker, sidecar removal with retention, and that a missing, torn, or short sidecar yields unavailable lines (never neighbouring times) while raw bytes and cursors stay unchanged.
+- [x] #2 mise exec -- task cli:test PKG=./internal/cli -- -count=1 -> exit 0. Observable CLI checks cover --timestamps/-t, local offset and millisecond formatting, the unavailable placeholder, prefix order with --match/--context, unchanged default and foreground output, timestamped follow without newline buffering or duplicate prefixes on resumed partial lines, raw cursor continuity across bounded/search/section reads, --json line_times only with --timestamps, and --path with --timestamps rejected.
+- [x] #3 mise exec -- task cli:test PKG="./internal/mcp ./internal/httpapi ./internal/tui" -- -count=1 -> exit 0. MCP timestamps:true and HTTP timestamps=true return line_times keyed by absolute line-start offsets; default payloads are byte-for-byte unchanged. TUI shows timestamps by default and toggles them without losing follow/search position; unavailable historical timing renders as the placeholder.
+- [x] #4 mise exec -- task cli:build && mise exec -- task ci -> exit 0. Help and README/docs explain opt-in CLI/JSON/MCP/HTTP timestamps, default-on TUI display and toggle, receipt-versus-production time, local display/UTC storage, partial lines, the line_times schema, the sidecar file in the state layout, and historical-log behavior. Manually exercise the built CLI and TUI using isolated HOME/config/state and a local shell job with split writes (e.g. printf partial; sleep 1; printf rest); record exact commands and observed output in task notes.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented receipt-time sidecars and timestamp views; raw logs, foreground output, default payloads, and raw-byte cursors remain unchanged. All changed files are within the contract; no tests deleted, skipped, or weakened. Docs/help describe implemented behavior.
+
+AC#1: mise exec -- task cli:test PKG="./internal/store ./internal/runner ./internal/app" -- -count=1 -> exit 0. Injected-clock coverage includes split writes, truncated head/tail rebasing, hook timing, missing/torn/failed sidecars, retention.
+AC#2: mise exec -- task cli:test PKG=./internal/cli -- -count=1 -> exit 0. After review correction, full CLI package tests passed again; timestamped bounded pages now emit resume guidance with raw cursor and --timestamps.
+AC#3: mise exec -- task cli:test PKG="./internal/mcp ./internal/httpapi ./internal/tui" -- -count=1 -> exit 0. After review correction, full TUI tests passed again; timestamp toggle preserves source anchor, selected match, and tail follow across wrapping changes. gopls diagnostics clean.
+AC#4: mise exec -- task cli:build && mise exec -- task ci -> exit 0 in worktree and again on integrated implementation commit 34a3bb5. Security, formatting, vet, Staticcheck, all tests, race tests, and smoke passed.
+
+Manual checks used /tmp/noon61-manual/project/noon.yaml with shell command: printf partial; sleep 1; printf " rest\\nsecond\\n".
+From /tmp/noon61-manual/project, run each command with:
+env -i PATH=/usr/bin:/bin:/opt/homebrew/bin HOME=/tmp/noon61-manual/home XDG_CONFIG_HOME=/tmp/noon61-manual/config XDG_STATE_HOME=/tmp/noon61-manual/state NOON_STATE_DIR=/tmp/noon61-manual/state/noon /Users/brett/dev/me/noon/.worktrees/feat-log-timestamps/bin/noon
+Arguments: run split -> raw stdout "partial rest" then "second".
+Arguments: logs split --timestamps -> "2026-10-19T13:24:13.344-06:00 partial rest" and "2026-10-19T13:24:14.352-06:00 second".
+TUI command (same project cwd):
+expect -c 'set timeout 8; log_file -noappend /tmp/noon61-manual/tui.typescript; spawn -noecho env -i PATH=/usr/bin:/bin:/opt/homebrew/bin HOME=/tmp/noon61-manual/home XDG_CONFIG_HOME=/tmp/noon61-manual/config XDG_STATE_HOME=/tmp/noon61-manual/state NOON_STATE_DIR=/tmp/noon61-manual/state/noon /Users/brett/dev/me/noon/.worktrees/feat-log-timestamps/bin/noon tui; sleep 1; send "l"; sleep 1; send "t"; sleep 1; send "t"; sleep 1; send "?"; sleep 1; send "q"; expect eof'
+Observed timestamps by default, "Log timestamps off." after t, and help listing the toggle. Fixture/transcript retained outside checkout; smoke fixtures retained by smoke script.
+
+Single independent review found two P2 issues (missing CLI resume guidance and TUI wrapped-row viewport jump); both fixed with focused regression coverage and package checks. No further validated metadata defects. Initial executor timed out during validation; resumed its preserved work and completed checks.
+
+Delivery: implementation 358c573, merged locally into main as 34a3bb5; no push. Worklease claim e87df1c6a86d9079cb8978c5861115bd, authority 5c3be162a660fb7434fde16d059bdd47, worker 01a1554e-4dac-7248-b935-c64beb629e2a. Created worktree /Users/brett/dev/me/noon/.worktrees/feat-log-timestamps, branch feat/log-timestamps, creation commit 2f5464bcd27d69734056dddcb808d0a801bf5a9b; receipt verified in .git/worktrees/feat-log-timestamps/agent-creation.json against this session before removal. All delegated runs finished. Worktrunk removed integrated clean worktree and branch; exact associated Herdr workspace wHJ had only idle zsh and is verified gone. No retained task worktrees or blockers.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented optional timestamped CLI/JSON/MCP/HTTP logs and default-on TUI timestamps, preserving raw bytes and cursors. Reviewed, verified, committed and merged locally; owned worktree and workspace cleaned up. No push.
+<!-- SECTION:FINAL_SUMMARY:END -->
