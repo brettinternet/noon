@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,6 +22,249 @@ import (
 	"github.com/brettinternet/noon/internal/scheduler"
 	"github.com/brettinternet/noon/internal/store"
 )
+
+func TestTimestampedLogViews(t *testing.T) {
+	root := sandbox(t)
+	stateDir := filepath.Join(root, "state-dir")
+	t.Setenv("NOON_STATE_DIR", stateDir)
+	manifest := `jobs:
+  timed:
+    run: "printf 'alpha\\nFAIL bad\\nomega\\n'"
+`
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var runOut, runErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "run", "timed"}, config.BuildOpts{}, &runOut, &runErr); code != 0 || runOut.String() != "alpha\nFAIL bad\nomega\n" {
+		t.Fatalf("foreground run output was prefixed or changed: exit=%d stdout=%q stderr=%q", code, runOut.String(), runErr.String())
+	}
+	var jsonRunOut, jsonRunErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "run", "timed", "--json"}, config.BuildOpts{}, &jsonRunOut, &jsonRunErr); code != 0 {
+		t.Fatalf("create timestamp fixture run: exit=%d stdout=%s stderr=%s", code, jsonRunOut.String(), jsonRunErr.String())
+	}
+	var runResult map[string]any
+	if err := json.Unmarshal(jsonRunOut.Bytes(), &runResult); err != nil {
+		t.Fatal(err)
+	}
+	runID := int64(runResult["run"].(map[string]any)["id"].(float64))
+	state, err := store.OpenExisting(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := state.RunByID(runID)
+	if err != nil {
+		_ = state.Close()
+		t.Fatal(err)
+	}
+	t1 := time.Date(2026, 10, 19, 12, 34, 56, 789_000_000, time.UTC)
+	t2 := t1.Add(time.Second)
+	records := []store.TimingRecord{
+		{Start: 0, End: int64(len("alpha\n")), UnixMilli: t1.UnixMilli()},
+		{Start: int64(len("alpha\n")), End: int64(len("alpha\nFAIL bad\n")), UnixMilli: t2.UnixMilli()},
+	}
+	encoded := make([]byte, len(records)*24)
+	for i, record := range records {
+		start := i * 24
+		binary.LittleEndian.PutUint64(encoded[start:start+8], uint64(record.Start))
+		binary.LittleEndian.PutUint64(encoded[start+8:start+16], uint64(record.End))
+		binary.LittleEndian.PutUint64(encoded[start+16:start+24], uint64(record.UnixMilli))
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, stored.LogPath.String)+".timing", encoded, 0o600); err != nil {
+		_ = state.Close()
+		t.Fatal(err)
+	}
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	invokeText := func(args ...string) (int, string, string) {
+		t.Helper()
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)
+		return code, out.String(), stderr.String()
+	}
+	const raw = "alpha\nFAIL bad\nomega\n"
+	if code, out, _ := invokeText("logs", fmt.Sprint(runID)); code != 0 || out != raw {
+		t.Fatalf("default log changed: exit=%d output=%q", code, out)
+	}
+	code, out, _ := invokeText("logs", fmt.Sprint(runID), "-t")
+	want := app.LogTimestampLabel(stringPointerForTest(store.FormatTime(t1))) + " alpha\n" +
+		app.LogTimestampLabel(stringPointerForTest(store.FormatTime(t2))) + " FAIL bad\n" +
+		strings.Repeat("-", app.LogTimestampWidth) + " omega\n"
+	if code != 0 || out != want {
+		t.Fatalf("timestamped output: exit=%d got=%q want=%q", code, out, want)
+	}
+	prefix := strings.SplitN(out, " ", 2)[0]
+	if len(prefix) != app.LogTimestampWidth || prefix[19] != '.' || prefix[23] != '+' && prefix[23] != '-' || prefix[26] != ':' {
+		t.Fatalf("timestamp prefix lacks fixed milliseconds or explicit offset: %q", prefix)
+	}
+	code, out, _ = invokeText("logs", fmt.Sprint(runID), "--match", "FAIL", "--context", "1", "--timestamps")
+	want = app.LogTimestampLabel(stringPointerForTest(store.FormatTime(t1))) + " 1-alpha\n" +
+		app.LogTimestampLabel(stringPointerForTest(store.FormatTime(t2))) + " 2:FAIL bad\n" +
+		strings.Repeat("-", app.LogTimestampWidth) + " 3-omega\n"
+	if code != 0 || out != want {
+		t.Fatalf("timestamp prefix ordering with search/context: exit=%d got=%q want=%q", code, out, want)
+	}
+
+	code, jsonOut, _ := invokeText("--json", "logs", fmt.Sprint(runID))
+	if code != 0 {
+		t.Fatalf("default JSON log: exit=%d output=%s", code, jsonOut)
+	}
+	var plain map[string]any
+	if err := json.Unmarshal([]byte(jsonOut), &plain); err != nil || plain["log"] != raw {
+		t.Fatalf("default JSON log changed: %s err=%v", jsonOut, err)
+	}
+	if _, ok := plain["line_times"]; ok {
+		t.Fatalf("default JSON unexpectedly included line_times: %+v", plain)
+	}
+	code, jsonOut, _ = invokeText("--json", "logs", fmt.Sprint(runID), "--timestamps")
+	var timestamped map[string]any
+	if code != 0 || json.Unmarshal([]byte(jsonOut), &timestamped) != nil || timestamped["log"] != raw {
+		t.Fatalf("timestamp JSON changed raw log: exit=%d output=%s", code, jsonOut)
+	}
+	lineTimes := timestamped["line_times"].([]any)
+	if len(lineTimes) != 3 || lineTimes[0].(map[string]any)["offset"] != float64(0) || lineTimes[1].(map[string]any)["offset"] != float64(len("alpha\n")) || lineTimes[2].(map[string]any)["time"] != nil {
+		t.Fatalf("timestamp JSON line_times = %+v", lineTimes)
+	}
+	if !strings.Contains(timestamped["resume"].(string), "--timestamps") {
+		t.Fatalf("resume guidance dropped timestamps option: %+v", timestamped)
+	}
+	code, jsonOut, _ = invokeText("--json", "logs", fmt.Sprint(runID), "--timestamps", "--after-cursor", "0", "--limit-bytes", "3")
+	var page map[string]any
+	if code != 0 || json.Unmarshal([]byte(jsonOut), &page) != nil || page["log"] != "alp" || page["next"] != float64(3) {
+		t.Fatalf("timestamped raw page/cursor changed: exit=%d output=%s", code, jsonOut)
+	}
+	selectionArgs := []string{"logs", fmt.Sprint(runID), "--after-cursor", "0", "--limit-bytes", "3"}
+	code, _, rawGuidance := invokeText(selectionArgs...)
+	if code != 0 || !strings.HasPrefix(rawGuidance, "next: noon logs ") || !strings.Contains(rawGuidance, "--after-cursor 3 --limit-bytes 3") {
+		t.Fatalf("raw selection guidance: exit=%d stderr=%q", code, rawGuidance)
+	}
+	code, _, timestampGuidance := invokeText(append(selectionArgs, "--timestamps")...)
+	wantGuidance := strings.Replace(rawGuidance, " --limit-bytes 3", " --timestamps --limit-bytes 3", 1)
+	if code != 0 || timestampGuidance != wantGuidance {
+		t.Fatalf("timestamped selection guidance: exit=%d stderr=%q want=%q", code, timestampGuidance, wantGuidance)
+	}
+	if code, _, errOut := invokeText("logs", fmt.Sprint(runID), "--path", "--timestamps"); code != 2 || !strings.Contains(errOut, "cannot be used with --timestamps") {
+		t.Fatalf("--path accepted --timestamps: exit=%d stderr=%q", code, errOut)
+	}
+}
+
+type logChunkWriter chan []byte
+
+func (w logChunkWriter) Write(p []byte) (int, error) {
+	w <- bytes.Clone(p)
+	return len(p), nil
+}
+
+func TestTimestampedFollowStreamsPartialLinesOnce(t *testing.T) {
+	root := sandbox(t)
+	stateDir := filepath.Join(root, "state-dir")
+	t.Setenv("NOON_STATE_DIR", stateDir)
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte("version: 1\njobs: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	now := time.Date(2026, 10, 19, 16, 0, 0, 0, time.UTC)
+	project, err := state.RegisterProject(root, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := runner.ProcessStartIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := state.CreateRun(store.NewRun{ProjectID: project, Job: "follow", Trigger: "manual", Digest: "test", Now: now, OwnerPID: os.Getpid(), OwnerStart: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := state.RunLog(project, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := log.Write([]byte("partial")); err != nil {
+		t.Fatal(err)
+	}
+
+	chunks := make(logChunkWriter, 16)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	result := make(chan int, 1)
+	go func() {
+		result <- cli.Run(ctx, []string{"noon", "logs", fmt.Sprint(run.ID), "--follow", "--timestamps"}, config.BuildOpts{}, chunks, io.Discard)
+	}()
+	var displayed strings.Builder
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	for !strings.Contains(displayed.String(), "partial") {
+		select {
+		case chunk := <-chunks:
+			displayed.Write(chunk)
+		case <-deadline.C:
+			t.Fatalf("follow buffered a partial line until newline: %q", displayed.String())
+		}
+	}
+
+	if _, err := log.Write([]byte(" continuation\n")); err != nil {
+		t.Fatal(err)
+	}
+	logBytes, truncated, err := log.Close()
+	if err != nil || truncated {
+		t.Fatalf("close followed log: bytes=%d truncated=%t err=%v", logBytes, truncated, err)
+	}
+	exit := 0
+	if err := state.FinishRun(run.ID, project, run.Job, store.Outcome{Status: "succeeded", FinishedAt: now.Add(2 * time.Second), ExitCode: &exit, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-result:
+		if code != 0 {
+			t.Fatalf("timestamped follow exit=%d output=%q", code, displayed.String())
+		}
+	case <-ctx.Done():
+		t.Fatalf("timestamped follow did not stop: %q", displayed.String())
+	}
+	for {
+		select {
+		case chunk := <-chunks:
+			displayed.Write(chunk)
+		default:
+			goto drained
+		}
+	}
+drained:
+	completed, err := state.RunByID(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, timing, err := state.ReadRunLogWithTiming(completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	millis, ok := store.TimingAt(timing, 0)
+	if !ok {
+		t.Fatalf("first partial line lost its captured timing: %+v", timing)
+	}
+	firstTime := store.FormatTime(time.UnixMilli(millis))
+	want := app.LogTimestampLabel(&firstTime) + " partial continuation\n"
+	if displayed.String() != want {
+		t.Fatalf("follow duplicated prefix or altered stream: got=%q want=%q", displayed.String(), want)
+	}
+
+	var resumedOut, resumedErr bytes.Buffer
+	code := cli.Run(context.Background(), []string{"noon", "logs", fmt.Sprint(run.ID), "--follow", "--timestamps", "--after-cursor", "3"}, config.BuildOpts{}, &resumedOut, &resumedErr)
+	if code != 0 || resumedOut.String() != "tial continuation\n" {
+		t.Fatalf("resumed partial line got prefix or changed cursor: exit=%d output=%q stderr=%q", code, resumedOut.String(), resumedErr.String())
+	}
+}
+
+func stringPointerForTest(value string) *string { return &value }
 
 func TestHistoryAndLogs(t *testing.T) {
 	t.Run("history, target selection, retention and shared JSON", func(t *testing.T) {
@@ -608,7 +852,7 @@ func TestLogsFollow(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatal("orphan follow did not stop within 3s")
 		}
-		err = app.FollowLog(ctx, stateDir, run.ID, nil, nil, io.Discard, io.Discard)
+		err = app.FollowLog(ctx, stateDir, run.ID, nil, nil, io.Discard, io.Discard, false)
 		if failure, ok := err.(*app.Error); !ok || failure.Code != "orphaned" {
 			t.Fatalf("orphan error=%v", err)
 		}

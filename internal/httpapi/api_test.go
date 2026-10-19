@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +16,109 @@ import (
 	"github.com/brettinternet/noon/internal/config"
 	"github.com/brettinternet/noon/internal/store"
 )
+
+func TestAPIGetRunTimestampsAreOptInAndUseRawOffsets(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(root, "state")
+	userConfigDir := filepath.Join(root, "user-config")
+	if err := os.MkdirAll(userConfigDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte("version: 1\njobs: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := config.Input{CWD: root, UserConfigDir: userConfigDir, StateDirDefault: stateDir}
+	cfg, err := config.Load(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := app.Enable(cfg, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	projects, err := state.ProjectRecords()
+	if err != nil || len(projects) != 1 {
+		t.Fatalf("project records=%+v err=%v", projects, err)
+	}
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	run, err := state.CreateRun(store.NewRun{ProjectID: projects[0].ID, Job: "timed", Trigger: "manual", Digest: "test", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := state.RunLog(projects[0].ID, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := log.Write([]byte("one\nmissing\ntwo\n")); err != nil {
+		t.Fatal(err)
+	}
+	logBytes, truncated, err := log.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+		t.Fatal(err)
+	}
+	exit := 0
+	if err := state.FinishRun(run.ID, projects[0].ID, run.Job, store.Outcome{Status: "succeeded", FinishedAt: now, ExitCode: &exit, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated}); err != nil {
+		t.Fatal(err)
+	}
+	firstAt := now.Add(time.Second)
+	lastAt := now.Add(3 * time.Second)
+	lastStart := int64(len("one\nmissing\n"))
+	records := []store.TimingRecord{
+		{Start: 0, End: int64(len("one\n")), UnixMilli: firstAt.UnixMilli()},
+		{Start: lastStart, End: int64(len("one\nmissing\ntwo\n")), UnixMilli: lastAt.UnixMilli()},
+	}
+	encoded := make([]byte, len(records)*24)
+	for i, record := range records {
+		start := i * 24
+		binary.LittleEndian.PutUint64(encoded[start:start+8], uint64(record.Start))
+		binary.LittleEndian.PutUint64(encoded[start+8:start+16], uint64(record.End))
+		binary.LittleEndian.PutUint64(encoded[start+16:start+24], uint64(record.UnixMilli))
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, log.Path())+".timing", encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := NewAPIHandler(input, stateDir)
+	request := func(query string) map[string]any {
+		t.Helper()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/v1/runs/%d%s", run.ID, query), nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("get_run %s: status=%d body=%s", query, response.Code, response.Body)
+		}
+		var value map[string]any
+		if err := json.Unmarshal(response.Body.Bytes(), &value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	const raw = "one\nmissing\ntwo\n"
+	plain := request("")
+	if plain["log"] != raw {
+		t.Fatalf("default API log changed: %+v", plain)
+	}
+	if _, ok := plain["line_times"]; ok {
+		t.Fatalf("default API response unexpectedly included line_times: %+v", plain)
+	}
+	timed := request("?timestamps=true")
+	lineTimes := timed["line_times"].([]any)
+	if timed["log"] != raw || len(lineTimes) != 3 || lineTimes[0].(map[string]any)["offset"] != float64(0) || lineTimes[1].(map[string]any)["offset"] != float64(len("one\n")) || lineTimes[1].(map[string]any)["time"] != nil || lineTimes[2].(map[string]any)["offset"] != float64(lastStart) {
+		t.Fatalf("timestamped API response changed text or offsets: %+v", timed)
+	}
+	if _, err := time.Parse(store.TimestampLayout, lineTimes[2].(map[string]any)["time"].(string)); err != nil {
+		t.Fatalf("API time is not UTC run-time format: %+v", lineTimes[2])
+	}
+}
 
 func TestAPIQueueRoutingAndErrorMapping(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())

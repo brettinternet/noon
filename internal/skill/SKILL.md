@@ -45,7 +45,10 @@ noon logs t --status failed --section job --match boom --context 1 --limit-bytes
 ```
 
 `--match` takes a case-sensitive Go RE2 pattern; prefix `(?i)` to ignore case.
-`--section job` keeps hook output from hiding the error. Read further by the
+`--section job` keeps hook output from hiding the error. Add `--timestamps` for local receipt-time
+prefixes; JSON adds raw-offset `line_times` only when requested. Receipt time is when Noon receives
+bytes, not when the child produces them, and historical or incomplete timing remains unavailable.
+Read further by the
 returned `run.id` (`1` below), not the job name, so a newer run cannot replace it.
 
 ## Page through a log

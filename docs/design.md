@@ -277,12 +277,25 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
 
 Log reading ([Command reference](cli.md#logs)):
 
+- Raw run logs remain combined byte files. A sibling `.log.timing` sidecar stores fixed-width UTC
+  receipt-time records by raw offsets; it is created with the log and pruned with it. A timestamp is
+  when Noon received bytes, not when the child produced them, so child-side buffering can delay it.
+  Each line takes the receipt time covering its first byte. Missing, torn, or historical metadata is
+  unavailable rather than inferred from run start, a neighboring line, or file modification time.
+- CLI `--timestamps` / `-t` and structured CLI JSON, MCP `get_run`, and HTTP API reads opt into
+  timing. Human prefixes use local `2006-01-02T15:04:05.000-07:00` with explicit offset; structured
+  `line_times` use UTC `2006-01-02T15:04:05.000Z` and `{offset,time}` entries keyed to each returned
+  raw line's first-byte file offset (`time` is null if unavailable). The `log` value and cursors stay
+  raw and unchanged. TUI logs show timestamps by default; `t` toggles them without resetting search
+  or follow position. Follow emits partial lines immediately and a continued line keeps its original
+  prefix/time.
 - Snapshots read one file state. Unflagged CLI reads include an active unterminated line; bounded
   CLI and MCP reads omit it so `next` stays on a line boundary.
 - CLI copyable guidance preserves explicit invocation selectors (including environment overrides)
   with absolute shell-quoted paths. Service suggestions use only state selection and clear
   unsupported selector environment variables. Log resume commands retain section/filter/byte-limit
-  selection, pin the run and cursor, and drop tail/status selection; JSON keeps numeric `next`
+  selection (and `--timestamps` when requested), pin the run and cursor, and drop tail/status
+  selection; JSON keeps numeric `next`
   and adds a copyable `resume` command.
 - Order: section range ∩ `[after, size)`, then match and context, then `--tail`, then
   `--limit-bytes` (newest whole lines without a cursor, earliest with one; a single oversized line is
@@ -313,8 +326,10 @@ worktrees, and lets one scheduler see every enabled project.
 
 - Location: `$XDG_STATE_HOME/noon`, else `~/.local/state/noon`; override with `NOON_STATE_DIR`,
   `--state-dir`, or user `state_dir`. Directories 0700, files 0600.
-- `noon.db` is SQLite (WAL, busy timeout) via `modernc.org/sqlite`. Beside it: `logs/PROJECT_ID/RUN_ID.log`,
-  `events/RUN_ID.json`, `locks/`, `scheduler.lock`, and the service's `scheduler.log`.
+- `noon.db` is SQLite (WAL, busy timeout) via `modernc.org/sqlite`. Beside it: raw
+  `logs/PROJECT_ID/RUN_ID.log` files and optional `RUN_ID.log.timing` sidecars, `events/RUN_ID.json`,
+  `locks/`, `scheduler.lock`, and the service's `scheduler.log`. Sidecars use 0600 permissions,
+  contain little-endian start/end offsets and Unix milliseconds, and are removed with retained logs.
 - Migrations are an append-only list keyed by `PRAGMA user_version`, applied in one transaction. A
   newer database is refused with an upgrade hint. Read-only commands never create state. State schema
   version 10 marks the incompatible noop status and retention semantics; version 11 adds the nullable
@@ -335,7 +350,7 @@ worktrees, and lets one scheduler see every enabled project.
   `duration_ms`, `exit_code`, `signal`, `error`, `requested_by`, `idempotency_key`, `due_at`,
   `cancel_requested_at`, `event_file`, `depth`, `log` (`path`, `bytes`, `truncated`, `available`,
   `hook_offset`), and `hook`. Paths are absolute; absent values are null.
-- Times are UTC text, `2006-01-02T15:04:05.000Z`, so they sort as strings.
+- Run and structured line times are UTC text, `2006-01-02T15:04:05.000Z`, so they sort as strings.
 - Retention: newest 50 terminal runs per job excluding `noop` and `skipped`, with logs and event
   files for the newest 10. Noops have an independent budget of the newest 10 runs with their logs
   and event files; skipped runs have another independent budget of the newest 10 rows (no logs,

@@ -51,7 +51,7 @@ Noon does not provide TLS or CORS.
 | `GET /v1/projects/{id}/jobs` | Jobs (`noon list --json` shape) |
 | `GET /v1/projects/{id}/runs?job=&status=&limit=` | Recent project runs |
 | `POST /v1/projects/{id}/jobs/{name}/runs` | Queue an approved job; optional body `{key,in,at,data}` |
-| `GET /v1/runs/{id}?wait_seconds=&log_bytes=&after=&tail=&match=&context=&section=` | Run and bounded log |
+| `GET /v1/runs/{id}?wait_seconds=&log_bytes=&after=&tail=&match=&context=&section=&timestamps=` | Run and bounded log |
 | `POST /v1/runs/{id}/cancel` | Cancel a queued or running run |
 
 Responses use the same `schema_version: 1` objects as MCP structured output and CLI JSON. Queueing
@@ -83,7 +83,7 @@ client setup examples, see [Agents](agents.md#remote-mcp-and-json-api).
 | All commands | `-C DIR` = `--project DIR`, `-j` = `--json`, `-h` = `--help` |
 | Root | `-v` = `--version` |
 | `history` | `-n N` = `--limit N`, `-s STATUS` = `--status STATUS` |
-| `logs` | `-f` = `--follow`, `-s STATUS` = `--status STATUS`; existing `-n/-c/-m/-b` below |
+| `logs` | `-f` = `--follow`, `-t` = `--timestamps`, `-s STATUS` = `--status STATUS`; existing `-n/-c/-m/-b` below |
 | `run` | `-d` = `--detach` |
 | `pause`, `resume` | `-a` = `--all` |
 | `add` | `-a NAME` = `--agent NAME`, `-p TEXT` = `--prompt TEXT`, `-t DURATION` = `--timeout DURATION` |
@@ -318,7 +318,9 @@ noon logs tests                   # latest started run of tests
 noon logs tests --status failed   # latest failure
 noon logs tests --status noop     # latest no-op poll
 noon logs 12 -f                   # --follow: wait for run 12, then stream it
+noon logs 12 -f -t                # stream with captured receipt-time prefixes
 noon logs 12 -n 50                # last 50 lines
+noon logs 12 --timestamps         # display timestamps without changing stored bytes
 noon logs 12 -m 'panic|FAIL' --context 3
 noon logs 12 --section job        # job output only, without hook output
 noon logs 12 -b 4096 -c 0         # first 4 KiB page
@@ -334,11 +336,23 @@ noon logs 12 --path               # absolute log file path
 | `-c`, `--after-cursor B` | Read forward from absolute byte offset `B` |
 | `-b`, `--limit-bytes N` | Cap output, keeping whole lines |
 | `-s`, `--status S` | Pick the latest run with these statuses |
+| `-t`, `--timestamps` | Prefix displayed lines with local receipt time; JSON adds structured `line_times` |
 
 Bounded reads print the resume command to stderr. JSON returns `log`, `next`, `size`, `truncated`,
 `matched_lines`, and a copyable `resume` command. Resume commands pin the run and cursor and retain
-`--section`, `--match`, `--context`, and `--limit-bytes`; they omit `--tail` and `--status` so the
-next read moves forward within that run. The numeric `next` remains the byte cursor.
+`--section`, `--match`, `--context`, `--limit-bytes`, and `--timestamps`; they omit `--tail` and
+`--status` so the next read moves forward within that run. The numeric `next` remains the raw-byte
+cursor. `log` is never timestamp-prefixed. With `--timestamps`, JSON adds one `line_times` entry per
+returned source line (including context and cut oversized lines), each `{ "offset": N, "time": T }`;
+`offset` is the absolute byte offset of the raw line's first byte, and `time` is a UTC
+`2006-01-02T15:04:05.000Z` string or null. Without the flag, JSON stays unchanged.
+
+A displayed CLI prefix uses local `2006-01-02T15:04:05.000-07:00` (29 columns, explicit offset),
+then a space and any existing search/context prefix. Missing timing displays as 29 dashes. The stored
+time is when Noon received the bytes, not when the child produced them; child buffering can delay
+receipt. Follow prints partial lines as bytes arrive without waiting for newline, and a resumed
+continuation does not get a second timestamp prefix. Historical logs and incomplete sidecars remain
+readable with unavailable timestamps, never estimated from neighboring lines or run start.
 
 Action guidance preserves explicit project, config, state-directory, and timezone selectors,
 including environment-selected overrides, with absolute, shell-quoted paths. It does not copy
@@ -358,7 +372,7 @@ Rules:
 
 - Only `--status` can select a queued or never-started run. A run ID can't be combined with
   `--status`.
-- `--follow` accepts only `--tail` and `--after-cursor`. `--path` combines with nothing.
+- `--follow` accepts only `--tail` and `--after-cursor`. `--path` combines with nothing, including `--timestamps`.
 - Bounded reads omit an unfinished last line of an active run. Unflagged reads include it.
 - If the run's owner exits without recording a result, `--follow` prints what's left and exits 1
   with code `orphaned`. Record it with `noon cancel RUN`. Reading never repairs or cancels runs.
@@ -405,6 +419,8 @@ Warnings exit 0; failures exit 1. JSON has `ok` and `checks` (`name`, `status`, 
 ## TUI
 
 `noon tui` needs a terminal and refreshes every second. It never edits jobs or enables projects.
+Log timestamps are shown by default, using the same local offset format and unavailable placeholder as
+`noon logs --timestamps`; `t` toggles them without resetting follow or search position.
 
 | Key | Action |
 | --- | --- |
@@ -414,6 +430,7 @@ Warnings exit 0; failures exit 1. JSON has `ok` and `checks` (`name`, `status`, 
 | `f` | Cycle run status filter |
 | `/` | Search the log (RE2, three lines of context) |
 | `s` | Cycle job / hook / all log sections |
+| `t` | Toggle log timestamps (shown by default) |
 | `g` / `G` | Top / bottom of log |
 | `r` | Queue the selected job now |
 | `p` | Pause or resume the selected job |

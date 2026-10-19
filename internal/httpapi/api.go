@@ -270,7 +270,7 @@ func (h *APIHandler) getRun(w http.ResponseWriter, r *http.Request, id int64) {
 	}
 	if err := onlyQueryKeys(map[string]bool{
 		"wait_seconds": true, "log_bytes": true, "after": true, "tail": true,
-		"match": true, "context": true, "section": true,
+		"match": true, "context": true, "section": true, "timestamps": true,
 	})(r.URL.Query()); err != nil {
 		h.writeError(w, err, 0)
 		return
@@ -322,7 +322,12 @@ func (h *APIHandler) getRun(w http.ResponseWriter, r *http.Request, id int64) {
 	if section == nil {
 		section = stringPointer("all")
 	}
-	logQuery := app.LogQuery{Section: *section, After: after, Tail: tail, Match: match, Context: contextLines, LimitBytes: &logBytes, RepairUTF8: true}
+	timestamps, err := boolQuery(query, "timestamps", false)
+	if err != nil {
+		h.writeError(w, err, 0)
+		return
+	}
+	logQuery := app.LogQuery{Section: *section, After: after, Tail: tail, Match: match, Context: contextLines, LimitBytes: &logBytes, RepairUTF8: true, Timestamps: timestamps}
 	view, err := app.GetRun(r.Context(), h.stateDir, id, waitSeconds, logQuery)
 	if err != nil {
 		h.writeError(w, err, 0)
@@ -490,6 +495,17 @@ func optionalIntQuery(query url.Values, key string) (*int, error) {
 	}
 	value, err := intQuery(query, key, 0)
 	return &value, err
+}
+
+func boolQuery(query url.Values, key string, fallback bool) (bool, error) {
+	values, exists := query[key]
+	if !exists {
+		return fallback, nil
+	}
+	if len(values) != 1 || values[0] != "true" && values[0] != "false" {
+		return false, app.UsageError("invalid "+key, "Use true or false")
+	}
+	return values[0] == "true", nil
 }
 
 func optionalStringQuery(query url.Values, key string) (*string, error) {

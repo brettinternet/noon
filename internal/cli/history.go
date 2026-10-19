@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -87,6 +88,9 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	contextSet := cmd.IsSet("context")
 	limitSet := cmd.IsSet("limit-bytes")
 	hasSelection := sectionSet || tailSet || afterSet || matchSet || contextSet || limitSet
+	if pathOnly && cmd.Bool("timestamps") {
+		return usageError("logs --path cannot be used with --timestamps", "Read the log with noon logs [NAME|RUN] --timestamps")
+	}
 	if pathOnly && (follow || cmd.Bool("json")) {
 		return usageError("logs --path cannot be used with --json or --follow", "Run noon logs [NAME|RUN] --json and read .run.log.path")
 	}
@@ -128,6 +132,7 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		query.LimitBytes = &value
 	}
 	query.RepairUTF8 = cmd.Bool("json")
+	query.Timestamps = cmd.Bool("timestamps")
 	query.IncludeActivePartial = !hasSelection && !follow
 	if err := app.ValidateLogQuery(query); err != nil {
 		return err
@@ -200,7 +205,7 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if follow {
-		if err := app.FollowLog(ctx, cfg.StateDir, run.ID, query.After, query.Tail, cmd.Writer, cmd.ErrWriter); err != nil {
+		if err := app.FollowLog(ctx, cfg.StateDir, run.ID, query.After, query.Tail, cmd.Writer, cmd.ErrWriter, query.Timestamps); err != nil {
 			return logReadError(run, err)
 		}
 		return nil
@@ -217,24 +222,80 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		resume += " --section " + shellArgument(query.Section)
 	}
 	resume += fmt.Sprintf(" --after-cursor %d", selection.Next)
+	if query.Timestamps {
+		resume += " --timestamps"
+	}
 	for _, name := range []string{"match", "context", "limit-bytes"} {
 		if cmd.IsSet(name) {
 			resume += " --" + name + " " + shellArgument(fmt.Sprint(cmd.Value(name)))
 		}
 	}
 	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{
+		result := map[string]any{
 			"run": run, "log": app.ValidLogText(selection.Bytes), "next": selection.Next, "resume": resume,
 			"size": selection.Size, "truncated": selection.Truncated, "matched_lines": selection.MatchedLines,
-		})
+		}
+		if query.Timestamps {
+			lineTimes := selection.LineTimes
+			if lineTimes == nil {
+				lineTimes = []app.LineTime{}
+			}
+			result["line_times"] = lineTimes
+		}
+		return emit(cmd, result)
 	}
-	if _, err := cmd.Writer.Write(selection.Bytes); err != nil {
+	if query.Timestamps {
+		err = writeTimestampedLog(cmd.Writer, selection, matchSet)
+	} else {
+		_, err = cmd.Writer.Write(selection.Bytes)
+	}
+	if err != nil {
 		return err
 	}
 	if hasSelection {
 		_, err = fmt.Fprintln(cmd.ErrWriter, "next: "+resume)
 	}
 	return err
+}
+
+func writeTimestampedLog(out io.Writer, selection app.LogSelection, matching bool) error {
+	times := selection.LineTimes
+	timeIndex := 0
+	first := true
+	for start := 0; start < len(selection.Bytes); {
+		end := len(selection.Bytes)
+		if newline := bytes.IndexByte(selection.Bytes[start:], '\n'); newline >= 0 {
+			end = start + newline + 1
+		}
+		contentEnd := end
+		if contentEnd > start && selection.Bytes[contentEnd-1] == '\n' {
+			contentEnd--
+		}
+		separator := matching && bytes.Equal(selection.Bytes[start:contentEnd], []byte("--"))
+		if !first || !selection.TimestampContinuation || separator {
+			var receipt *string
+			if !separator && timeIndex < len(times) {
+				receipt = times[timeIndex].Time
+			}
+			prefix := app.LogTimestampLabel(receipt) + " "
+			if n, err := io.WriteString(out, prefix); err != nil {
+				return err
+			} else if n != len(prefix) {
+				return io.ErrShortWrite
+			}
+		}
+		if !separator {
+			timeIndex++
+		}
+		if n, err := out.Write(selection.Bytes[start:end]); err != nil {
+			return err
+		} else if n != end-start {
+			return io.ErrShortWrite
+		}
+		start = end
+		first = false
+	}
+	return nil
 }
 
 func noRuns(cmd *urfave.Command, job string, statuses []string) error {

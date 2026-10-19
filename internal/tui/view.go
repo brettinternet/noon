@@ -692,6 +692,7 @@ var helpColumns = [2][]helpSection{{
 		{"n N", "next / prev match"},
 		{"s tab", "job → hook → all"},
 		{"w", "wrap long lines"},
+		{"t", "toggle timestamps"},
 		{"g G", "start / end, follow"},
 		{"space b", "page down / up"},
 	}},

@@ -72,11 +72,20 @@ Each worktree is its own project. Run IDs are global.
 | `list_jobs` | Jobs with descriptions, schedules, approval state |
 | `run_job` | Queue a job; optional `key`, `in` or `at`, and JSON `data` |
 | `list_runs` | Recent runs; optional `status` array; each run reports `orphaned` |
-| `get_run` | One run and a bounded log read, by `run_id` or `job` |
+| `get_run` | One run and a bounded log read, by `run_id` or `job`; optional `timestamps: true` adds `line_times` |
 | `cancel_run` | Cancel a run |
 
 `run_job` follows the same enablement and approval rules as the CLI. The client's name and version
 are recorded on queued runs as `requested_by`; that's metadata, not authority.
+
+MCP `get_run` and `GET /v1/runs/{id}?timestamps=true` opt into structured `line_times`; the default
+payload is unchanged. Each returned source line, including search context and a byte-cut oversized
+line, has `{ "offset": N, "time": T }`: the absolute raw log byte offset of the line's first byte
+and its UTC `2006-01-02T15:04:05.000Z` receipt time, or `null` when unavailable. `log` stays raw and
+cursors remain absolute raw-byte offsets. Receipt time means when Noon read bytes, not when the child
+produced them; buffering can delay it. Historical logs and incomplete timing metadata are explicitly
+unavailable, never estimated from run start or neighboring lines. CLI `noon logs --timestamps` renders
+the same captured times in local time; the TUI shows them by default and `t` toggles them.
 
 An agent can ask for a follow-up later with `in` (a duration) or `at` (`HH:MM`, `YYYY-MM-DD
 HH:MM`, or RFC 3339), never both:

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/brettinternet/noon/internal/app"
 )
 
 type lineKind uint8
@@ -19,10 +21,11 @@ const (
 // logLine is one stored line prepared for display. Search results keep their
 // grep-style line number prefix apart from the text so it can be styled.
 type logLine struct {
-	kind   lineKind
-	prefix string
-	text   string
-	marks  [][]int // highlighted byte ranges in text
+	kind      lineKind
+	timestamp string
+	prefix    string
+	text      string
+	marks     [][]int // highlighted byte ranges in text
 }
 
 // logRow is the part of a line shown on one screen row.
@@ -33,24 +36,25 @@ type logRow struct {
 // logRowCache holds the wrapped rows for the loaded log text, rebuilt only
 // when the text, width, wrap mode, or search changes.
 type logRowCache struct {
-	built   bool
-	version int
-	width   int
-	wrap    bool
-	search  string
-	partial bool
-	lines   []logLine
-	rows    []logRow
-	matches []int // first row of each matching line
+	built      bool
+	version    int
+	width      int
+	wrap       bool
+	search     string
+	partial    bool
+	timestamps bool
+	lines      []logLine
+	rows       []logRow
+	matches    []int // first row of each matching line
 }
 
 func (m *Model) logRows() *logRowCache {
 	cache := &m.logRowCache
 	width := max(1, m.width)
-	if cache.built && cache.version == m.logVersion && cache.width == width && cache.wrap == m.logWrap && cache.search == m.logSearch && cache.partial == m.logPartial {
+	if cache.built && cache.version == m.logVersion && cache.width == width && cache.wrap == m.logWrap && cache.search == m.logSearch && cache.partial == m.logPartial && cache.timestamps == m.showLogTimestamps {
 		return cache
 	}
-	*cache = logRowCache{built: true, version: m.logVersion, width: width, wrap: m.logWrap, search: m.logSearch, partial: m.logPartial}
+	*cache = logRowCache{built: true, version: m.logVersion, width: width, wrap: m.logWrap, search: m.logSearch, partial: m.logPartial, timestamps: m.showLogTimestamps}
 	if m.logPartial && m.logText != "" {
 		text := "earlier output is not loaded · g loads the start"
 		if m.logSearch != "" {
@@ -58,8 +62,23 @@ func (m *Model) logRows() *logRowCache {
 		}
 		cache.lines = append(cache.lines, logLine{kind: partialLine, text: text})
 	}
+	timeIndex := 0
 	for _, raw := range splitLogLines(m.logText) {
-		cache.lines = append(cache.lines, m.parseLogLine(raw))
+		timestamp := ""
+		separator := m.logSearch != "" && raw == "--"
+		if m.showLogTimestamps {
+			if separator {
+				timestamp = app.LogTimestampLabel(nil)
+			} else if timeIndex < len(m.logTimes) {
+				timestamp = app.LogTimestampLabel(m.logTimes[timeIndex].Time)
+			} else {
+				timestamp = app.LogTimestampLabel(nil)
+			}
+		}
+		if !separator {
+			timeIndex++
+		}
+		cache.lines = append(cache.lines, m.parseLogLine(raw, timestamp))
 	}
 	for i, line := range cache.lines {
 		if line.kind == matchLine {
@@ -67,7 +86,7 @@ func (m *Model) logRows() *logRowCache {
 		}
 		breaks := []int{0}
 		if m.logWrap && line.kind != partialLine {
-			breaks = wrapText(line.text, max(1, width-len(line.prefix)))
+			breaks = wrapText(line.text, max(1, width-len(line.prefix)-timestampPrefixWidth(line.timestamp)))
 		}
 		for j, start := range breaks {
 			end := len(line.text)
@@ -80,21 +99,21 @@ func (m *Model) logRows() *logRowCache {
 	return cache
 }
 
-func (m *Model) parseLogLine(raw string) logLine {
+func (m *Model) parseLogLine(raw, timestamp string) logLine {
 	if m.logSearch == "" {
-		return logLine{text: logLineText(raw)}
+		return logLine{timestamp: timestamp, text: logLineText(raw)}
 	}
 	if raw == "--" {
-		return logLine{kind: separatorLine, text: "--"}
+		return logLine{kind: separatorLine, timestamp: timestamp, text: "--"}
 	}
 	digits := 0
 	for digits < len(raw) && raw[digits] >= '0' && raw[digits] <= '9' {
 		digits++
 	}
 	if digits == 0 || digits == len(raw) || raw[digits] != ':' && raw[digits] != '-' {
-		return logLine{text: logLineText(raw)}
+		return logLine{timestamp: timestamp, text: logLineText(raw)}
 	}
-	line := logLine{kind: contextLine, prefix: raw[:digits+1], text: logLineText(raw[digits+1:])}
+	line := logLine{kind: contextLine, timestamp: timestamp, prefix: raw[:digits+1], text: logLineText(raw[digits+1:])}
 	if raw[digits] == ':' {
 		line.kind = matchLine
 		if m.searchRE != nil {
@@ -253,9 +272,19 @@ func (m *Model) logRowText(cache *logRowCache, index int, current bool) string {
 		text, _ := clipSpans([]span{{"┄ " + line.text + " ┄", t.faint}}, m.width, style{})
 		return text
 	case separatorLine:
+		if line.timestamp != "" {
+			return t.faint.render(line.timestamp + " --")
+		}
 		return t.faint.render("--")
 	}
 	var spans []span
+	if line.timestamp != "" {
+		prefix := line.timestamp + " "
+		if row.start > 0 {
+			prefix = strings.Repeat(" ", timestampPrefixWidth(line.timestamp))
+		}
+		spans = append(spans, span{prefix, t.faint})
+	}
 	if line.prefix != "" {
 		prefix, tone := line.prefix, t.faint
 		if line.kind == matchLine {
@@ -276,6 +305,13 @@ func (m *Model) logRowText(cache *logRowCache, index int, current bool) string {
 
 // markedSpans splits text into plain and highlighted spans. Marks are byte
 // ranges in the whole line; offset is where text starts within that line.
+func timestampPrefixWidth(timestamp string) int {
+	if timestamp == "" {
+		return 0
+	}
+	return app.LogTimestampWidth + 1
+}
+
 func markedSpans(text string, marks [][]int, offset int, highlight style) []span {
 	var spans []span
 	position := 0

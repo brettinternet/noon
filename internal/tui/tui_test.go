@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -61,7 +62,7 @@ func TestTUIModel(t *testing.T) {
       i=1
       while [ "$i" -le 1200 ]; do
         printf 'line-%04d-' "$i"
-        head -c 100 /dev/zero | tr '\000' x
+        head -c 50 /dev/zero | tr '\000' x
         printf '\n'
         i=$((i + 1))
       done
@@ -75,7 +76,7 @@ func TestTUIModel(t *testing.T) {
       while [ ! -f `)
 	fmt.Fprint(&local, gate)
 	fmt.Fprint(&local, ` ]; do sleep 0.02; done
-      printf 'unique-after-G\n'
+      printf 'unique-after-G-%045d\n' 0
       while [ ! -f `)
 	fmt.Fprint(&local, uniqueGate)
 	fmt.Fprint(&local, ` ]; do sleep 0.02; done
@@ -172,6 +173,16 @@ func TestTUIModel(t *testing.T) {
 	if !strings.Contains(content, "long › run 1") || !strings.Contains(content, "✓ succeeded") || !strings.Contains(content, "line-1200") || strings.Contains(content, "line-0001") {
 		t.Fatalf("log did not open on the last screenful:\n%s", content)
 	}
+	timestampPattern := regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}[+-][0-9]{2}:[0-9]{2} line-1200`)
+	if !timestampPattern.MatchString(content) {
+		t.Fatalf("TUI did not show default local timestamps with an explicit offset:\n%s", content)
+	}
+	model = press(t, model, "t")
+	content = screen(model)
+	if timestampPattern.MatchString(content) || !strings.Contains(content, "line-1200") {
+		t.Fatalf("timestamp toggle changed log position or did not hide timestamps:\n%s", content)
+	}
+	model = press(t, model, "t")
 	model = press(t, model, "g")
 	if !strings.Contains(screen(model), "line-0001") {
 		t.Fatalf("g did not jump to the beginning of the log:\n%s", screen(model))
@@ -181,7 +192,7 @@ func TestTUIModel(t *testing.T) {
 	if content := screen(model); !strings.Contains(content, "line-0001") || strings.Contains(content, "line-1200") {
 		t.Fatalf("refresh after g autoscrolled away from the first page:\n%s", content)
 	}
-	for range 3000 {
+	for range 5000 {
 		model = press(t, model, "j")
 	}
 	if !strings.Contains(screen(model), "line-1200") {
@@ -192,18 +203,32 @@ func TestTUIModel(t *testing.T) {
 		t.Fatalf("G did not jump to the end of the log:\n%s", screen(model))
 	}
 	model = press(t, model, "/")
-	model = typeText(t, model, "line-0042")
+	model = typeText(t, model, "line-00[0-9][0-9]")
 	model = press(t, model, "enter")
-	if !strings.Contains(screen(model), "42:line-0042") {
-		t.Fatalf("log search did not preserve the file line number:\n%s", screen(model))
+	for range 60 {
+		model = press(t, model, "n")
+	}
+	searchMatch := regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}[+-][0-9]{2}:[0-9]{2} 61:line-0061`)
+	content = screen(model)
+	if !searchMatch.MatchString(content) || !strings.Contains(content, "match 61/99") {
+		t.Fatalf("log search did not select its middle wrapped match:\n%s", content)
+	}
+	model = press(t, model, "t")
+	content = screen(model)
+	if searchMatch.MatchString(content) || !strings.Contains(content, "61:line-0061") || !strings.Contains(content, "match 61/99") {
+		t.Fatalf("timestamp toggle lost selected wrapped search match:\n%s", content)
+	}
+	model = press(t, model, "t")
+	if !strings.Contains(screen(model), "61:line-0061") || !strings.Contains(screen(model), "match 61/99") {
+		t.Fatalf("restoring timestamps lost the selected search match:\n%s", screen(model))
 	}
 	model = press(t, model, "esc")
 	if !strings.Contains(screen(model), "line-1200") || strings.Contains(screen(model), "42:line-0042") {
 		t.Fatalf("escape did not return to the log tail:\n%s", screen(model))
 	}
 	model = press(t, model, "?")
-	if !strings.Contains(screen(model), "never adds, edits, enables, or approves") {
-		t.Fatalf("help view missing safety contract:\n%s", screen(model))
+	if !strings.Contains(screen(model), "never adds, edits, enables, or approves") || !strings.Contains(screen(model), "toggle timestamps") {
+		t.Fatalf("help view missing safety or timestamp-toggle contract:\n%s", screen(model))
 	}
 	model = press(t, model, "esc")
 	model = press(t, model, "esc")
@@ -343,6 +368,7 @@ func TestTUIModel(t *testing.T) {
 	if !strings.Contains(screen(followModel), "before") || !strings.Contains(screen(followModel), "running") {
 		t.Fatalf("active log did not open at its current tail: run=%+v\n%s", liveRun, screen(followModel))
 	}
+	followModel = press(t, followModel, "t")
 	followModel = refreshOnce(t, followModel)
 	if strings.Contains(screen(followModel), "after") {
 		t.Fatalf("live job passed its gate before the test released it:\n%s", screen(followModel))
@@ -351,6 +377,10 @@ func TestTUIModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForLogText(t, stateDir, project, "zlive", "unique-after-G")
+	followModel = refreshOnce(t, followModel)
+	if strings.Count(screen(followModel), "unique-after-G") != 1 {
+		t.Fatalf("timestamp toggle stopped the active log from following new output:\n%s", screen(followModel))
+	}
 	followModel = press(t, followModel, "G")
 	if strings.Count(screen(followModel), "unique-after-G") != 1 {
 		t.Fatalf("G snapshot did not contain the new unique output once:\n%s", screen(followModel))
@@ -371,8 +401,9 @@ func TestTUIModel(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("live job did not finish after its gate opened")
 	}
+	followModel = press(t, followModel, "t")
 	followModel = refreshOnce(t, followModel)
-	if content := screen(followModel); strings.Count(content, "before") != 1 || strings.Count(content, "unique-after-G") != 1 || !strings.Contains(content, "\nafter\n") {
+	if content := screen(followModel); strings.Count(content, "before") != 1 || strings.Count(content, "unique-after-G") != 1 || !strings.Contains(content, " after\n") {
 		t.Fatalf("log follow repeated or missed output after its cursor:\n%s", content)
 	}
 

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"database/sql"
@@ -68,14 +67,15 @@ type RunsView struct {
 }
 
 type RunDetail struct {
-	Orphaned      bool   `json:"orphaned"`
-	SchemaVersion int    `json:"schema_version"`
-	Run           Run    `json:"run"`
-	Log           string `json:"log"`
-	Next          int64  `json:"next"`
-	Size          int64  `json:"size"`
-	Truncated     bool   `json:"truncated"`
-	MatchedLines  *int   `json:"matched_lines"`
+	Orphaned      bool        `json:"orphaned"`
+	SchemaVersion int         `json:"schema_version"`
+	Run           Run         `json:"run"`
+	Log           string      `json:"log"`
+	Next          int64       `json:"next"`
+	Size          int64       `json:"size"`
+	Truncated     bool        `json:"truncated"`
+	MatchedLines  *int        `json:"matched_lines"`
+	LineTimes     *[]LineTime `json:"line_times,omitempty"`
 }
 
 // RunFromStore maps persisted state to the client-independent run JSON shape and inspects its owner.
@@ -433,14 +433,22 @@ func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds int, que
 	view = mapRunFromStore(state, run)
 	view.Log = logInfo
 	view.Orphaned = orphaned
-	return RunDetail{
+	detail := RunDetail{
 		SchemaVersion: 1, Run: view, Orphaned: orphaned, Log: ValidLogText(selection.Bytes), Next: selection.Next,
 		Size: selection.Size, Truncated: selection.Truncated, MatchedLines: selection.MatchedLines,
-	}, nil
+	}
+	if query.Timestamps {
+		lineTimes := selection.LineTimes
+		if lineTimes == nil {
+			lineTimes = []LineTime{}
+		}
+		detail.LineTimes = &lineTimes
+	}
+	return detail, nil
 }
 
 // FollowLog waits for queued runs, then streams live growth until completion or owner exit.
-func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tail *int, out, notices io.Writer) error {
+func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tail *int, out, notices io.Writer, timestamps bool) error {
 	state, err := store.OpenExisting(stateDir)
 	if err != nil {
 		return err
@@ -468,9 +476,16 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 			}
 		}
 	}
+	readLog := func(run store.Run) ([]byte, []store.TimingRecord, error) {
+		if timestamps {
+			return state.ReadRunLogWithTiming(run)
+		}
+		data, err := state.ReadRunLog(run)
+		return data, nil, err
+	}
 	var initial []byte
 	if run.LogPath.Valid {
-		initial, err = state.ReadRunLog(run)
+		initial, _, err = readLog(run)
 		if errors.Is(err, store.ErrLogUnavailable) {
 			initial = nil
 		} else if err != nil {
@@ -482,13 +497,40 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 		return err
 	}
 	followedRunning := activeStoredRun(run)
+	stream := timestampStream{atLineStart: offset == 0 || offset > 0 && initial[offset-1] == '\n'}
+	writeBytes := func(data []byte, start int64, timing []store.TimingRecord) error {
+		if timestamps {
+			return stream.write(out, data, start, timing, false)
+		}
+		n, err := out.Write(data)
+		if err != nil {
+			return err
+		}
+		if n != len(data) {
+			return io.ErrShortWrite
+		}
+		return nil
+	}
+	writeUnavailable := func(data []byte) error {
+		if timestamps {
+			return stream.write(out, data, 0, nil, true)
+		}
+		n, err := out.Write(data)
+		if err != nil {
+			return err
+		}
+		if n != len(data) {
+			return io.ErrShortWrite
+		}
+		return nil
+	}
 	markerShown := false
 	statusCheck := time.Now().Add(time.Second)
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		if run.LogPath.Valid {
-			data, readErr := state.ReadRunLog(run)
+			data, timing, readErr := readLog(run)
 			if errors.Is(readErr, store.ErrLogUnavailable) {
 				if !activeStoredRun(run) || orphaned {
 					if orphaned {
@@ -504,24 +546,24 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 				if followedRunning && overflow && !markerShown {
 					firstMIB := min(end, int64(maxFollowLogBytes))
 					if firstMIB > offset {
-						if _, err := io.Copy(out, bytes.NewReader(data[offset:firstMIB])); err != nil {
+						if err := writeBytes(data[offset:firstMIB], offset, timing); err != nil {
 							return err
 						}
 						offset = firstMIB
 					}
 					if offset > 0 && data[offset-1] != '\n' {
-						if _, err := io.WriteString(out, "\n"); err != nil {
+						if err := writeUnavailable([]byte("\n")); err != nil {
 							return err
 						}
 					}
-					if _, err := fmt.Fprintln(out, "[noon: output past 1 MiB is shown when the run ends]"); err != nil {
+					if err := writeUnavailable([]byte("[noon: output past 1 MiB is shown when the run ends]\n")); err != nil {
 						return err
 					}
 					markerShown = true
 				}
 				if !followedRunning || !activeStoredRun(run) || orphaned {
 					if end > offset {
-						if _, err := io.Copy(out, bytes.NewReader(data[offset:end])); err != nil {
+						if err := writeBytes(data[offset:end], offset, timing); err != nil {
 							return err
 						}
 						offset = end
@@ -529,7 +571,7 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 				} else if !markerShown {
 					firstMIB := min(end, int64(maxFollowLogBytes))
 					if firstMIB > offset {
-						if _, err := io.Copy(out, bytes.NewReader(data[offset:firstMIB])); err != nil {
+						if err := writeBytes(data[offset:firstMIB], offset, timing); err != nil {
 							return err
 						}
 						offset = firstMIB

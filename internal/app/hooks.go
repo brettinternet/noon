@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/brettinternet/noon/internal/config"
@@ -125,7 +126,7 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 		status = "ok"
 	}
 	hookResult := &HookResult{Event: event, Status: status, ExitCode: &hookExitCode}
-	if err := state.CompleteHook(stored.ID, event, status, &hookExitCode, capture.Bytes()); err != nil {
+	if err := state.CompleteHookWithTiming(stored.ID, event, status, &hookExitCode, capture.Bytes(), capture.Timing()); err != nil {
 		return hookResult, err
 	}
 	return hookResult, nil
@@ -181,13 +182,42 @@ func setHookEnvironment(env []string, name, value string) []string {
 	return filtered
 }
 
-type hookCapture struct{ data []byte }
+type hookCapture struct {
+	mu          sync.Mutex
+	data        []byte
+	timing      []store.TimingRecord
+	lastByte    byte
+	hasLastByte bool
+	now         func() time.Time
+}
 
 func (w *hookCapture) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if remaining := maxHookOutputBytes - len(w.data); remaining > 0 {
-		w.data = append(w.data, p[:min(len(p), remaining)]...)
+		chunk := p[:min(len(p), remaining)]
+		at := time.Now()
+		if w.now != nil {
+			at = w.now()
+		}
+		start := int64(len(w.data))
+		w.timing = append(w.timing, store.TimingRecordsForChunk(start, chunk, w.lastByte, w.hasLastByte, at.UnixMilli())...)
+		w.data = append(w.data, chunk...)
+		if len(chunk) > 0 {
+			w.lastByte, w.hasLastByte = chunk[len(chunk)-1], true
+		}
 	}
 	return len(p), nil
 }
 
-func (w *hookCapture) Bytes() []byte { return slices.Clone(w.data) }
+func (w *hookCapture) Bytes() []byte {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.data)
+}
+
+func (w *hookCapture) Timing() []store.TimingRecord {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.timing)
+}

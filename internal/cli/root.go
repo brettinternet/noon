@@ -70,8 +70,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.IntFlag{Name: "limit", Aliases: []string{"n"}, Value: 20, Usage: "Limit history to `N` runs (1–50)"},
 				&urfave.StringSliceFlag{Name: "status", Aliases: []string{"s"}, Usage: "Filter by `STATUS`; repeat or comma-separate values"},
 			}, Action: historyRuns},
-			{Name: "logs", Usage: "Read a run log, follow it, or print its path", Description: "Without a target, read the latest run. Bounded reads support --json; --follow rejects it. Resume guidance goes to stderr.\n\nExamples:\n  noon logs tests -n 50\n  noon logs 12 --match FAIL --context 2\n  noon logs 12 --follow", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
+			{Name: "logs", Usage: "Read a run log, follow it, or print its path", Description: "Without a target, read the latest run. Bounded reads support --json; --follow rejects it. --timestamps / -t prefixes displayed lines with captured receipt times; JSON adds line_times. Resume guidance goes to stderr.\n\nExamples:\n  noon logs tests -n 50\n  noon logs 12 --match FAIL --context 2 --timestamps\n  noon logs 12 --follow -t", ArgsUsage: "[NAME|RUN]", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "follow", Aliases: []string{"f"}, Usage: "Follow a running run until it finishes"},
+				&urfave.BoolFlag{Name: "timestamps", Aliases: []string{"t"}, Usage: "Prefix displayed lines with captured receipt times"},
 				&urfave.BoolFlag{Name: "path", Usage: "Print the absolute log path"},
 				&urfave.StringFlag{Name: "section", Value: "all", Usage: "Read `SECTION`: all, job, or hook"},
 				&urfave.IntFlag{Name: "tail", Aliases: []string{"n"}, Usage: "Keep the last `N` selected lines (1–10000)"},
@@ -88,7 +89,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.StringFlag{Name: "api-token-file", Usage: "Read a bearer token from `FILE` and enable the authenticated API and MCP over HTTP; requires --listen"},
 			}, Action: serveAction(build.Version)},
 			{Name: "mcp", Usage: "Serve MCP tools over stdio", Action: mcpCommand(build.Version)},
-			{Name: "tui", Usage: "Open the keyboard-driven jobs, runs, and logs view", Description: "Requires terminal stdin and stdout; --json is not supported. Inspect the current project and safely queue, pause, or cancel work. Keys: j/k or arrows move, enter opens runs, l opens logs, / searches, s changes log sections, f filters runs, r queues, p pauses, c cancels after confirmation, g/G jump through logs, ? shows help, q quits. Never adds, edits, enables, or approves jobs.", Action: tuiAction},
+			{Name: "tui", Usage: "Open the keyboard-driven jobs, runs, and logs view", Description: "Requires terminal stdin and stdout; --json is not supported. Inspect the current project and safely queue, pause, or cancel work. Log views show local receipt timestamps by default; t toggles them. Keys: j/k or arrows move, enter opens runs, l opens logs, / searches, s changes log sections, f filters runs, r queues, p pauses, c cancels after confirmation, g/G jump through logs, ? shows help, q quits. Never adds, edits, enables, or approves jobs.", Action: tuiAction},
 			{Name: "skill", Usage: "Print the shell-only agent skill", Action: showSkill},
 			{Name: "service", Usage: "Inspect or manage the per-user scheduler service", Action: serviceStatus, Commands: []*urfave.Command{
 				{Name: "install", Usage: "Install and start the per-user scheduler service", Flags: []urfave.Flag{
