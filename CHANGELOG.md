@@ -6,6 +6,49 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- **cli:** Support multiple job targets
+
+## [v0.6.0](https://github.com/brettinternet/noon/compare/v0.5.0...v0.6.0) - 2026-10-19
+
+### Added
+
+- **config:** Support bounded YAML composition
+
+## [v0.5.0](https://github.com/brettinternet/noon/compare/v0.4.1...v0.5.0) - 2026-10-18
+
+### Added
+
+- Support pausing and resuming all project jobs
+- **agents:** Support per-job arguments
+- **agents:** Record per-run session IDs
+- **hooks:** Expose consecutive failures and pause recipe
+
+### Fixed
+
+- **config:** Digest agent profiles defined in --config files
+- Honor explicit projects under --user, watch user config, show agent_args
+
+### Documentation
+
+- **examples:** Cover agent session IDs and bulk pause
+- **examples:** Add external heartbeat monitoring
+- **agents:** Document checkout state, catch-up runs, and delayed run_job
+
+## [v0.4.1](https://github.com/brettinternet/noon/compare/v0.4.0...v0.4.1) - 2026-10-18
+
+### Fixed
+
+- **store:** Retain skipped runs independently
+
+### Documentation
+
+- Add working-hours schedule recipe
+- **examples:** Cover remote access and recent features
+
+## [v0.4.0](https://github.com/brettinternet/noon/compare/v0.3.0...v0.4.0) - 2026-10-18
+
+### Added
+
 - Report orphaned runs across inspection surfaces
 - Record no-work runs as noop
 - **agents:** Add Gemini, OpenCode, and Pi profiles
@@ -21,6 +64,7 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Documentation
 
+- Refresh changelog for v0.4.0
 - **examples:** Add Tell integration
 - **examples:** Add file-watch, worktrunk, and container-agent
 
