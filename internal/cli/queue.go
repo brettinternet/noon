@@ -3,7 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"time"
+
+	"github.com/brettinternet/noon/internal/config"
 
 	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/store"
@@ -79,6 +82,48 @@ func printQueuedRun(cmd *urfave.Command, queued app.QueuedRun, now time.Time, lo
 	} else {
 		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Read it: noon logs %d\n", run.ID)))
 	}
+}
+
+// queueJobs validates all names before issuing independent durable requests.
+// Eligibility is rechecked by QueueRun; failures do not undo earlier requests.
+func queueJobs(cmd *urfave.Command, cfg config.Config, names []string, eventData []byte, dueAt, now time.Time, location *time.Location, dueNow bool) error {
+	for _, name := range names {
+		job, ok := cfg.Jobs[name]
+		if !ok {
+			return app.MissingJobError(name, "run", cfg.Jobs)
+		}
+		if !job.MatchesPlatform(cfg.Platform) {
+			return app.UnsupportedPlatformError(job, cfg.Platform)
+		}
+		if err := app.CheckRecursion(cfg.Project, name, os.Environ()); err != nil {
+			return err
+		}
+	}
+	results := []app.QueuedRun{}
+	failures := []targetFailure{}
+	offline := false
+	for _, name := range names {
+		result, err := app.QueueRun(cfg, name, cmd.String("key"), dueAt, now, time.Now, dueNow, "cli", app.QueueOptions{EventData: eventData, EventSource: "cli"})
+		if err != nil {
+			failures = append(failures, targetFailure{Target: name, Error: queueError(err).Error()})
+			continue
+		}
+		results = append(results, result)
+		offline = offline || result.Scheduler == "offline"
+		if !cmd.Bool("json") {
+			printQueuedRun(cmd, result, now, location, dueNow)
+		}
+	}
+	if offline && !cmd.Bool("json") {
+		fmt.Fprintln(cmd.Writer, "The scheduler isn't running, so nothing runs until it starts.")
+		hint, err := serviceGuidance(cfg.StateDir)
+		if err != nil {
+			failures = append(failures, targetFailure{Target: "scheduler", Error: err.Error()})
+		} else {
+			fmt.Fprintln(cmd.Writer, guidance(cmd, hint))
+		}
+	}
+	return finishBatch(cmd, map[string]any{"results": results}, failures)
 }
 
 func queueDueDescription(value *string, now time.Time, location *time.Location) string {

@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -15,9 +13,6 @@ import (
 )
 
 func cancelRuns(_ context.Context, cmd *urfave.Command) error {
-	if cmd.Args().Len() > 1 {
-		return usageError("cancel accepts one run ID or job name", "Run noon cancel [RUN|NAME]")
-	}
 	values, err := input(cmd)
 	if err != nil {
 		return err
@@ -51,24 +46,80 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 		return nil
 	}
 
-	selector := cmd.Args().First()
-	if id, parseErr := strconv.ParseInt(selector, 10, 64); parseErr == nil {
-		result, err := app.Cancel(cfg.StateDir, cfg.Project, &id, "", time.Now())
-		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, store.ErrNoDatabase) {
-			return app.RunNotFoundError(id)
-		}
-		if err != nil {
-			return stateError(err)
-		}
-		return renderCancellation(cmd, result)
-	}
-	result, err := app.Cancel(cfg.StateDir, cfg.Project, nil, selector, time.Now())
-	if errors.Is(err, store.ErrNoDatabase) {
-		result = app.CancelResult{Runs: []app.Run{}}
-	} else if err != nil {
+	// Resolve every selector before cancellation; names snapshot current active runs.
+	active, err := app.ActiveRuns(cfg.StateDir, cfg.Project)
+	if err != nil {
 		return stateError(err)
 	}
-	return renderCancellation(cmd, result)
+	ids := []int64{}
+	seen := map[int64]bool{}
+	add := func(id int64) {
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	for _, selector := range uniqueTargets(cmd.Args().Slice()) {
+		if selector == "" {
+			return usageError("cancel targets must not be empty", "Use a run ID or job name")
+		}
+		if id, parseErr := strconv.ParseInt(selector, 10, 64); parseErr == nil {
+			if _, err := app.RunByID(cfg.StateDir, id); err != nil {
+				if app.IsMissingRun(err) || app.NoDatabase(err) {
+					return app.RunNotFoundError(id)
+				}
+				return stateError(err)
+			}
+			add(id)
+			continue
+		}
+		found := false
+		for _, run := range active {
+			if run.Job == selector {
+				add(run.ID)
+				found = true
+			}
+		}
+		if !found {
+			retained, err := app.Runs(cfg.StateDir, cfg.Project, selector, 1)
+			if err != nil {
+				return stateError(err)
+			}
+			if len(retained) == 0 {
+				configured, err := config.Load(values)
+				if err != nil {
+					return configError(err)
+				}
+				if _, ok := configured.Jobs[selector]; !ok {
+					return app.MissingJobError(selector, "cancel", configured.Jobs)
+				}
+			}
+		}
+	}
+	result := app.CancelResult{Runs: []app.Run{}}
+	failures := []targetFailure{}
+	outcomes, err := app.CancelRuns(cfg.StateDir, ids, time.Now())
+	if err != nil {
+		return stateError(err)
+	}
+	for _, outcome := range outcomes {
+		if outcome.Err != nil {
+			failures = append(failures, targetFailure{Target: strconv.FormatInt(outcome.ID, 10), Error: outcome.Err.Error()})
+			continue
+		}
+		result.Runs = append(result.Runs, outcome.Result.Runs...)
+		result.Pending = result.Pending || outcome.Result.Pending
+		result.AlreadyFinished = outcome.Result.AlreadyFinished
+	}
+	if cmd.Args().Len() == 1 && len(failures) == 0 {
+		return renderCancellation(cmd, result)
+	}
+	if !cmd.Bool("json") {
+		if err := renderCancellation(cmd, result); err != nil {
+			return err
+		}
+	}
+	return finishBatch(cmd, map[string]any{"runs": result.Runs, "pending": result.Pending}, failures)
 }
 
 func renderCancellation(cmd *urfave.Command, result app.CancelResult) error {

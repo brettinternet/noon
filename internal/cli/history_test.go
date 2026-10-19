@@ -61,6 +61,31 @@ func TestHistoryAndLogs(t *testing.T) {
 		testsID := runJSON("tests", 0)
 		badID := runJSON("bad", 7)
 
+		// Multiple filters must merge before limiting, without duplicate runs.
+		for _, tc := range []struct {
+			flags []string
+			ids   []int64
+		}{
+			{nil, []int64{badID, testsID}},
+			{[]string{"--limit", "1"}, []int64{badID}},
+			{[]string{"--status", "succeeded", "--limit", "1"}, []int64{testsID}},
+		} {
+			args := append([]string{"history", "tests", "bad", "tests", "--json"}, tc.flags...)
+			code, result := invoke(t, args...)
+			if code != 0 {
+				t.Fatalf("multi-history: %d %+v", code, result)
+			}
+			got := result["runs"].([]any)
+			if len(got) != len(tc.ids) {
+				t.Fatalf("multi-history count: %+v", got)
+			}
+			for i, id := range tc.ids {
+				if int64(got[i].(map[string]any)["id"].(float64)) != id {
+					t.Fatalf("multi-history order: %+v", got)
+				}
+			}
+		}
+
 		code, history := invoke(t, "history", "--json")
 		if code != 0 {
 			t.Fatalf("history failed: %+v", history)

@@ -299,8 +299,18 @@ func TestShellCompletion(t *testing.T) {
 		if got := complete(command, "--config", explicit, ""); !reflect.DeepEqual(got, []string{"explicit-job"}) {
 			t.Fatalf("config: %v", got)
 		}
-		if got := complete(command, "local-job", ""); len(got) != 0 {
-			t.Fatalf("extra selector: %v", got)
+		got := complete(command, "local-job", "")
+		if command == "run" || command == "logs" {
+			if len(got) != 0 {
+				t.Fatalf("single-target %s extra selector: %v", command, got)
+			}
+		} else if !reflect.DeepEqual(got, []string{"local-job"}) {
+			t.Fatalf("multi-target %s extra selector: %v", command, got)
+		}
+	}
+	for _, args := range [][]string{{"run", "--detach", "local-job", ""}, {"run", "--in", "2h", "local-job", ""}, {"run", "--at", "17:00", "local-job", ""}} {
+		if got := complete(args...); !reflect.DeepEqual(got, []string{"local-job"}) {
+			t.Fatalf("queued multi-target completion %q: %v", args, got)
 		}
 	}
 	for _, args := range [][]string{{"add", ""}, {"run", "--key", ""}, {"run", "--key", "loc"}, {"run", "--key=loc"}, {"run", "--", "local-job", ""}, {"service", "install", ""}, {"enable", ""}, {"init", ""}, {"shell", "entry", ""}} {

@@ -103,8 +103,9 @@ Other options deliberately stay long-only:
 
 ## Pausing jobs
 
-`noon pause NAME` and `noon resume NAME` change one job. Use `--all` (or `-a`)
-instead of NAME to change all currently configured jobs in the selected project atomically.
+`noon pause NAME...` and `noon resume NAME...` change the selected jobs atomically.
+For example, `noon pause lint tests`. Use `--all` (or `-a`) instead of names to change
+all currently configured jobs in the selected project atomically.
 Project discovery, `-C`, and `--user` select the scope; this never recurses into directories
 or changes other registered projects. A name and `--all` cannot be combined. Without either,
 these commands only list candidates.
@@ -116,6 +117,28 @@ bulk pause.
 
 Bulk output reports how many pause states changed; an empty project succeeds with zero.
 JSON includes sorted `jobs`, `paused`, and `changed` fields.
+
+## Multiple targets
+
+`pause`, `resume`, `remove`, `history`, and queued `run` accept multiple job names;
+`cancel` accepts multiple job names or run IDs. Duplicate targets are processed once.
+Foreground `run` and `logs` remain single-target. `enable` and `disable` remain project-scoped.
+
+All explicit target selections are validated before mutations. Queue eligibility (including
+approval, enabled state, and capacity) is checked separately for each request. Cancellation,
+queueing, and multi-file removal are not all-or-nothing: operational failures do not undo
+completed work. They continue with remaining targets, report failures, and exit 1.
+
+Single-target JSON keeps its existing shape. Multiple-target JSON uses:
+- `pause` / `resume`: `jobs`, `paused`, `changed`.
+- `history`: `runs`, merged newest-first with one overall `--limit`.
+- `cancel`: `runs`, `pending`, `errors`.
+- queued `run`: `results` (each with `run`, `created`, `scheduler`, and optional
+  `reason` / `cooldown_until`), `errors`.
+- `remove`: `removed` (each with `removed` job name and `file`), `errors`.
+
+Each `errors` entry contains `target` and `error`; successful batches have an empty array.
+These commands still emit only one JSON object, including on partial failure.
 
 ## Output and exit codes
 
@@ -200,7 +223,9 @@ print examples, `service` shows status, and `shell init` shows explicit sourcing
 for Bash, Zsh, and Fish. These inspections exit 0 without changing jobs or starting services.
 Logs still default to the latest run when one exists.
 
-`noon remove NAME --shared` selects `noon.yaml`; `--local` selects `.git/noon.yaml`.
+`noon remove NAME... --shared` selects `noon.yaml`; `--local` selects `.git/noon.yaml`.
+The selected scope applies to every name. Names, ambiguities, and candidate edits are checked
+before any file is written; each affected file is written atomically once.
 With `--user`, remove edits the user `config.yaml` and does not accept those scope flags.
 If both repository files define the name, choose one explicitly. Without a name, nothing is removed.
 `noon remove NAME` confirms the job and definition file removed; history remains queryable
@@ -240,6 +265,11 @@ Next: noon service install
 | `--key KEY` | Return the existing run if this project/job already used `KEY` |
 | `--data JSON` | Payload as JSON, `@FILE`, or `-` for stdin; up to 256 KiB |
 
+Queue multiple configured jobs with `noon run lint tests --detach`, `--in 2h`, or `--at 17:00`.
+Each job receives the same time selection, `--key`, and `--data` payload; stdin payloads are read
+once. Keys are scoped per job, so one key does not merge requests for different jobs. Multiple
+names must exist in the current configuration, even when using a retained idempotency key.
+
 Keys are remembered for the newest 50 finished runs per job. The payload is saved to a file
 before dispatch, and the job reads its path from `NOON_EVENT_FILE`. A job's `cooldown` applies only
 to queued requests. `noon --user run NAME --detach` uses the user project's scheduler slot and its
@@ -251,7 +281,12 @@ follow guidance keeps `--user`. See [Triggers](triggers.md).
 noon cancel        # list active runs; changes nothing
 noon cancel 12     # cancel run 12, even another terminal's foreground run
 noon cancel tests  # cancel every active run of tests
+noon cancel tests lint 42  # cancel selected jobs and run 42, without duplicate requests
 ```
+
+Job names select a snapshot of their active runs; work queued afterward is not included.
+Names may refer to configured jobs or retained history. Explicit run IDs retain their global
+selection behavior. All selections are resolved before requesting cancellation.
 
 Queued runs are cancelled immediately. Running ones get the same TERM-then-KILL sequence.
 A run whose recorded owner is no longer live is listed as `orphaned`; `noon cancel ID` records it
@@ -263,6 +298,7 @@ state. `noon disable` also cancels the project's queued runs.
 ```sh
 noon history                            # newest 20 runs
 noon history tests -n 50                 # --limit 50
+noon history tests lint -n 50            # newest 50 across both jobs
 noon history -s failed,timed_out         # --status failed,timed_out
 noon history -s noop                     # only no-op polls
 ```

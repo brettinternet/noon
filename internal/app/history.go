@@ -2,12 +2,14 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -230,6 +232,15 @@ func LatestRun(stateDir, project, job string, statuses []string) (Run, bool, err
 
 // ListRuns returns the CLI JSON history view for one project.
 func ListRuns(input config.Input, job *string, statuses []string, limit int) (RunsView, error) {
+	var jobs []string
+	if job != nil {
+		jobs = []string{*job}
+	}
+	return ListRunsForJobs(input, jobs, statuses, limit)
+}
+
+// ListRunsForJobs merges selected jobs' histories before applying the global limit.
+func ListRunsForJobs(input config.Input, jobs []string, statuses []string, limit int) (RunsView, error) {
 	if limit < 1 || limit > 50 {
 		return RunsView{}, UsageError("--limit must be between 1 and 50", "")
 	}
@@ -240,27 +251,40 @@ func ListRuns(input config.Input, job *string, statuses []string, limit int) (Ru
 	if err != nil {
 		return RunsView{}, ConfigError(err)
 	}
-	jobName := ""
-	if job != nil {
-		jobName = *job
-		if jobName == "" {
+	selected := len(jobs) > 0
+	if !selected {
+		jobs = []string{""}
+	}
+	runs := []Run{}
+	seen := make(map[string]bool)
+	for _, jobName := range jobs {
+		if seen[jobName] {
+			continue
+		}
+		seen[jobName] = true
+		if selected && jobName == "" {
 			return RunsView{}, MissingJobError(jobName, "history", cfg.Jobs)
 		}
-	}
-	runs, err := RunsWithStatuses(cfg.StateDir, cfg.Project, jobName, statuses, limit)
-	if err != nil {
-		return RunsView{}, StateError(err)
-	}
-	if job != nil && len(runs) == 0 {
-		if _, configured := cfg.Jobs[jobName]; !configured {
-			retained, historyErr := Runs(cfg.StateDir, cfg.Project, jobName, 1)
-			if historyErr != nil {
-				return RunsView{}, StateError(historyErr)
-			}
-			if len(retained) == 0 {
-				return RunsView{}, MissingJobError(jobName, "history", cfg.Jobs)
+		matching, err := RunsWithStatuses(cfg.StateDir, cfg.Project, jobName, statuses, limit)
+		if err != nil {
+			return RunsView{}, StateError(err)
+		}
+		if selected && len(matching) == 0 {
+			if _, configured := cfg.Jobs[jobName]; !configured {
+				retained, historyErr := Runs(cfg.StateDir, cfg.Project, jobName, 1)
+				if historyErr != nil {
+					return RunsView{}, StateError(historyErr)
+				}
+				if len(retained) == 0 {
+					return RunsView{}, MissingJobError(jobName, "history", cfg.Jobs)
+				}
 			}
 		}
+		runs = append(runs, matching...)
+	}
+	slices.SortFunc(runs, func(a, b Run) int { return cmp.Compare(b.ID, a.ID) })
+	if len(runs) > limit {
+		runs = runs[:limit]
 	}
 	return RunsView{SchemaVersion: 1, Runs: runs}, nil
 }

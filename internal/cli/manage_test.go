@@ -511,6 +511,15 @@ func TestPauseResumeAll(t *testing.T) {
 		}
 	}
 	check(0, "pause", "--all", "-C", t.TempDir())
+	if code, result := invoke(t, "pause", "a", "missing", "--json"); code != 1 {
+		t.Fatalf("invalid batch: %d %+v", code, result)
+	}
+	// Validation must not pause a before discovering the invalid second name.
+	check(2, "pause", "b", "a", "b")
+	if code, result := invoke(t, "resume", "a", "missing", "--json"); code != 1 {
+		t.Fatalf("invalid resume batch: %d %+v", code, result)
+	}
+	check(2, "resume", "a", "b", "a")
 	if code, result := invoke(t, "pause", "a", "--json"); code != 0 {
 		t.Fatalf("individual pause: %d %+v", code, result)
 	}
@@ -526,6 +535,48 @@ func TestPauseResumeAll(t *testing.T) {
 		if code, result := invoke(t, command, "a", "--all", "--json"); code != 2 {
 			t.Fatalf("ambiguous scope: %d %+v", code, result)
 		}
+	}
+}
+
+// A missing or ambiguous later target must not remove an earlier definition.
+func TestRemoveMultiple(t *testing.T) {
+	root := sandbox(t)
+	shared := filepath.Join(root, "noon.yaml")
+	local := filepath.Join(root, ".git", "noon.yaml")
+	sharedBytes := []byte("jobs:\n  a: {run: 'true'}\n  b: {run: 'true'}\n  keep: {run: 'echo kept'}\n")
+	localBytes := []byte("jobs:\n  b: {run: 'echo private'}\n  c: {run: 'true'}\n")
+	for path, data := range map[string][]byte{shared: sharedBytes, local: localBytes} {
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, names := range [][]string{{"a", "missing"}, {"a", "b"}} {
+		args := append([]string{"remove", "--json"}, names...)
+		if code, result := invoke(t, args...); code == 0 {
+			t.Fatalf("invalid removal: %+v", result)
+		}
+		for path, want := range map[string][]byte{shared: sharedBytes, local: localBytes} {
+			got, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(got, want) {
+				t.Fatalf("validation changed %s: %s (%v)", path, got, err)
+			}
+		}
+	}
+	code, result := invoke(t, "remove", "a", "b", "a", "--shared", "--json")
+	if code != 0 || len(result["removed"].([]any)) != 2 {
+		t.Fatalf("shared removal: %d %+v", code, result)
+	}
+	cfg, err := config.Load(config.Input{CWD: root})
+	if err != nil || len(cfg.Jobs) != 3 || cfg.Jobs["b"].Run != "echo private" || cfg.Jobs["keep"].Run != "echo kept" {
+		t.Fatalf("remaining definitions: %+v %v", cfg.Jobs, err)
+	}
+	code, result = invoke(t, "remove", "keep", "c", "--json")
+	if code != 0 || len(result["removed"].([]any)) != 2 {
+		t.Fatalf("cross-file removal: %d %+v", code, result)
+	}
+	cfg, err = config.Load(config.Input{CWD: root})
+	if err != nil || len(cfg.Jobs) != 1 || cfg.Jobs["b"].Run != "echo private" {
+		t.Fatalf("cross-file remaining definitions: %+v %v", cfg.Jobs, err)
 	}
 }
 

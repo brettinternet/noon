@@ -20,6 +20,75 @@ import (
 	"github.com/brettinternet/noon/internal/store"
 )
 
+// Guards duplicate side effects, preflight validation, and mixed cancellation selectors.
+func TestMultipleQueuedRunsAndCancellation(t *testing.T) {
+	root := sandbox(t)
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte("jobs:\n  a: {run: 'true'}\n  b: {run: 'true'}\n  disabled: {run: 'true', enabled: false}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if code, result := invoke(t, "enable", "--json"); code != 0 {
+		t.Fatalf("enable: %d %+v", code, result)
+	}
+	if code, result := invoke(t, "run", "a", "b", "--json"); code != 2 {
+		t.Fatalf("foreground batch: %d %+v", code, result)
+	}
+	if code, result := invoke(t, "run", "a", "missing", "--detach", "--json"); code != 1 {
+		t.Fatalf("invalid queue batch: %d %+v", code, result)
+	}
+	if code, result := invoke(t, "history", "--json"); code != 0 || len(result["runs"].([]any)) != 0 {
+		t.Fatalf("invalid queue created work: %d %+v", code, result)
+	}
+	for i, mode := range [][]string{{"--detach"}, {"--in", "2h"}, {"--at", "2099-01-01T00:00:00Z"}} {
+		key := fmt.Sprintf("batch-%d", i)
+		args := append([]string{"run", "a", "b", "a", "--key", key, "--data", `{"batch":true}`, "--json"}, mode...)
+		code, result := invoke(t, args...)
+		if code != 0 || len(result["results"].([]any)) != 2 || len(result["errors"].([]any)) != 0 {
+			t.Fatalf("queue batch: %d %+v", code, result)
+		}
+		queued := result["results"].([]any)
+		firstID := queued[0].(map[string]any)["run"].(map[string]any)["id"].(float64)
+		secondID := queued[1].(map[string]any)["run"].(map[string]any)["id"].(float64)
+		if firstID == secondID {
+			t.Fatalf("key was not job-scoped: %+v", queued)
+		}
+		code, retry := invoke(t, args...)
+		if code != 0 {
+			t.Fatalf("retry: %d %+v", code, retry)
+		}
+		for j, item := range retry["results"].([]any) {
+			r := item.(map[string]any)
+			previous := queued[j].(map[string]any)["run"].(map[string]any)
+			run := r["run"].(map[string]any)
+			if r["created"] != false || run["id"] != previous["id"] || run["event_file"] == nil {
+				t.Fatalf("retry identity/payload: %+v", r)
+			}
+		}
+		id := fmt.Sprintf("%.0f", firstID)
+		for _, invalid := range []string{"999999", "missing", ""} {
+			if code, result := invoke(t, "cancel", "a", invalid, "--json"); code == 0 {
+				t.Fatalf("invalid cancellation: %d %+v", code, result)
+			}
+		}
+		if code, result := invoke(t, "history", "a", "b", "--status", "queued", "--json"); code != 0 || len(result["runs"].([]any)) != 2 {
+			t.Fatalf("invalid cancellation mutated runs: %d %+v", code, result)
+		}
+		code, result = invoke(t, "cancel", "a", id, "b", "a", "--json")
+		if code != 0 || len(result["runs"].([]any)) != 2 || len(result["errors"].([]any)) != 0 {
+			t.Fatalf("overlapping cancellation: %d %+v", code, result)
+		}
+		for _, item := range result["runs"].([]any) {
+			if item.(map[string]any)["status"] != "cancelled" {
+				t.Fatalf("not cancelled: %+v", item)
+			}
+		}
+	}
+	// Runtime eligibility failures report completed requests in the same JSON object.
+	code, result := invoke(t, "run", "a", "disabled", "b", "--detach", "--json")
+	if code != 1 || len(result["results"].([]any)) != 2 || len(result["errors"].([]any)) != 1 || result["errors"].([]any)[0].(map[string]any)["target"] != "disabled" {
+		t.Fatalf("partial queue results lost: %d %+v", code, result)
+	}
+}
+
 func TestQueueRuns(t *testing.T) {
 	root := sandbox(t)
 	manifest := `timezone: America/Denver
@@ -468,6 +537,15 @@ func TestCancelForeground(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// A queued target after a slow-stopping run must be cancelled before waiting.
+	if code, result := invoke(t, "enable", "--json"); code != 0 {
+		t.Fatalf("enable: %d %+v", code, result)
+	}
+	code, queued := invoke(t, "run", "tests", "--in", "1h", "--json")
+	if code != 0 {
+		t.Fatalf("queue: %d %+v", code, queued)
+	}
+	queuedID := int64(queued["run"].(map[string]any)["id"].(float64))
 	type commandResult struct {
 		code int
 		out  string
@@ -530,7 +608,7 @@ func TestCancelForeground(t *testing.T) {
 	cancelDone := make(chan commandResult, 1)
 	go func() {
 		var out, stderr bytes.Buffer
-		code := cli.Run(context.Background(), []string{"noon", "cancel", fmt.Sprint(run.ID)}, config.BuildOpts{}, &out, &stderr)
+		code := cli.Run(context.Background(), []string{"noon", "cancel", fmt.Sprint(run.ID), fmt.Sprint(queuedID)}, config.BuildOpts{}, &out, &stderr)
 		cancelDone <- commandResult{code: code, out: out.String(), err: stderr.String()}
 	}()
 	foregroundFinished, cancelFinished := false, false
@@ -556,8 +634,9 @@ func TestCancelForeground(t *testing.T) {
 		state, err := store.OpenExisting(stateDir)
 		if err == nil {
 			current, readErr := state.RunByID(run.ID)
+			later, laterErr := state.RunByID(queuedID)
 			_ = state.Close()
-			if readErr == nil && current.CancelRequestedAt.Valid {
+			if readErr == nil && current.CancelRequestedAt.Valid && current.Status == "running" && laterErr == nil && later.Status == "cancelled" {
 				requested = true
 				break
 			}
@@ -565,7 +644,7 @@ func TestCancelForeground(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if !requested {
-		t.Fatal("cancel command did not persist its request")
+		t.Fatal("cancel command did not persist every request before waiting for the active run")
 	}
 	// The TERM marker proves the durable request was observed before testing
 	// that the signal reader remains alive for force-kill signals.

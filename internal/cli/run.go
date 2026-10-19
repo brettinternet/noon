@@ -26,12 +26,12 @@ type runExit int
 func (e runExit) Error() string { return fmt.Sprintf("job exited %d", e) }
 
 func runJob(ctx context.Context, cmd *urfave.Command) error {
-	if cmd.Args().Len() > 1 {
-		return usageError("run accepts only one job name", "Run noon run to list jobs")
-	}
 	queueMode, err := runQueueMode(cmd)
 	if err != nil {
 		return err
+	}
+	if cmd.Args().Len() > 1 && queueMode == "" {
+		return usageError("foreground run accepts only one job name", "Use --detach, --in, or --at to queue multiple jobs")
 	}
 	if cmd.Args().Len() == 0 && queueMode != "" {
 		return usageError("queued run options require a job name", "Run noon run to list jobs")
@@ -97,6 +97,9 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		dueAt, err := queueDueAt(queueMode, cmd.String("in"), cmd.String("at"), now, location)
 		if err != nil {
 			return usageError(err.Error(), "Use --in 2h or --at '2026-10-16 09:00'")
+		}
+		if cmd.Args().Len() > 1 {
+			return queueJobs(cmd, cfg, uniqueTargets(cmd.Args().Slice()), eventData, dueAt, now, location, queueMode == "detach")
 		}
 		result, err := app.QueueRun(cfg, name, cmd.String("key"), dueAt, now, time.Now, queueMode == "detach", "cli", app.QueueOptions{EventData: eventData, EventSource: "cli"})
 		if err != nil {

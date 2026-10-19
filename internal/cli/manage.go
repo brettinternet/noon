@@ -356,9 +356,6 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 		printJobCandidates(cmd, names)
 		return nil
 	}
-	if len(args) != 1 {
-		return usageError("remove accepts one NAME", "")
-	}
 	values, e := input(cmd)
 	if e != nil {
 		return e
@@ -366,10 +363,6 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	cfg, e := config.Load(values)
 	if e != nil {
 		return configError(e)
-	}
-	job, ok := cfg.Jobs[args[0]]
-	if !ok {
-		return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", args[0]), Hint: "Run noon remove to list jobs"}
 	}
 	if cmd.Bool("shared") && cmd.Bool("local") {
 		return usageError("--shared and --local are mutually exclusive", "Choose the definition to remove")
@@ -384,66 +377,98 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	} else if localFile, e = config.LocalPath(cfg.Project); e != nil {
 		return configError(e)
 	}
-	sharedExists, localExists := hasJobInFile(values, sharedFile, args[0]), localFile != "" && hasJobInFile(values, localFile, args[0])
-	if sharedExists && localExists && !cmd.Bool("shared") && !cmd.Bool("local") {
-		return usageError("job is defined in both noon.yaml and "+displayPath(cfg.Project, localFile), "Choose --shared or --local")
-	}
 	if cmd.Bool("local") && localFile == "" {
 		return usageError("no private config outside a Git checkout", "Choose --shared")
 	}
-	file := job.Source
-	if cmd.Bool("shared") {
-		file = sharedFile
+	args = uniqueTargets(args)
+	byFile := map[string][]string{}
+	files := []string{}
+	for _, name := range args {
+		job, ok := cfg.Jobs[name]
+		if !ok {
+			return app.MissingJobError(name, "remove", cfg.Jobs)
+		}
+		sharedExists, localExists := hasJobInFile(values, sharedFile, name), localFile != "" && hasJobInFile(values, localFile, name)
+		if sharedExists && localExists && !cmd.Bool("shared") && !cmd.Bool("local") {
+			return usageError("job is defined in both noon.yaml and "+displayPath(cfg.Project, localFile), "Choose --shared or --local")
+		}
+		file := job.Source
+		if cmd.Bool("shared") {
+			file = sharedFile
+		}
+		if cmd.Bool("local") {
+			file = localFile
+		}
+		if _, ok := byFile[file]; !ok {
+			files = append(files, file)
+		}
+		byFile[file] = append(byFile[file], name)
 	}
-	if cmd.Bool("local") {
-		file = localFile
+	// Prepare and verify every file before writing any of them.
+	prepared := map[string][]byte{}
+	for _, file := range files {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		before := cfg
+		for _, name := range byFile[file] {
+			oldNames, err := config.JobNames(src)
+			if err != nil {
+				return editVerificationError(err.Error())
+			}
+			if !slices.Contains(oldNames, name) {
+				return usageError("job "+name+" not found in selected file", "")
+			}
+			after, err := config.RemoveJob(src, name)
+			if err != nil {
+				return editVerificationError(err.Error())
+			}
+			candidate, err := config.LoadWithFileOverride(values, file, after)
+			if err != nil {
+				return editVerificationError(err.Error())
+			}
+			newNames, err := config.JobNames(after)
+			if err != nil {
+				return editVerificationError(err.Error())
+			}
+			want := slices.DeleteFunc(slices.Clone(oldNames), func(n string) bool { return n == name })
+			if !sameNames(newNames, want) {
+				return editVerificationError("edited job names do not match the requested removal")
+			}
+			if err := verifyRawJobsUnchanged(src, after, oldNames, name, before); err != nil {
+				return editVerificationError(err.Error())
+			}
+			if err := verifyConfigUnchanged(before, candidate, name); err != nil {
+				return editVerificationError(err.Error())
+			}
+			src, before = after, candidate
+		}
+		prepared[file] = src
 	}
-	src, e := os.ReadFile(file)
-	if e != nil {
-		return e
-	}
-	oldTargetNames, e := config.JobNames(src)
-	if e != nil {
-		return &Error{Code: "config_edit", Message: e.Error(), Hint: "Edit the file by hand"}
-	}
-	if !slices.Contains(oldTargetNames, args[0]) {
-		return usageError("job not found in selected file", "")
-	}
-	after, e := config.RemoveJob(src, args[0])
-	if e != nil {
-		return &Error{Code: "config_edit", Message: e.Error(), Hint: "Edit the file by hand"}
-	}
-	candidate, e := config.LoadWithFileOverride(values, file, after)
-	if e != nil {
-		return &Error{Code: "config_edit", Message: e.Error(), Hint: "Edit the file by hand"}
-	}
-	newTargetNames, e := config.JobNames(after)
-	if e != nil {
-		return &Error{Code: "config_edit", Message: e.Error(), Hint: "Edit the file by hand"}
-	}
-	want := make([]string, 0, len(oldTargetNames)-1)
-	for _, n := range oldTargetNames {
-		if n != args[0] {
-			want = append(want, n)
+	removed := []map[string]string{}
+	failures := []targetFailure{}
+	for _, file := range files {
+		if err := atomicWrite(file, prepared[file], 0); err != nil {
+			for _, name := range byFile[file] {
+				failures = append(failures, targetFailure{Target: name, Error: err.Error()})
+			}
+			continue
+		}
+		for _, name := range byFile[file] {
+			removed = append(removed, map[string]string{"removed": name, "file": file})
+			if !cmd.Bool("json") {
+				fmt.Fprintf(cmd.Writer, "Removed %s from %s. History is retained.\n", name, file)
+			}
 		}
 	}
-	if !sameNames(newTargetNames, want) {
-		return editVerificationError("edited job names do not match the requested removal")
+	if cmd.Args().Len() == 1 && len(failures) == 0 {
+		if cmd.Bool("json") {
+			return emit(cmd, map[string]any{"removed": removed[0]["removed"], "file": removed[0]["file"]})
+		}
+		return nil
 	}
-	if err := verifyRawJobsUnchanged(src, after, oldTargetNames, args[0], cfg); err != nil {
-		return editVerificationError(err.Error())
-	}
-	if err := verifyConfigUnchanged(cfg, candidate, args[0]); err != nil {
-		return editVerificationError(err.Error())
-	}
-	if err := atomicWrite(file, after, 0); err != nil {
-		return err
-	}
-	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"removed": args[0], "file": file})
-	}
-	fmt.Fprintf(cmd.Writer, "Removed %s from %s. History is retained.\n", args[0], file)
-	return nil
+	return finishBatch(cmd, map[string]any{"removed": removed}, failures)
 }
 func printJobCandidates(cmd *urfave.Command, names []string) {
 	if len(names) == 0 {
@@ -507,14 +532,23 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 		printJobCandidates(cmd, names)
 		return nil
 	}
-	if len(args) != 1 {
-		return usageError("expected one job name", "")
+	args = uniqueTargets(args)
+	for _, name := range args {
+		if _, ok := cfg.Jobs[name]; !ok {
+			return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: "Run noon " + cmd.Name + " to list jobs"}
+		}
 	}
-	if _, ok := cfg.Jobs[args[0]]; !ok {
-		return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", args[0]), Hint: "Run noon " + cmd.Name + " to list jobs"}
-	}
-	if e = app.SetPaused(cfg.StateDir, cfg.Project, args[0], paused, time.Now()); e != nil {
+	changed, e := app.SetJobsPaused(cfg.StateDir, cfg.Project, args, paused, time.Now())
+	if e != nil {
 		return stateError(e)
+	}
+	if cmd.Args().Len() > 1 {
+		if cmd.Bool("json") {
+			slices.Sort(args)
+			return emit(cmd, map[string]any{"jobs": args, "paused": paused, "changed": changed})
+		}
+		fmt.Fprintf(cmd.Writer, "%s: %s (%d changed).\n", cmd.Name, strings.Join(args, ", "), changed)
+		return nil
 	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"job": args[0], "paused": paused})

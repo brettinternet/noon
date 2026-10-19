@@ -166,7 +166,16 @@ func completeShell(root, active *urfave.Command, argv []string) {
 		return
 	}
 	if position != 0 {
-		return
+		switch selected.FullName() {
+		case "noon pause", "noon resume", "noon remove", "noon history", "noon cancel":
+		case "noon run":
+			mode, err := runQueueMode(active)
+			if err != nil || mode == "" {
+				return
+			}
+		default:
+			return
+		}
 	}
 	for _, command := range selected.Commands {
 		if !command.Hidden {

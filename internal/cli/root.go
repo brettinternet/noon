@@ -58,15 +58,15 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				urfave.VersionPrinter(cmd.Root())
 				return nil
 			}},
-			{Name: "run", Usage: "Run NAME in the foreground; without a name, list runnable jobs", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
+			{Name: "run", Usage: "Run one job in the foreground or queue multiple jobs; without names, list runnable jobs", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "data", Usage: "Event `JSON`, @FILE, or - for stdin (up to 256 KiB)"},
 				&urfave.BoolFlag{Name: "detach", Aliases: []string{"d"}, Usage: "Queue NAME to run as soon as capacity is available"},
 				&urfave.StringFlag{Name: "in", Usage: "Queue NAME after `DURATION` (at least 1s)"},
 				&urfave.StringFlag{Name: "at", Usage: "Queue NAME at `TIME`: HH:MM, YYYY-MM-DD HH:MM, or RFC 3339"},
 				&urfave.StringFlag{Name: "key", Usage: "Idempotency `KEY`; deduplicated while retained (newest 50 terminal runs per job)"},
 			}, Action: runJob},
-			{Name: "cancel", Usage: "Cancel a run or all active runs of a job; without an argument, list active runs", ArgsUsage: "[RUN|NAME]", Action: cancelRuns},
-			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME]", Flags: []urfave.Flag{
+			{Name: "cancel", Usage: "Cancel runs or all active runs of named jobs; without arguments, list active runs", ArgsUsage: "[RUN|NAME...]", Action: cancelRuns},
+			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{
 				&urfave.IntFlag{Name: "limit", Aliases: []string{"n"}, Value: 20, Usage: "Limit history to `N` runs (1–50)"},
 				&urfave.StringSliceFlag{Name: "status", Aliases: []string{"s"}, Usage: "Filter by `STATUS`; repeat or comma-separate values"},
 			}, Action: historyRuns},
@@ -112,9 +112,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.StringFlag{Name: "in", Usage: "Queue a run after `DURATION`"},
 				&urfave.StringFlag{Name: "at", Usage: "Queue a run at `TIME`"},
 			}, Action: addJob},
-			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition; retain history", Description: "Without NAME, list jobs without removing anything. If both repository files define NAME, choose --shared or --local. With --user, remove edits the user config.yaml.\n\nExample:\n  noon remove tests --local\n  noon --user remove digest", ArgsUsage: "[NAME]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared", Usage: "Remove from shared noon.yaml"}, &urfave.BoolFlag{Name: "local", Usage: "Remove from private .git/noon.yaml"}}, Action: removeJob},
-			{Name: "pause", Usage: "Pause background runs of jobs", ArgsUsage: "[NAME | --all]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "Pause all currently configured jobs in the selected project"}}, Action: pauseJob},
-			{Name: "resume", Usage: "Resume background runs of jobs", ArgsUsage: "[NAME | --all]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "Resume all currently configured jobs in the selected project"}}, Action: resumeJob},
+			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition; retain history", Description: "Without NAME, list jobs without removing anything. If both repository files define NAME, choose --shared or --local. With --user, remove edits the user config.yaml.\n\nExample:\n  noon remove tests --local\n  noon --user remove digest", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared", Usage: "Remove from shared noon.yaml"}, &urfave.BoolFlag{Name: "local", Usage: "Remove from private .git/noon.yaml"}}, Action: removeJob},
+			{Name: "pause", Usage: "Pause background runs of jobs", ArgsUsage: "[NAME... | --all]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "Pause all currently configured jobs in the selected project"}}, Action: pauseJob},
+			{Name: "resume", Usage: "Resume background runs of jobs", ArgsUsage: "[NAME... | --all]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "Resume all currently configured jobs in the selected project"}}, Action: resumeJob},
 			{Name: "import", Usage: "Preview or import jobs from another scheduler", Action: importers, Commands: []*urfave.Command{
 				{Name: "crontab", Usage: "Preview or import a user crontab", ArgsUsage: "FILE|-", Flags: []urfave.Flag{
 					&urfave.BoolFlag{Name: "write", Usage: "Add jobs to private .git/noon.yaml, or to user config.yaml with --user"},

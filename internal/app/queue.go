@@ -253,6 +253,49 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 			return CancelResult{}, err
 		}
 	}
+	return waitForCancellation(state, stored, alreadyFinished, deadline)
+}
+
+// CancellationOutcome retains per-run results when some requests fail.
+type CancellationOutcome struct {
+	ID     int64
+	Result CancelResult
+	Err    error
+}
+
+// CancelRuns records every request before waiting for any live process owner.
+func CancelRuns(stateDir string, ids []int64, now time.Time) ([]CancellationOutcome, error) {
+	outcomes := make([]CancellationOutcome, len(ids))
+	if len(ids) == 0 {
+		return outcomes, nil
+	}
+	state, err := store.Open(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	defer state.Close()
+	stored := make([]store.Run, len(ids))
+	finished := make([]bool, len(ids))
+	for i, id := range ids {
+		outcomes[i].ID = id
+		previous, err := state.RunByID(id)
+		if err != nil {
+			outcomes[i].Err = err
+			continue
+		}
+		finished[i] = previous.Status != "queued" && previous.Status != "running"
+		stored[i], outcomes[i].Err = state.RequestCancelRun(id, now)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for i := range outcomes {
+		if outcomes[i].Err == nil {
+			outcomes[i].Result, outcomes[i].Err = waitForCancellation(state, []store.Run{stored[i]}, finished[i], deadline)
+		}
+	}
+	return outcomes, nil
+}
+
+func waitForCancellation(state *store.Store, stored []store.Run, alreadyFinished bool, deadline time.Time) (CancelResult, error) {
 	for {
 		pendingIDs := make([]int64, 0, len(stored))
 		for i := range stored {

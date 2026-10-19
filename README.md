@@ -153,12 +153,12 @@ suggests `noon --user add` without creating files.
 | `noon` / `noon status` | Dashboard: jobs, scheduler, queued work, next step |
 | `noon list` | Jobs and next run times |
 | `noon add NAME [SCHEDULE] -- CMD…` | Add a job (`--sh`, `--prompt`, `--prompt-file`, `--shared`) |
-| `noon remove NAME` | Remove a job definition; history stays |
+| `noon remove NAME...` | Remove job definitions; history stays |
 | `noon run NAME` | Run now; returns 0 when `noop_exit_code` matches |
-| `noon run NAME --detach` | Queue for the scheduler (`--in 2h`, `--at 17:00`, `--key`, `--data`) |
-| `noon cancel RUN\|NAME` | Cancel queued or running work |
-| `noon pause NAME` / `resume NAME` | Stop or restart background runs; `--all` / `-a` selects all current project jobs |
-| `noon history` | Recent runs (`--status failed`) |
+| `noon run NAME... --detach` | Queue jobs for the scheduler (`--in 2h`, `--at 17:00`, `--key`, `--data`) |
+| `noon cancel RUN\|NAME...` | Cancel selected runs or jobs' active work |
+| `noon pause NAME...` / `resume NAME...` | Stop or restart background runs; `--all` / `-a` selects all current project jobs |
+| `noon history [NAME...]` | Recent runs across selected jobs (`--status failed`) |
 | `noon logs [NAME\|RUN]` | Read, search, page, or `--follow` a run log |
 | `noon enable` / `disable` | Opt this checkout in or out of background runs |
 | `noon serve` | Foreground scheduler; optionally serve signed webhooks and an authenticated remote API/MCP listener |

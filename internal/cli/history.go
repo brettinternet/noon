@@ -14,9 +14,6 @@ import (
 )
 
 func historyRuns(_ context.Context, cmd *urfave.Command) error {
-	if cmd.Args().Len() > 1 {
-		return usageError("history accepts at most one job name", "Run noon history [NAME]")
-	}
 	limit := cmd.Int("limit")
 	statuses := cmd.StringSlice("status")
 	values, err := input(cmd)
@@ -24,12 +21,10 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	job := ""
-	var jobFilter *string
 	if cmd.Args().Len() == 1 {
 		job = cmd.Args().First()
-		jobFilter = &job
 	}
-	history, err := app.ListRuns(values, jobFilter, statuses, limit)
+	history, err := app.ListRunsForJobs(values, uniqueTargets(cmd.Args().Slice()), statuses, limit)
 	if err != nil {
 		return err
 	}
