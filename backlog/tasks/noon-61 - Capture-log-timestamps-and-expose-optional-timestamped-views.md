@@ -4,8 +4,9 @@ title: Capture log timestamps and expose optional timestamped views
 status: Done
 assignee: []
 created_date: '2026-10-19 17:50'
-updated_date: '2026-10-19 19:44'
-labels: []
+updated_date: '2026-10-19 20:04'
+labels:
+  - reviewed
 dependencies:
   - NOON-25
   - NOON-28
@@ -88,6 +89,8 @@ Observed timestamps by default, "Log timestamps off." after t, and help listing 
 Single independent review found two P2 issues (missing CLI resume guidance and TUI wrapped-row viewport jump); both fixed with focused regression coverage and package checks. No further validated metadata defects. Initial executor timed out during validation; resumed its preserved work and completed checks.
 
 Delivery: implementation 358c573, merged locally into main as 34a3bb5; no push. Worklease claim e87df1c6a86d9079cb8978c5861115bd, authority 5c3be162a660fb7434fde16d059bdd47, worker 01a1554e-4dac-7248-b935-c64beb629e2a. Created worktree /Users/brett/dev/me/noon/.worktrees/feat-log-timestamps, branch feat/log-timestamps, creation commit 2f5464bcd27d69734056dddcb808d0a801bf5a9b; receipt verified in .git/worktrees/feat-log-timestamps/agent-creation.json against this session before removal. All delegated runs finished. Worktrunk removed integrated clean worktree and branch; exact associated Herdr workspace wHJ had only idle zsh and is verified gone. No retained task worktrees or blockers.
+
+Post-completion review 2026-10-19 of 358c573: implementation matches the settled contract. Verified head records appended before log bytes under the RunLog mutex; tail records clipped with dropped bytes and rebased past the omission marker at Close, with the first retained fragment treated as a line start; hook timing rebased past prefix/marker; removeLog deletes the sidecar; readers snapshot log then sidecar and only query in-snapshot line starts; resumed mid-line slices look up the true line start (no new timestamp), CLI continuation suppresses the duplicate prefix; default CLI/JSON/MCP/HTTP payloads unchanged (line_times only when opted in; --path with --timestamps rejected); TUI default-on with t toggle and anchor preservation. Re-ran AC#1-#3 packages (store, runner, app, cli, mcp, httpapi, tui) with -count=1: all pass except one TestRunner/leader_exits_with_open_grandchild_pipe failure under parallel load. Runner was not changed, and the package passed alone 3 times with -count=3, so this is pre-existing flakiness. Three P3 findings, no P1/P2: (1) internal/store/timing.go newTimingFile opens with O_EXCL and silently skips capture if a sidecar already exists. The log itself is created O_EXCL, so any existing RUN_ID.log.timing is stale: an orphan left by a partial removeLog failure, a manual log deletion, or a restored DB reusing a run ID. The reader then attributes stale times to the new log, which breaks the never-wrong-timing rule. Fix: replace or truncate the stale sidecar (O_TRUNC) after the exclusive log create succeeds. (2) internal/store/log.go disableTiming removes the whole sidecar on any write/sync failure. That makes already-captured lines unavailable too, while the settled design says only later lines become unavailable. The result is conservative but deviates from that wording. (3) RunLog.tailTiming keeps one 24-byte record per post-1MiB write, and clipTailTiming shifts the slice on every drop. With sub-24-byte writes this grows to ~24 MiB per run, and the per-write memmove exceeds the existing 1 MiB tail copy. Pipe-read coalescing limits this in practice. No source fixes made in this review.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
