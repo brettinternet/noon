@@ -100,28 +100,30 @@ type Model struct {
 	messageTone     tone
 	confirmCancelID int64
 
-	logReturn    screen
-	logRun       app.Run
-	logSection   string
-	logSearch    string
-	searchRE     *regexp.Regexp
-	searchPrompt bool
-	searchInput  []rune
-	searchCursor int
-	matchCursor  int
-	matchedLines int
-	logText      string
-	logVersion   int
-	logRowCache  logRowCache
-	logPartial   bool
-	logWrap      bool
-	logCursor    int64
-	logSize      int64
-	logScroll    int
-	logFollowed  bool
-	logOrphaned  bool
-	followNotice bool
-	autoScroll   bool
+	logReturn         screen
+	logRun            app.Run
+	logSection        string
+	logSearch         string
+	searchRE          *regexp.Regexp
+	searchPrompt      bool
+	searchInput       []rune
+	searchCursor      int
+	matchCursor       int
+	matchedLines      int
+	logText           string
+	logTimes          []app.LineTime
+	logVersion        int
+	logRowCache       logRowCache
+	logPartial        bool
+	logWrap           bool
+	showLogTimestamps bool
+	logCursor         int64
+	logSize           int64
+	logScroll         int
+	logFollowed       bool
+	logOrphaned       bool
+	followNotice      bool
+	autoScroll        bool
 
 	logNotice     string
 	logNoticeTone tone
@@ -137,7 +139,7 @@ func NewModel(input config.Input) (*Model, error) {
 	home, _ := os.UserHomeDir()
 	model := &Model{
 		input: input, stateDir: cfg.StateDir, project: cfg.Project, home: home,
-		screen: jobsScreen, width: 80, height: 24, dark: true, logWrap: true,
+		screen: jobsScreen, width: 80, height: 24, dark: true, logWrap: true, showLogTimestamps: true,
 	}
 	model.theme = newTheme(model.profile, model.dark, model.background)
 	if err := model.refreshDashboard(); err != nil {
@@ -389,6 +391,8 @@ func (m *Model) logKey(key string) {
 		m.cycleLogSection(-1)
 	case "w":
 		m.toggleWrap()
+	case "t":
+		m.toggleTimestamps()
 	case "c":
 		m.askCancel()
 	case "r":
@@ -664,8 +668,9 @@ func (m *Model) openLog(run app.Run, from screen) {
 	}
 }
 
-func (m *Model) setLogText(text string) {
+func (m *Model) setLogText(text string, times []app.LineTime) {
 	m.logText = text
+	m.logTimes = append(m.logTimes[:0], times...)
 	m.logVersion++
 }
 
@@ -677,14 +682,14 @@ func (m *Model) clearSearch() {
 // opens on the last screenful with recent scrollback above it.
 func (m *Model) loadLogTail(resetFollow bool) bool {
 	tail := logTailLines
-	query := app.LogQuery{Section: m.logSection, Tail: &tail, LimitBytes: intPointer(logPageBytes)}
+	query := app.LogQuery{Section: m.logSection, Tail: &tail, LimitBytes: intPointer(logPageBytes), Timestamps: true}
 	detail, err := app.GetRun(context.Background(), m.stateDir, m.logRun.ID, 0, query)
 	if err != nil {
 		m.flash(toneError, errorMessage(err))
 		return false
 	}
 	m.logRun, m.logSize = detail.Run, detail.Size
-	m.setLogText(detail.Log)
+	m.setLogText(detail.Log, detailLineTimes(detail))
 	m.logPartial = detail.Truncated || strings.Count(detail.Log, "\n") >= logTailLines
 	m.logCursor = detail.Next
 	m.setLogNotice(detail.Run, detail.Orphaned)
@@ -703,14 +708,14 @@ func (m *Model) loadLogTop() {
 	m.clearSearch()
 	m.clearFlash()
 	zero := int64(0)
-	query := app.LogQuery{Section: m.logSection, After: &zero, LimitBytes: intPointer(logPageBytes)}
+	query := app.LogQuery{Section: m.logSection, After: &zero, LimitBytes: intPointer(logPageBytes), Timestamps: true}
 	detail, err := app.GetRun(context.Background(), m.stateDir, m.logRun.ID, 0, query)
 	if err != nil {
 		m.flash(toneError, errorMessage(err))
 		return
 	}
 	m.logRun, m.logSize = detail.Run, detail.Size
-	m.setLogText(detail.Log)
+	m.setLogText(detail.Log, detailLineTimes(detail))
 	m.logPartial = false
 	m.logCursor = detail.Next
 	m.setLogNotice(detail.Run, detail.Orphaned)
@@ -748,6 +753,56 @@ func (m *Model) toggleWrap() {
 	m.clampScroll()
 }
 
+func (m *Model) toggleTimestamps() {
+	previous := m.logRows()
+	scroll := m.logScroll
+	if m.autoScroll {
+		scroll = max(0, len(previous.rows)-m.logBodyHeight())
+	}
+	anchor := logRow{line: -1}
+	if scroll < len(previous.rows) {
+		anchor = previous.rows[scroll]
+	}
+	matchOffset := -1
+	if len(previous.matches) > 0 {
+		matchOffset = previous.matches[clamp(m.matchCursor, 0, len(previous.matches)-1)] - scroll
+	}
+
+	m.showLogTimestamps = !m.showLogTimestamps
+	current := m.logRows()
+	switch {
+	case m.autoScroll:
+		m.logScroll = max(0, len(current.rows)-m.logBodyHeight())
+	case matchOffset >= 0 && len(current.matches) > 0:
+		matchRow := current.matches[clamp(m.matchCursor, 0, len(current.matches)-1)]
+		relative := clamp(matchOffset, 0, max(0, m.logBodyHeight()-1))
+		m.logScroll = matchRow - relative
+	case anchor.line >= 0:
+		for i, row := range current.rows {
+			if row.line != anchor.line {
+				continue
+			}
+			if anchor.start == row.start || row.start <= anchor.start && anchor.start < row.end {
+				m.logScroll = i
+				break
+			}
+		}
+	}
+	m.clampScroll()
+	if m.showLogTimestamps {
+		m.flash(toneInfo, "Log timestamps on.")
+	} else {
+		m.flash(toneInfo, "Log timestamps off.")
+	}
+}
+
+func detailLineTimes(detail app.RunDetail) []app.LineTime {
+	if detail.LineTimes == nil {
+		return nil
+	}
+	return *detail.LineTimes
+}
+
 func (m *Model) runSearch() {
 	pattern := string(m.searchInput)
 	m.searchPrompt = false
@@ -761,14 +816,14 @@ func (m *Model) runSearch() {
 		return
 	}
 	contextLines := searchContext
-	query := app.LogQuery{Section: m.logSection, Match: &pattern, Context: &contextLines, LimitBytes: intPointer(logPageBytes)}
+	query := app.LogQuery{Section: m.logSection, Match: &pattern, Context: &contextLines, LimitBytes: intPointer(logPageBytes), Timestamps: true}
 	detail, err := app.GetRun(context.Background(), m.stateDir, m.logRun.ID, 0, query)
 	if err != nil {
 		m.flash(toneError, errorMessage(err))
 		return
 	}
 	m.logRun, m.logSize = detail.Run, detail.Size
-	m.setLogText(detail.Log)
+	m.setLogText(detail.Log, detailLineTimes(detail))
 	m.logPartial = detail.Truncated
 	m.logSearch, m.searchRE, m.matchCursor = pattern, compiled, 0
 	m.matchedLines = 0
@@ -845,7 +900,7 @@ func (m *Model) pollLog() {
 		limit = 4 // Read status/orphan state at the cursor without advancing past the 1 MiB cap.
 	}
 	after := m.logCursor
-	query := app.LogQuery{Section: m.logSection, After: &after, LimitBytes: &limit}
+	query := app.LogQuery{Section: m.logSection, After: &after, LimitBytes: &limit, Timestamps: true}
 	detail, err := app.GetRun(context.Background(), m.stateDir, m.logRun.ID, 0, query)
 	if err != nil {
 		m.flash(toneError, errorMessage(err))
@@ -866,7 +921,7 @@ func (m *Model) pollLog() {
 	}
 	if detail.Next > oldCursor {
 		if m.logSearch == "" {
-			m.appendLogText(detail.Log)
+			m.appendLogText(detail.Log, detailLineTimes(detail))
 			if m.autoScroll {
 				m.logScroll = m.maxLogScroll()
 			}
@@ -1108,20 +1163,28 @@ func (m *Model) maxLogScroll() int {
 	return max(0, len(m.logRows().rows)-m.logBodyHeight())
 }
 
-func (m *Model) appendLogText(text string) {
+func (m *Model) appendLogText(text string, times []app.LineTime) {
 	if text == "" {
 		return
 	}
-	buffer := m.logText + text
+	oldText := m.logText
+	newTimes := append([]app.LineTime(nil), times...)
+	if oldText != "" && !strings.HasSuffix(oldText, "\n") && len(newTimes) > 0 {
+		newTimes = newTimes[1:]
+	}
+	allTimes := append(append([]app.LineTime(nil), m.logTimes...), newTimes...)
+	buffer := oldText + text
 	if len(buffer) > maxLogBufferBytes {
 		trim := len(buffer) - maxLogBufferBytes
 		if newline := strings.IndexByte(buffer[trim:], '\n'); newline >= 0 {
 			trim += newline + 1
 		}
+		drop := min(strings.Count(buffer[:trim], "\n"), len(allTimes))
+		allTimes = allTimes[drop:]
 		buffer = buffer[trim:]
 		m.logPartial = true
 	}
-	m.setLogText(buffer)
+	m.setLogText(buffer, allTimes)
 }
 
 func splitLogLines(text string) []string {

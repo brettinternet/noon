@@ -4,20 +4,28 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 )
 
 // RunLog writes the first MiB directly and buffers only the last MiB of later output.
 type RunLog struct {
 	mu               sync.Mutex
 	file             *os.File
+	timing           *os.File
 	path             string
 	first            int64
 	tail             []byte
 	tailBytes        int64
+	tailTiming       []TimingRecord
+	lastByte         byte
+	hasLastByte      bool
+	headLastByte     byte
+	hasHeadLastByte  bool
 	persisted        int64
 	closed           bool
 	overflowNotified bool
 	onOverflow       func() error
+	now              func() time.Time
 	writeErr         error
 }
 
@@ -31,11 +39,22 @@ func (l *RunLog) Write(p []byte) (int, error) {
 		return 0, l.writeErr
 	}
 	written := len(p)
+	at := time.Now()
+	if l.now != nil {
+		at = l.now()
+	}
 	if remaining := int64(maxRunLogBytes) - l.first; remaining > 0 {
 		n := min(len(p), int(remaining))
 		if n > 0 {
-			count, err := l.file.Write(p[:n])
+			chunk := p[:n]
+			records := TimingRecordsForChunk(l.first, chunk, l.lastByte, l.hasLastByte, at.UnixMilli())
+			l.appendTiming(records)
+			count, err := l.file.Write(chunk)
 			l.first += int64(count)
+			if count > 0 {
+				l.lastByte, l.hasLastByte = chunk[count-1], true
+				l.headLastByte, l.hasHeadLastByte = chunk[count-1], true
+			}
 			if err != nil {
 				l.writeErr = err
 				return count, err
@@ -55,6 +74,7 @@ func (l *RunLog) Write(p []byte) (int, error) {
 			}
 			l.overflowNotified = true
 		}
+		tailStart := l.first + l.tailBytes
 		l.tailBytes += int64(len(p))
 		if len(p) >= maxRunLogBytes {
 			l.tail = append(l.tail[:0], p[len(p)-maxRunLogBytes:]...)
@@ -66,6 +86,9 @@ func (l *RunLog) Write(p []byte) (int, error) {
 			}
 			l.tail = append(l.tail, p...)
 		}
+		l.tailTiming = append(l.tailTiming, TimingRecord{Start: tailStart, End: tailStart + int64(len(p)), UnixMilli: at.UnixMilli()})
+		l.clipTailTiming(l.first + l.tailBytes - int64(len(l.tail)))
+		l.lastByte, l.hasLastByte = p[len(p)-1], true
 	}
 	return written, nil
 }
@@ -80,8 +103,13 @@ func (l *RunLog) Close() (bytes int64, truncated bool, err error) {
 	l.closed = true
 	if l.writeErr == nil {
 		omitted := l.tailBytes - int64(len(l.tail))
+		marker := ""
 		if omitted > 0 {
-			if _, err = fmt.Fprintf(l.file, "\n[noon: %d bytes omitted]\n", omitted); err != nil {
+			marker = fmt.Sprintf("\n[noon: %d bytes omitted]\n", omitted)
+		}
+		l.appendTiming(l.finalTailTiming(int64(len(marker)), omitted > 0))
+		if marker != "" {
+			if _, err = l.file.WriteString(marker); err != nil {
 				l.writeErr = err
 			}
 		}
@@ -93,6 +121,17 @@ func (l *RunLog) Close() (bytes int64, truncated bool, err error) {
 	}
 	if l.writeErr == nil {
 		l.writeErr = l.file.Sync()
+	}
+	if l.timing != nil {
+		if err := l.timing.Sync(); err != nil {
+			l.disableTiming()
+		} else if err := l.timing.Close(); err != nil {
+			path := l.timing.Name()
+			l.timing = nil
+			_ = os.Remove(path)
+		} else {
+			l.timing = nil
+		}
 	}
 	if closeErr := l.file.Close(); l.writeErr == nil {
 		l.writeErr = closeErr
@@ -107,6 +146,90 @@ func (l *RunLog) Close() (bytes int64, truncated bool, err error) {
 	l.persisted = bytes
 	truncated = l.tailBytes > maxRunLogBytes
 	return bytes, truncated, l.writeErr
+}
+
+func (l *RunLog) appendTiming(records []TimingRecord) {
+	if l.timing == nil || len(records) == 0 {
+		return
+	}
+	if err := writeTimingRecords(l.timing, records); err != nil {
+		l.disableTiming()
+	}
+}
+
+func (l *RunLog) disableTiming() {
+	if l.timing == nil {
+		return
+	}
+	path := l.timing.Name()
+	_ = l.timing.Close()
+	l.timing = nil
+	_ = os.Remove(path)
+}
+
+func (l *RunLog) clipTailTiming(start int64) {
+	first := 0
+	for first < len(l.tailTiming) && l.tailTiming[first].End <= start {
+		first++
+	}
+	if first > 0 {
+		copy(l.tailTiming, l.tailTiming[first:])
+		l.tailTiming = l.tailTiming[:len(l.tailTiming)-first]
+	}
+	if len(l.tailTiming) > 0 && l.tailTiming[0].Start < start {
+		l.tailTiming[0].Start = start
+	}
+}
+
+func (l *RunLog) finalTailTiming(markerBytes int64, omitted bool) []TimingRecord {
+	if len(l.tail) == 0 || len(l.tailTiming) == 0 {
+		return nil
+	}
+	tailStart := l.first + l.tailBytes - int64(len(l.tail))
+	outputStart := l.first + markerBytes
+	var records []TimingRecord
+	for _, chunk := range l.tailTiming {
+		start := max(chunk.Start, tailStart)
+		end := min(chunk.End, tailStart+int64(len(l.tail)))
+		if start >= end {
+			continue
+		}
+		first := int64(-1)
+		for offset := start; offset < end; offset++ {
+			index := int(offset - tailStart)
+			lineStart := offset > tailStart && l.tail[index-1] == '\n'
+			if offset == tailStart {
+				lineStart = omitted || l.hasHeadLastByte && l.headLastByte == '\n'
+			}
+			if lineStart {
+				first = offset
+				break
+			}
+		}
+		if first >= 0 {
+			records = append(records, TimingRecord{
+				Start: outputStart + first - tailStart, End: outputStart + end - tailStart,
+				UnixMilli: chunk.UnixMilli,
+			})
+		}
+	}
+	return coalesceTimingRecords(records)
+}
+
+func coalesceTimingRecords(records []TimingRecord) []TimingRecord {
+	if len(records) < 2 {
+		return records
+	}
+	out := records[:1]
+	for _, record := range records[1:] {
+		last := &out[len(out)-1]
+		if last.End == record.Start && last.UnixMilli == record.UnixMilli {
+			last.End = record.End
+		} else {
+			out = append(out, record)
+		}
+	}
+	return out
 }
 
 func (l *RunLog) Path() string { return l.path }

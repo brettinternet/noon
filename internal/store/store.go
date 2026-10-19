@@ -846,12 +846,13 @@ func removeLog(dir, relative string) error {
 	if filepath.IsAbs(relative) || filepath.Clean(relative) != relative || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("unsafe log path %q", relative)
 	}
-	err := os.Remove(filepath.Join(dir, relative))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
+	path := filepath.Join(dir, relative)
+	err := os.Remove(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove old run log: %w", err)
+	}
+	if err := os.Remove(timingPath(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove old run log timing: %w", err)
 	}
 	return nil
 }
@@ -872,10 +873,15 @@ func (s *Store) RunLog(projectID, runID int64) (*RunLog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create run log: %w", err)
 	}
-	return &RunLog{file: file, path: filepath.ToSlash(filepath.Join("logs", fmt.Sprint(projectID), fmt.Sprintf("%d.log", runID))), onOverflow: func() error {
-		_, err := s.db.Exec(`UPDATE runs SET log_overflow=1 WHERE id=? AND status='running'`, runID)
-		return err
-	}}, nil
+	_ = file.Chmod(0o600)
+	return &RunLog{
+		file: file, timing: newTimingFile(timingPath(path)), now: time.Now,
+		path: filepath.ToSlash(filepath.Join("logs", fmt.Sprint(projectID), fmt.Sprintf("%d.log", runID))),
+		onOverflow: func() error {
+			_, err := s.db.Exec(`UPDATE runs SET log_overflow=1 WHERE id=? AND status='running'`, runID)
+			return err
+		},
+	}, nil
 }
 
 func (s *Store) RunByID(id int64) (Run, error) {
@@ -896,6 +902,12 @@ func (s *Store) RunLogFilePath(run Run) (string, bool) {
 // CompleteHook records a hook result and appends bounded output while preserving
 // the run's terminal status and protecting its log from concurrent retention.
 func (s *Store) CompleteHook(runID int64, event, status string, exitCode *int, output []byte) error {
+	return s.CompleteHookWithTiming(runID, event, status, exitCode, output, nil)
+}
+
+// CompleteHookWithTiming also rebases captured hook timing records past the
+// synthetic marker before appending hook bytes to the run log.
+func (s *Store) CompleteHookWithTiming(runID int64, event, status string, exitCode *int, output []byte, timing []TimingRecord) error {
 	if !s.hasHooks {
 		return errors.New("lifecycle hooks are unavailable in this state database")
 	}
@@ -951,7 +963,17 @@ func (s *Store) CompleteHook(runID int64, event, status string, exitCode *int, o
 				}
 				markerOffset += int64(len(prefix))
 				payload := append(prefix, marker...)
+				payloadStart := markerOffset + int64(len(marker))
 				payload = append(payload, output...)
+				rebased := make([]TimingRecord, 0, len(timing))
+				for _, record := range timing {
+					start := max(int64(0), min(record.Start, int64(len(output))))
+					end := max(int64(0), min(record.End, int64(len(output))))
+					if start < end {
+						rebased = append(rebased, TimingRecord{Start: payloadStart + start, End: payloadStart + end, UnixMilli: record.UnixMilli})
+					}
+				}
+				_ = appendTimingRecords(timingPath(path), rebased)
 				written, appendErr := file.Write(payload)
 				// Preserve the boundary even if only part of the hook was appended.
 				if written > len(prefix) {

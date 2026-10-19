@@ -159,7 +159,7 @@ suggests `noon --user add` without creating files.
 | `noon cancel RUN\|NAME...` | Cancel selected runs or jobs' active work |
 | `noon pause NAME...` / `resume NAME...` | Stop or restart background runs; `--all` / `-a` selects all current project jobs |
 | `noon history [NAME...]` | Recent runs across selected jobs (`--status failed`) |
-| `noon logs [NAME\|RUN]` | Read, search, page, or `--follow` a run log |
+| `noon logs [NAME\|RUN]` | Read, search, page, or `--follow` a run log; opt into timestamps with `--timestamps` / `-t` |
 | `noon enable` / `disable` | Opt this checkout in or out of background runs |
 | `noon serve` | Foreground scheduler; optionally serve signed webhooks and an authenticated remote API/MCP listener |
 | `noon service install` | Run `noon serve` as a per-user launchd/systemd service |
@@ -190,8 +190,9 @@ Examples:
   noon add check-ci --in 2h --agent claude --prompt "Check CI and fix failures"
 ```
 
-In `noon tui`, press `?` for every shortcut. Log search uses `/` and `n`/`N` to step
-through matches; `w` toggles line wrapping. The TUI never edits jobs or enables or approves a project.
+In `noon tui`, press `?` for every shortcut. Log timestamps are shown by default; `t` toggles them.
+Log search uses `/` and `n`/`N` to step through matches; `w` toggles line wrapping. The TUI never
+edits jobs or enables or approves a project.
 
 ## Find a failure
 
@@ -200,14 +201,19 @@ $ noon history --status failed
 RUN  JOB    STATUS  TRIGGER   STARTED  DURATION  EXIT
 7    check  failed  schedule  2h ago   3s        3
 
-$ noon logs check --status failed --match FAIL --context 1
-2-ok 2
-3:FAIL widget
-4-ok 3
-next: noon logs 7 --after-cursor 27
+$ noon logs check --status failed --match FAIL --context 1 --timestamps
+2026-10-19T09:15:30.125-06:00 2-ok 2
+2026-10-19T09:15:30.125-06:00 3:FAIL widget
+2026-10-19T09:15:30.126-06:00 4-ok 3
+next: noon logs 7 --after-cursor 27 --timestamps
 ```
 
 ## Agents
+
+Log timestamps are opt-in for CLI, JSON, MCP, and HTTP readers; CLI display uses local time while
+structured `line_times` use UTC and raw-byte offsets. Times mark when Noon received output (not when
+the child produced it); a partial line is timestamped from its first byte and streams without waiting
+for a newline. Historical or incomplete timing metadata is unavailable, never estimated.
 
 Give a coding agent the MCP server and it can list jobs, queue approved ones, and read logs. It
 cannot add, edit, enable, or approve jobs.

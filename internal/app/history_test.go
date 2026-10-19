@@ -194,6 +194,88 @@ func TestSelectLog(t *testing.T) {
 	})
 }
 
+func TestSelectLogTimingOffsetsAndUnavailableMetadata(t *testing.T) {
+	data := []byte("alpha\nmissing\nomega\n")
+	firstTime := time.Date(2026, 10, 19, 12, 0, 0, 123_000_000, time.UTC)
+	lastTime := firstTime.Add(2 * time.Second)
+	middleOffset := int64(len("alpha\n"))
+	lastOffset := int64(len("alpha\nmissing\n"))
+	records := []store.TimingRecord{
+		{Start: 0, End: middleOffset, UnixMilli: firstTime.UnixMilli()},
+		{Start: lastOffset, End: int64(len(data)), UnixMilli: lastTime.UnixMilli()},
+	}
+	plain, err := SelectLog(data, false, LogQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := SelectLogWithTiming(data, records, false, LogQuery{Timestamps: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(selected.Bytes, plain.Bytes) || selected.Next != plain.Next || selected.Size != plain.Size {
+		t.Fatalf("timestamp metadata changed raw bytes/cursor: timed=%+v plain=%+v", selected, plain)
+	}
+	if len(selected.LineTimes) != 3 || selected.LineTimes[0].Offset != 0 || selected.LineTimes[1].Offset != middleOffset || selected.LineTimes[2].Offset != lastOffset {
+		t.Fatalf("line timing offsets = %+v", selected.LineTimes)
+	}
+	if selected.LineTimes[0].Time == nil || *selected.LineTimes[0].Time != store.FormatTime(firstTime) || selected.LineTimes[1].Time != nil || selected.LineTimes[2].Time == nil || *selected.LineTimes[2].Time != store.FormatTime(lastTime) {
+		t.Fatalf("missing metadata borrowed a neighboring time: %+v", selected.LineTimes)
+	}
+
+	pattern, contextLines := "missing", 1
+	matched, err := SelectLogWithTiming(data, records, false, LogQuery{Match: &pattern, Context: &contextLines, Timestamps: true})
+	if err != nil || len(matched.LineTimes) != 3 || matched.LineTimes[0].Offset != 0 || matched.LineTimes[1].Offset != middleOffset || matched.LineTimes[2].Offset != lastOffset {
+		t.Fatalf("matched context line times = %+v err=%v", matched.LineTimes, err)
+	}
+	if matched.LineTimes[1].Time != nil {
+		t.Fatalf("unavailable matched line inherited a time: %+v", matched.LineTimes[1])
+	}
+
+	limit, after := 2, int64(0)
+	firstPage, err := SelectLogWithTiming(data, records, false, LogQuery{After: &after, LimitBytes: &limit, Timestamps: true})
+	if err != nil || string(firstPage.Bytes) != "al" || firstPage.Next != 2 || len(firstPage.LineTimes) != 1 || firstPage.LineTimes[0].Offset != 0 {
+		t.Fatalf("bounded first page = %+v err=%v", firstPage, err)
+	}
+	after = firstPage.Next
+	resumed, err := SelectLogWithTiming(data, records, false, LogQuery{After: &after, Timestamps: true})
+	if err != nil || string(resumed.Bytes) != "pha\nmissing\nomega\n" || !resumed.TimestampContinuation || len(resumed.LineTimes) != 3 || resumed.LineTimes[0].Offset != 0 {
+		t.Fatalf("resumed partial line = %+v err=%v", resumed, err)
+	}
+}
+
+func TestHookCaptureTimingUsesFirstCapturedByte(t *testing.T) {
+	capture := &hookCapture{}
+	first := time.Date(2026, 10, 19, 14, 0, 0, 0, time.UTC)
+	second := first.Add(time.Second)
+	calls := 0
+	capture.now = func() time.Time {
+		calls++
+		if calls == 1 {
+			return first
+		}
+		return second
+	}
+	for _, chunk := range [][]byte{[]byte("hook partial"), []byte(" rest\nnext")} {
+		if _, err := capture.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []byte("hook partial rest\nnext")
+	if !bytes.Equal(capture.Bytes(), want) {
+		t.Fatalf("hook capture changed bytes: %q want %q", capture.Bytes(), want)
+	}
+	timing := capture.Timing()
+	for _, tc := range []struct {
+		offset int64
+		want   time.Time
+	}{{0, first}, {int64(len("hook partial rest\n")), second}} {
+		got, ok := store.TimingAt(timing, tc.offset)
+		if !ok || got != tc.want.UnixMilli() {
+			t.Fatalf("hook offset %d time=%d covered=%t; want %d", tc.offset, got, ok, tc.want.UnixMilli())
+		}
+	}
+}
+
 // A hook append can be visible before its offset transaction commits; job-only
 // reads must not mistake those bytes for the job's final error output.
 func TestReadRunLogSelectionUncommittedHook(t *testing.T) {

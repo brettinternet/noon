@@ -3,7 +3,10 @@ package app
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"regexp"
+	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/brettinternet/noon/internal/store"
@@ -20,16 +23,42 @@ type LogQuery struct {
 	Context              *int
 	LimitBytes           *int
 	RepairUTF8           bool
+	Timestamps           bool
 	IncludeActivePartial bool
 }
 
 // LogSelection is a snapshot of the bytes selected from a run log.
 type LogSelection struct {
-	Bytes        []byte
-	Next         int64
-	Size         int64
-	Truncated    bool
-	MatchedLines *int
+	Bytes                 []byte
+	Next                  int64
+	Size                  int64
+	Truncated             bool
+	MatchedLines          *int
+	LineTimes             []LineTime
+	TimestampContinuation bool
+}
+
+// LineTime associates one selected raw log line with the receipt time of its first byte.
+type LineTime struct {
+	Offset int64   `json:"offset"`
+	Time   *string `json:"time"`
+}
+
+const (
+	LogTimestampLayout = "2006-01-02T15:04:05.000-07:00"
+	LogTimestampWidth  = 29
+)
+
+// LogTimestampLabel formats an optional UTC log time for local human display.
+func LogTimestampLabel(value *string) string {
+	if value == nil {
+		return strings.Repeat("-", LogTimestampWidth)
+	}
+	parsed, err := time.Parse(store.TimestampLayout, *value)
+	if err != nil {
+		return strings.Repeat("-", LogTimestampWidth)
+	}
+	return parsed.Local().Format(LogTimestampLayout)
 }
 
 type selectedLogLine struct {
@@ -37,6 +66,8 @@ type selectedLogLine struct {
 	source    []byte
 	start     int64
 	end       int64
+	lineStart int64
+	lineTime  *string
 	number    int64
 	matched   bool
 	prefixLen int
@@ -73,6 +104,15 @@ func ValidateLogQuery(query LogQuery) error {
 
 // SelectLog applies a query to one immutable byte snapshot without I/O.
 func SelectLog(data []byte, active bool, query LogQuery) (LogSelection, error) {
+	return selectLog(data, nil, active, query)
+}
+
+// SelectLogWithTiming applies a query and attaches timing captured for raw offsets.
+func SelectLogWithTiming(data []byte, timing []store.TimingRecord, active bool, query LogQuery) (LogSelection, error) {
+	return selectLog(data, timing, active, query)
+}
+
+func selectLog(data []byte, timing []store.TimingRecord, active bool, query LogQuery) (LogSelection, error) {
 	if err := ValidateLogQuery(query); err != nil {
 		return LogSelection{}, err
 	}
@@ -142,9 +182,17 @@ func SelectLog(data []byte, active bool, query LogQuery) (LogSelection, error) {
 			contentEnd--
 		}
 		content := data[lineStart:contentEnd]
+		rawLineStart := logLineStart(data, lineStart)
+		var capturedTime *string
+		if query.Timestamps {
+			if receipt, ok := store.TimingAt(timing, rawLineStart); ok {
+				formatted := time.UnixMilli(receipt).UTC().Format(store.TimestampLayout)
+				capturedTime = &formatted
+			}
+		}
 		if query.Match == nil {
 			lineData := data[lineStart:lineEnd]
-			line := selectedLogLine{start: lineStart, end: lineEnd, number: lineNumber}
+			line := selectedLogLine{start: lineStart, end: lineEnd, lineStart: rawLineStart, lineTime: capturedTime, number: lineNumber}
 			if query.RepairUTF8 {
 				line.data = []byte(ValidLogText(lineData))
 				line.source = lineData
@@ -158,7 +206,8 @@ func SelectLog(data []byte, active bool, query LogQuery) (LogSelection, error) {
 				*selection.MatchedLines = *selection.MatchedLines + 1
 			}
 			line := selectedLogLine{
-				data: append([]byte(nil), content...), start: lineStart, end: lineEnd, number: lineNumber, matched: matched,
+				data: append([]byte(nil), content...), start: lineStart, end: lineEnd, lineStart: rawLineStart,
+				lineTime: capturedTime, number: lineNumber, matched: matched,
 			}
 			if query.RepairUTF8 {
 				line.source = data[lineStart:lineEnd]
@@ -205,6 +254,7 @@ func SelectLog(data []byte, active bool, query LogQuery) (LogSelection, error) {
 				entry = append(entry, '\n')
 				selected = append(selected, selectedLogLine{
 					data: entry, source: lines[j].source, start: lines[j].start, end: lines[j].end,
+					lineStart: lines[j].lineStart, lineTime: lines[j].lineTime,
 					number: lines[j].number, prefixLen: len(prefix),
 				})
 			}
@@ -221,18 +271,31 @@ func SelectLog(data []byte, active bool, query LogQuery) (LogSelection, error) {
 
 	if query.LimitBytes == nil {
 		selection.Bytes = concatenateLogLines(lines)
+		if query.Timestamps {
+			selection.LineTimes = lineTimesFor(lines)
+			selection.TimestampContinuation = isLogContinuation(data, after, query.After != nil, lines)
+		}
 		return selection, nil
 	}
 	limit := *query.LimitBytes
 	if query.After == nil {
-		selection.Bytes, selection.Truncated = tailLimit(lines, limit)
+		var included []selectedLogLine
+		selection.Bytes, selection.Truncated, included = tailLimit(lines, limit)
+		if query.Timestamps {
+			selection.LineTimes = lineTimesFor(included)
+			selection.TimestampContinuation = isLogContinuation(data, after, query.After != nil, included)
+		}
 		return selection, nil
 	}
-	selected, truncated, next, err := forwardLimit(lines, limit, start, end)
+	selected, truncated, next, included, err := forwardLimit(lines, limit, start, end)
 	if err != nil {
 		return LogSelection{}, err
 	}
 	selection.Bytes, selection.Truncated, selection.Next = selected, truncated, next
+	if query.Timestamps {
+		selection.LineTimes = lineTimesFor(included)
+		selection.TimestampContinuation = isLogContinuation(data, after, query.After != nil, included)
+	}
 	return selection, nil
 }
 
@@ -251,7 +314,13 @@ func ReadRunLogSelection(stateDir string, id int64, query LogQuery) (Run, LogSel
 		return Run{}, LogSelection{}, err
 	}
 	run := RunFromStore(state, stored)
-	data, err := state.ReadRunLog(stored)
+	var data []byte
+	var timing []store.TimingRecord
+	if query.Timestamps {
+		data, timing, err = state.ReadRunLogWithTiming(stored)
+	} else {
+		data, err = state.ReadRunLog(stored)
+	}
 	if IsMissingLog(err) {
 		run.Log.Available = false
 		run.Log.Path = nil
@@ -272,7 +341,7 @@ func ReadRunLogSelection(stateDir string, id int64, query LogQuery) (Run, LogSel
 			query.HookOffset = &offset
 		}
 	}
-	selection, err := SelectLog(data, activeStoredRun(stored), query)
+	selection, err := SelectLogWithTiming(data, timing, activeStoredRun(stored), query)
 	if err != nil {
 		return Run{}, LogSelection{}, err
 	}
@@ -309,6 +378,74 @@ func FollowLogStart(data []byte, after *int64, tail *int) (int64, error) {
 	return start + int64(lineStarts[index]), nil
 }
 
+func logLineStart(data []byte, offset int64) int64 {
+	if offset <= 0 {
+		return 0
+	}
+	if newline := bytes.LastIndexByte(data[:offset], '\n'); newline >= 0 {
+		return int64(newline + 1)
+	}
+	return 0
+}
+
+func isLogContinuation(data []byte, after int64, hasAfter bool, lines []selectedLogLine) bool {
+	if !hasAfter || after <= 0 || data[after-1] == '\n' {
+		return false
+	}
+	for _, line := range lines {
+		if !line.separator {
+			return line.start == after
+		}
+	}
+	return false
+}
+
+func lineTimesFor(lines []selectedLogLine) []LineTime {
+	var times []LineTime
+	for _, line := range lines {
+		if line.separator {
+			continue
+		}
+		times = append(times, LineTime{Offset: line.lineStart, Time: line.lineTime})
+	}
+	return times
+}
+
+type timestampStream struct{ atLineStart bool }
+
+func (stream *timestampStream) write(out io.Writer, data []byte, offset int64, timing []store.TimingRecord, unavailable bool) error {
+	for index := 0; index < len(data); {
+		if stream.atLineStart {
+			var receipt *string
+			if !unavailable {
+				if millis, ok := store.TimingAt(timing, offset+int64(index)); ok {
+					formatted := time.UnixMilli(millis).UTC().Format(store.TimestampLayout)
+					receipt = &formatted
+				}
+			}
+			prefix := LogTimestampLabel(receipt) + " "
+			if n, err := io.WriteString(out, prefix); err != nil {
+				return err
+			} else if n != len(prefix) {
+				return io.ErrShortWrite
+			}
+			stream.atLineStart = false
+		}
+		end := len(data)
+		if newline := bytes.IndexByte(data[index:], '\n'); newline >= 0 {
+			end = index + newline + 1
+		}
+		if n, err := out.Write(data[index:end]); err != nil {
+			return err
+		} else if n != end-index {
+			return io.ErrShortWrite
+		}
+		stream.atLineStart = data[end-1] == '\n'
+		index = end
+	}
+	return nil
+}
+
 func concatenateLogLines(lines []selectedLogLine) []byte {
 	var output []byte
 	for _, line := range lines {
@@ -317,7 +454,7 @@ func concatenateLogLines(lines []selectedLogLine) []byte {
 	return output
 }
 
-func tailLimit(lines []selectedLogLine, limit int) ([]byte, bool) {
+func tailLimit(lines []selectedLogLine, limit int) ([]byte, bool, []selectedLogLine) {
 	remaining := limit
 	start := len(lines)
 	var partial []byte
@@ -346,30 +483,40 @@ func tailLimit(lines []selectedLogLine, limit int) ([]byte, bool) {
 	for start < len(lines) && lines[start].separator {
 		start++
 	}
-	output := append([]byte(nil), partial...)
+	chosen := append([]selectedLogLine(nil), lines[start:]...)
+	var output []byte
 	if partial == nil {
-		output = concatenateLogLines(lines[start:])
+		output = concatenateLogLines(chosen)
 	} else {
-		output = append(output, concatenateLogLines(lines[start+1:])...)
+		chosen[0].data = partial
+		if len(partial) > 0 {
+			output = append([]byte(nil), partial...)
+			output = append(output, concatenateLogLines(chosen[1:])...)
+		} else {
+			chosen = chosen[1:]
+			output = concatenateLogLines(chosen)
+		}
 	}
-	return output, truncated
+	return output, truncated, chosen
 }
 
-func forwardLimit(lines []selectedLogLine, limit int, after, end int64) ([]byte, bool, int64, error) {
+func forwardLimit(lines []selectedLogLine, limit int, after, end int64) ([]byte, bool, int64, []selectedLogLine, error) {
 	var output []byte
+	var chosen []selectedLogLine
 	remaining := limit
 	next := after
 	for _, line := range lines {
 		if len(line.data) <= remaining {
 			output = append(output, line.data...)
 			remaining -= len(line.data)
+			chosen = append(chosen, line)
 			if !line.separator {
 				next = line.end
 			}
 			continue
 		}
 		if line.separator || len(output) != 0 || len(line.data) <= limit {
-			return output, true, next, nil
+			return output, true, next, chosen, nil
 		}
 		partial := utf8Head(line.data, limit)
 		consumed := max(0, len(partial)-line.prefixLen)
@@ -377,13 +524,15 @@ func forwardLimit(lines []selectedLogLine, limit int, after, end int64) ([]byte,
 			consumed = sourceBytesForText(line.source, consumed)
 		}
 		if consumed == 0 {
-			return nil, false, after, UsageError("limit-bytes is too small to include one source rune after formatting", "Increase the byte limit to fit a source rune and any match prefix.")
+			return nil, false, after, nil, UsageError("limit-bytes is too small to include one source rune after formatting", "Increase the byte limit to fit a source rune and any match prefix.")
 		}
 		output = append(output, partial...)
+		line.data = partial
+		chosen = append(chosen, line)
 		next = line.start + int64(min(consumed, int(line.end-line.start)))
-		return output, true, next, nil
+		return output, true, next, chosen, nil
 	}
-	return output, false, end, nil
+	return output, false, end, chosen, nil
 }
 
 func utf8Head(data []byte, limit int) []byte {

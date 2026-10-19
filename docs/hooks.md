@@ -87,8 +87,11 @@ Stdin is one JSON object. `run` has the same shape as `noon history --json`:
 - The hook starts after the job's final status is saved. A hook failure never changes the job's
   status or `noon run`'s exit code, and hooks never trigger other hooks.
 - A hook gets 30 seconds, then TERM to its process group, then KILL five seconds later.
-- The first 64 KiB of its output is appended to the run log after a marker at `log.hook_offset`.
-  Read one part with `noon logs RUN --section job` or `--section hook`.
+- The first 64 KiB of its output is appended to the raw run log after a marker at `log.hook_offset`.
+  Captured hook bytes receive the same separate timing metadata as job output, rebased to their raw
+  log offsets; the synthetic hook marker itself has no timestamp. Read one part with
+  `noon logs RUN --section job` or `--section hook`, and opt into displayed receipt times with
+  `--timestamps`. Times mean when Noon received hook output, not when the hook produced it.
 - Hooks run outside the scheduler's concurrency limits.
 - `previous_status` is the latest earlier `succeeded`, `failed`, or `timed_out` result of the same
   project and job, by finish time, regardless of definition changes; noops are excluded. It may come

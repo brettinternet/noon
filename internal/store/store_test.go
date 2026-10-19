@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -444,6 +445,247 @@ func createTestRun(t *testing.T, s *Store, project int64, job string) Run {
 	return run
 }
 
+func TestRunLogTimingCaptureAndTruncation(t *testing.T) {
+	t.Run("first-byte time survives split writes and interleaved streams", func(t *testing.T) {
+		state, project := testStore(t)
+		run := createTestRun(t, state, project, "timed")
+		log, err := state.RunLog(project, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clock := []time.Time{
+			time.Date(2026, 10, 19, 12, 0, 0, 123_000_000, time.UTC),
+			time.Date(2026, 10, 19, 12, 0, 1, 456_000_000, time.UTC),
+			time.Date(2026, 10, 19, 12, 0, 2, 789_000_000, time.UTC),
+			time.Date(2026, 10, 19, 12, 0, 3, 987_000_000, time.UTC),
+		}
+		calls := 0
+		log.now = func() time.Time {
+			value := clock[calls]
+			calls++
+			return value
+		}
+		// These sequential writes model stdout/stderr writes through RunLog's shared
+		// serialized writer; the first line is split across writes.
+		for _, chunk := range [][]byte{[]byte("partial"), []byte("-stdout\n"), []byte("stderr:\nsecond"), []byte("-tail\n")} {
+			if _, err := log.Write(chunk); err != nil {
+				t.Fatal(err)
+			}
+		}
+		logBytes, truncated, err := log.Close()
+		if err != nil || truncated {
+			t.Fatalf("close timed log: bytes=%d truncated=%t err=%v", logBytes, truncated, err)
+		}
+		if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+			t.Fatal(err)
+		}
+		run.LogPath = sql.NullString{String: log.Path(), Valid: true}
+		data, records, err := state.ReadRunLogWithTiming(run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []byte("partial-stdout\nstderr:\nsecond-tail\n")
+		if !bytes.Equal(data, want) {
+			t.Fatalf("raw bytes changed: got %q want %q", data, want)
+		}
+		for _, tc := range []struct {
+			offset int64
+			want   time.Time
+		}{{0, clock[0]}, {int64(len("partial-stdout\n")), clock[2]}, {int64(len("partial-stdout\nstderr:\n")), clock[2]}} {
+			got, ok := TimingAt(records, tc.offset)
+			if !ok || got != tc.want.UnixMilli() {
+				t.Fatalf("line offset %d timing=%d covered=%t; want %d", tc.offset, got, ok, tc.want.UnixMilli())
+			}
+		}
+		if _, ok := TimingAt(records, int64(len(data))); ok {
+			t.Fatal("coverage extended beyond the raw log size")
+		}
+		timingInfo, err := os.Stat(filepath.Join(state.dir, log.Path()) + ".timing")
+		if err != nil || timingInfo.Mode().Perm() != 0o600 {
+			t.Fatalf("timing sidecar mode=%v err=%v; want 0600", timingInfo, err)
+		}
+	})
+
+	t.Run("tail timing is rebased after an unavailable omission marker", func(t *testing.T) {
+		state, project := testStore(t)
+		run := createTestRun(t, state, project, "truncated")
+		log, err := state.RunLog(project, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		headAt := time.Date(2026, 10, 19, 13, 0, 0, 0, time.UTC)
+		tailAt := headAt.Add(time.Second)
+		calls := 0
+		log.now = func() time.Time {
+			calls++
+			if calls == 1 {
+				return headAt
+			}
+			return tailAt
+		}
+		head := bytes.Repeat([]byte{'h'}, maxRunLogBytes)
+		tail := bytes.Repeat([]byte{'x'}, maxRunLogBytes+3)
+		if _, err := log.Write(head); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := log.Write(tail); err != nil {
+			t.Fatal(err)
+		}
+		logBytes, truncated, err := log.Close()
+		if err != nil || !truncated {
+			t.Fatalf("close truncated log: bytes=%d truncated=%t err=%v", logBytes, truncated, err)
+		}
+		if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+			t.Fatal(err)
+		}
+		run.LogPath = sql.NullString{String: log.Path(), Valid: true}
+		data, records, err := state.ReadRunLogWithTiming(run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		marker := []byte("\n[noon: 3 bytes omitted]\n")
+		want := append(append(bytes.Clone(head), marker...), tail[len(tail)-maxRunLogBytes:]...)
+		if !bytes.Equal(data, want) {
+			t.Fatalf("truncated raw log changed: bytes=%d want=%d", len(data), len(want))
+		}
+		markerStart := int64(maxRunLogBytes + 1)
+		tailStart := int64(maxRunLogBytes + len(marker))
+		if _, ok := TimingAt(records, markerStart); ok {
+			t.Fatal("synthetic omission marker acquired a timestamp")
+		}
+		if got, ok := TimingAt(records, tailStart); !ok || got != tailAt.UnixMilli() {
+			t.Fatalf("rebased retained tail time=%d covered=%t; want %d", got, ok, tailAt.UnixMilli())
+		}
+	})
+}
+
+func TestRunLogTimingFailureDoesNotFailRawWrites(t *testing.T) {
+	state, project := testStore(t)
+	run := createTestRun(t, state, project, "timing-failure")
+	log, err := state.RunLog(project, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := log.Write([]byte("first\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := log.timing.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := log.Write([]byte("second\n")); err != nil || n != len("second\n") {
+		t.Fatalf("sidecar failure stopped raw log write: n=%d err=%v", n, err)
+	}
+	logBytes, truncated, err := log.Close()
+	if err != nil || truncated {
+		t.Fatalf("sidecar failure affected run close: bytes=%d truncated=%t err=%v", logBytes, truncated, err)
+	}
+	if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+		t.Fatal(err)
+	}
+	run.LogPath = sql.NullString{String: log.Path(), Valid: true}
+	data, records, err := state.ReadRunLogWithTiming(run)
+	if err != nil || string(data) != "first\nsecond\n" || len(records) != 0 {
+		t.Fatalf("sidecar failure changed raw output or exposed partial timing: data=%q records=%+v err=%v", data, records, err)
+	}
+}
+
+func TestRunLogTimingMissingOrIncompleteSidecar(t *testing.T) {
+	state, project := testStore(t)
+	run := createTestRun(t, state, project, "incomplete")
+	log, err := state.RunLog(project, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log.now = func() time.Time { return time.UnixMilli(1000) }
+	_, _ = log.Write([]byte("known\n"))
+	log.now = func() time.Time { return time.UnixMilli(2000) }
+	_, _ = log.Write([]byte("unavailable\n"))
+	if _, _, err := log.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+		t.Fatal(err)
+	}
+	run.LogPath = sql.NullString{String: log.Path(), Valid: true}
+	logPath := filepath.Join(state.dir, log.Path())
+	sidecar := timingPath(logPath)
+	want := []byte("known\nunavailable\n")
+	if err := os.Remove(sidecar); err != nil {
+		t.Fatal(err)
+	}
+	data, records, err := state.ReadRunLogWithTiming(run)
+	if err != nil || !bytes.Equal(data, want) || len(records) != 0 {
+		t.Fatalf("missing sidecar affected raw log: data=%q records=%+v err=%v", data, records, err)
+	}
+	first := TimingRecord{Start: 0, End: int64(len("known\n")), UnixMilli: 1000}
+	encoded := make([]byte, timingRecordSize+5)
+	binary.LittleEndian.PutUint64(encoded[0:8], uint64(first.Start))
+	binary.LittleEndian.PutUint64(encoded[8:16], uint64(first.End))
+	binary.LittleEndian.PutUint64(encoded[16:24], uint64(first.UnixMilli))
+	copy(encoded[timingRecordSize:], []byte{1, 2, 3, 4, 5})
+	if err := os.WriteFile(sidecar, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, records, err = state.ReadRunLogWithTiming(run)
+	if err != nil || !bytes.Equal(data, want) || len(records) != 1 {
+		t.Fatalf("torn sidecar affected raw log: data=%q records=%+v err=%v", data, records, err)
+	}
+	if got, ok := TimingAt(records, 0); !ok || got != 1000 {
+		t.Fatalf("valid prefix timing=%d covered=%t", got, ok)
+	}
+	if _, ok := TimingAt(records, int64(len("known\n"))); ok {
+		t.Fatal("torn record borrowed the previous line's timestamp")
+	}
+}
+
+func TestCompleteHookRebasesTimingPastSyntheticMarker(t *testing.T) {
+	state, project := testStore(t)
+	run := createTestRun(t, state, project, "hook-timing")
+	log, err := state.RunLog(project, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := log.Write([]byte("job output\n")); err != nil {
+		t.Fatal(err)
+	}
+	logBytes, truncated, err := log.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetRunLog(run.ID, log.Path()); err != nil {
+		t.Fatal(err)
+	}
+	exit := 0
+	if err := state.FinishRun(run.ID, project, run.Job, Outcome{Status: "succeeded", FinishedAt: time.Now(), ExitCode: &exit, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated, HookEvent: "on_success"}); err != nil {
+		t.Fatal(err)
+	}
+	receipt := time.Date(2026, 10, 19, 15, 0, 0, 123_000_000, time.UTC)
+	output := []byte("hook output\n")
+	if err := state.CompleteHookWithTiming(run.ID, "on_success", "ok", &exit, output, []TimingRecord{{Start: 0, End: int64(len(output)), UnixMilli: receipt.UnixMilli()}}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := state.RunByID(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, records, err := state.ReadRunLogWithTiming(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := []byte("[noon: on_success hook exited 0]\n")
+	markerStart := int64(len("job output\n"))
+	hookStart := markerStart + int64(len(marker))
+	if !bytes.Contains(data, append(marker, output...)) {
+		t.Fatalf("hook bytes missing from log: %q", data)
+	}
+	if _, ok := TimingAt(records, markerStart); ok {
+		t.Fatal("synthetic hook marker acquired a timestamp")
+	}
+	if got, ok := TimingAt(records, hookStart); !ok || got != receipt.UnixMilli() {
+		t.Fatalf("hook timing=%d covered=%t; want %d", got, ok, receipt.UnixMilli())
+	}
+}
+
 func TestStore(t *testing.T) {
 	t.Run("previous result follows completion order and retained eligible identity", func(t *testing.T) {
 		s, project := testStore(t)
@@ -845,6 +1087,10 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?)`, created, created); 
 		}
 		if logs != 10 {
 			t.Fatalf("kept %d logs, want 10", logs)
+		}
+		oldTiming := filepath.Join(s.dir, "logs", fmt.Sprint(project), "1.log.timing")
+		if _, err := os.Stat(oldTiming); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("pruned run timing sidecar still exists: %v", err)
 		}
 	})
 

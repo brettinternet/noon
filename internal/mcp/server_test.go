@@ -368,6 +368,9 @@ func TestMCP(t *testing.T) {
 	if detailValue["run"].(map[string]any)["status"] != "succeeded" || !strings.Contains(detailValue["log"].(string), "mcp-finished") {
 		t.Fatalf("get_run did not return the finished run and log: %+v", detailValue)
 	}
+	if _, ok := detailValue["line_times"]; ok {
+		t.Fatalf("default get_run unexpectedly included line_times: %+v", detailValue)
+	}
 	newerRequest := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved"})
 	if newerRequest.IsError {
 		t.Fatalf("queue newer approved run: %s", textContent(newerRequest))
@@ -417,6 +420,18 @@ func TestMCP(t *testing.T) {
 	searchValue := decodeObject(t, searchResult.StructuredContent)
 	if searchValue["log"] != "1-before\n2:needle\n3-after\n" || searchValue["matched_lines"] != float64(1) {
 		t.Fatalf("get_run match result = %+v", searchValue)
+	}
+	timestampedSearch := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": searchID, "match": "needle", "context": 1, "timestamps": true})
+	if timestampedSearch.IsError {
+		t.Fatalf("get_run timestamps: %s", textContent(timestampedSearch))
+	}
+	timestampValue := decodeObject(t, timestampedSearch.StructuredContent)
+	lineTimes := timestampValue["line_times"].([]any)
+	if timestampValue["log"] != searchValue["log"] || len(lineTimes) != 3 || lineTimes[0].(map[string]any)["offset"] != float64(0) || lineTimes[1].(map[string]any)["offset"] != float64(len("before\n")) || lineTimes[2].(map[string]any)["offset"] != float64(len("before\nneedle\n")) {
+		t.Fatalf("timestamped MCP lines did not preserve raw text/offsets: %+v", timestampValue)
+	}
+	if _, err := time.Parse(store.TimestampLayout, lineTimes[0].(map[string]any)["time"].(string)); err != nil {
+		t.Fatalf("MCP line time is not the shared UTC format: %+v", lineTimes[0])
 	}
 	searchNext := int64(searchValue["next"].(float64))
 	searchPage := callTool(t, ctx, clientSession, "get_run", map[string]any{"run_id": searchID, "after": searchNext, "match": "needle", "context": 1})
