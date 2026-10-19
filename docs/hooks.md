@@ -17,8 +17,20 @@ jobs:
 | `noop` | none; it is neither success nor failure |
 | anything else | none |
 
-Like `run`, a hook is a string (`/bin/sh -c`) or an argv list. Set defaults for every job in user
-config, and opt a job out with an empty list:
+Like `run`, a hook is a string (`/bin/sh -c`) or an argv list. Both hooks accept YAML `|`
+for multiline scripts; use `set -e` to stop on a failed command:
+
+```yaml
+on_success: |
+  set -e
+  ./publish.sh
+  ./notify.sh
+on_failure: |
+  echo "$NOON_JOB failed"
+  ./notify.sh
+```
+
+Set defaults for every job in user config, and opt a job out with an empty list:
 
 ```yaml
 # ~/.config/noon/config.yaml
