@@ -237,7 +237,11 @@ func TestLoadJobs(t *testing.T) {
 		{name: "reserved env", shared: "jobs: {tests: {run: hi, env: {NOON_JOB: secret}}}", want: "NOON_ is reserved"},
 		{name: "bad env name", shared: "jobs: {tests: {run: hi, env: {bad-name: secret}}}", want: "invalid or reserved environment name"},
 		{name: "null", shared: "jobs: {tests: {run: null}}", want: "jobs.tests.run: must be a string"},
-		{name: "alias", shared: "jobs: {tests: {run: &run hi}, other: {run: *run}}", want: "jobs.other.run: must be a string"},
+		{name: "alias", shared: "jobs: {tests: {run: &run hi}, other: {run: *run}}", check: func(t *testing.T, c config.Config) {
+			if c.Jobs["other"].Run != "hi" || c.Jobs["other"].Digest != c.Jobs["tests"].Digest {
+				t.Fatal("alias did not resolve to the same execution definition")
+			}
+		}},
 		{name: "duplicate job", shared: "jobs: {tests: {run: hi}, tests: {run: bye}}", want: "jobs.tests: duplicate field"},
 		{name: "duplicate field", shared: "jobs: {tests: {run: hi, run: bye}}", want: "jobs.tests.run: duplicate field"},
 		{name: "duplicate env", shared: "jobs: {tests: {run: hi, env: {KEY: a, KEY: b}}}", want: "jobs.tests.env.KEY: duplicate field"},

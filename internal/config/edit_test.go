@@ -11,6 +11,22 @@ import (
 	"github.com/brettinternet/noon/internal/schedule"
 )
 
+// Removing an anchored job can strand aliases; inherited jobs have no source
+// block to splice. Editing must fail without producing replacement bytes.
+func TestEditRefusesYAMLComposition(t *testing.T) {
+	for _, source := range []string{
+		"jobs:\n  first: &first\n    run: echo\n  second: *first\n",
+		"definitions:\n  jobs: &jobs\n    first: {run: echo}\n<<: {jobs: *jobs}\n",
+	} {
+		if out, err := config.RemoveJob([]byte(source), "first"); err == nil || out != nil || !strings.Contains(err.Error(), "by hand") {
+			t.Fatalf("remove = %q, %v", out, err)
+		}
+		if out, err := config.AddJob([]byte(source), "added", config.Job{Run: "echo"}); err == nil || out != nil || !strings.Contains(err.Error(), "by hand") {
+			t.Fatalf("add = %q, %v", out, err)
+		}
+	}
+}
+
 // These fixtures prevent accidental YAML re-encoding from changing indentation,
 // comments, scalar blocks, line endings, or unrelated setting bytes.
 func TestEditJobs(t *testing.T) {

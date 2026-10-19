@@ -178,7 +178,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 
 A job's optional `os` and `arch` lists must be non-empty, duplicate-free, and use the exact supported Go `GOOS`/`GOARCH` values shown above. Aliases such as `macos`, `x86_64`, and `aarch64` are rejected with a suggestion. Every declared field must match the running binary; an omitted field matches any value. A nonmatching job stays visible as `other platform`, but isn't scheduled, caught up, dispatched, or runnable by `noon run` or any queueing interface. `list --json` includes the declared lists and `platform_supported`; `doctor` skips command and working-directory checks for nonmatching jobs.
 
-Unknown fields, duplicate keys, nulls, aliases, wrong types, multiple documents, and files over
+Unknown fields, explicit duplicate keys, null settings, wrong types, multiple documents, and files over
 1 MiB fail with the file, line, and YAML path:
 
 ```console
@@ -188,6 +188,47 @@ noon: config /home/me/app/noon.yaml:5: jobs.lint.run: must be a string (quote nu
 
 A missing file, a zero-byte file, and `{}` are fine; a whitespace-only file is not. A broken lower-priority file is
 still an error even if a later file overrides its settings.
+
+### YAML composition
+
+Anchors (`&name`), aliases (`*name`), and mapping merges (`<<`) work within each
+config file. Use the optional top-level `definitions` mapping for reusable data:
+
+```yaml
+version: 1
+definitions:
+  command: &command [go, test, ./...]
+  defaults: &defaults
+    timeout: 10m
+    env: {CI: "true"}
+jobs:
+  tests:
+    <<: *defaults
+    run: *command
+  quick:
+    <<: *defaults
+    run: [go, test, -short, ./...]
+    timeout: 2m
+```
+
+Explicit keys override merged defaults, regardless of their position. For
+`<<: [*first, *second]`, the first mapping wins on conflicts. Merges are shallow:
+an explicit `env` replaces the inherited `env`; merge inside `env` to combine its keys.
+
+Composition resolves before schema validation and config-file layering. Reusable
+fragments are schema-validated wherever used; unused fragments do not define jobs.
+Execution and approval digests use the same resolved settings, so composition alone
+does not change approval, but changing an inherited execution setting does.
+Diagnostics retain the defining value's source line.
+
+Unknown fields and explicit duplicate keys remain errors, including typos inherited
+through a merge. Cycles, custom tags, cross-file references, and includes are unsupported.
+Resolution is limited to 100,000 visited nodes, 8 MiB of scalar values, and depth 100
+(including unused definitions). Each file still has the 1 MiB input limit.
+No new interpolation is performed.
+
+Source-preserving commands such as `add`, `remove`, and crontab import refuse to edit
+files containing anchors, aliases, or merges; edit these files by hand.
 
 ### Local overrides
 

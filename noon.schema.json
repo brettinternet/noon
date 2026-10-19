@@ -6,6 +6,10 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "definitions": {
+      "type": "object",
+      "description": "File-local reusable YAML fragments. Validated against the Noon schema wherever referenced."
+    },
     "version": {
       "description": "Configuration format version.",
       "const": 1

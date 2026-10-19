@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,91 @@ func canonical(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return value
+}
+
+func TestYAMLComposition(t *testing.T) {
+	t.Parallel()
+	root := canonical(t, t.TempDir())
+	path := filepath.Join(root, "noon.yaml")
+	load := func(source string) config.Config {
+		t.Helper()
+		put(t, path, source)
+		cfg, err := config.Load(config.Input{CWD: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+	composed := `definitions:
+  argv: &argv [echo, hello]
+  commandKey: &commandKey run
+  env: &env {CI: "true", MODE: fast}
+  first: &first {*commandKey : *argv, timeout: 2m, env: *env}
+  second: &second {timeout: 3m, overlap: queue}
+  inherited: &inherited
+    <<: [*first, *second]
+    env: {<<: *env, MODE: slow}
+jobs:
+  tests:
+    timeout: 4m
+    <<: *inherited
+`
+	cfg := load(composed)
+	job := cfg.Jobs["tests"]
+	if len(cfg.Jobs) != 1 || job.Timeout != "4m0s" || job.Overlap != "queue" || job.Env["MODE"] != "slow" || job.Env["CI"] != "true" {
+		t.Fatalf("resolved job: %+v", job)
+	}
+	expanded := load("jobs: {tests: {run: [echo, hello], timeout: 4m, overlap: queue, env: {CI: 'true', MODE: slow}}}")
+	if job.Digest != expanded.Jobs["tests"].Digest {
+		t.Fatal("composition changed approval digest")
+	}
+	changed := load(strings.Replace(composed, "[echo, hello]", "[echo, changed]", 1))
+	if job.Digest == changed.Jobs["tests"].Digest {
+		t.Fatal("inherited command change retained approval")
+	}
+	first := load(strings.Replace(composed, "    timeout: 4m\n", "", 1))
+	if first.Jobs["tests"].Timeout != "2m0s" {
+		t.Fatal("first merge source did not win")
+	}
+	put(t, filepath.Join(root, ".git", "noon.yaml"), "jobs: {tests: {run: local}}")
+	local := load(composed).Jobs["tests"]
+	if local.Run != "local" || len(local.Env) != 0 || local.Timeout != "1h" {
+		t.Fatal("composition changed whole-job layer replacement")
+	}
+}
+
+func TestYAMLCompositionRejectsUnsafeInput(t *testing.T) {
+	t.Parallel()
+	bomb := "definitions:\n  a0: &a0 [x, x]\n"
+	for i := 1; i <= 17; i++ {
+		bomb += fmt.Sprintf("  a%d: &a%d [*a%d, *a%d]\n", i, i, i-1, i-1)
+	}
+	large := "definitions:\n  text: &text " + strings.Repeat("x", 65536) + "\n  copies: [" + strings.Repeat("*text, ", 130) + "]\n"
+	for _, tc := range []struct{ name, source, want string }{
+		{"cycle", "definitions: {loop: &loop [*loop]}", "cyclic YAML alias"},
+		{"expansion nodes", bomb, "expansion limit exceeded"},
+		{"expansion bytes", large, "expansion limit exceeded"},
+		{"expansion keys", "definitions:\n  base: &base\n    ? " + strings.Repeat("k", 100000) + "\n    : x\n  copies: [" + strings.Repeat("*base, ", 100) + "]\n", "expansion limit exceeded"},
+		{"depth", "definitions: {deep: " + strings.Repeat("[", 102) + "x" + strings.Repeat("]", 102) + "}", "expansion limit exceeded"},
+		{"inherited typo", "definitions: {base: &base {run: hi, timout: 2m}}\njobs: {tests: {<<: *base}}", "jobs.tests.timout: unknown field"},
+		{"duplicate source key", "definitions: {base: &base {run: hi, run: bye}}\njobs: {tests: {<<: *base, run: override}}", "duplicate field"},
+		{"duplicate merge key", "jobs: {tests: {<<: {run: hi}, <<: {run: bye}}}", "duplicate field"},
+		{"bad merge", "jobs: {tests: {<<: [hi], run: hi}}", "merge requires a mapping"},
+		{"alias type", "definitions: {bad: &bad 123}\njobs: {tests: {run: *bad}}", "must be a string"},
+		{"custom tag", "definitions: {unused: !include other.yaml}", "unsupported YAML tag"},
+		{"unknown top level", "definitions: {base: &base {typo: hi}}\n<<: *base", "unknown field"},
+		{"definitions shape", "definitions: []", "definitions must be a mapping"},
+		{"undefined alias", "jobs: {tests: {run: *private_secret}}", "invalid YAML"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := canonical(t, t.TempDir())
+			put(t, filepath.Join(root, "noon.yaml"), tc.source)
+			_, err := config.Load(config.Input{CWD: root})
+			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "private_secret") {
+				t.Fatalf("want %q, got %v", tc.want, err)
+			}
+		})
+	}
 }
 
 func TestLoadLayersAndPathOrigins(t *testing.T) {

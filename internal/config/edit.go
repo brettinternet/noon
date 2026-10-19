@@ -354,6 +354,9 @@ func documentRoot(src []byte) (*yaml.Node, error) {
 	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("config_edit: edit the file by hand")
 	}
+	if hasYAMLComposition(doc.Content[0]) {
+		return nil, fmt.Errorf("config_edit: YAML composition requires editing the file by hand")
+	}
 	return doc.Content[0], nil
 }
 func rootField(root *yaml.Node, field string) (*yaml.Node, int) {

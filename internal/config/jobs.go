@@ -89,7 +89,7 @@ func jobMapping(file, path string, node *yaml.Node) (map[string]*yaml.Node, erro
 	for i := 0; i < len(node.Content); i += 2 {
 		key, value := node.Content[i], node.Content[i+1]
 		if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
-			return nil, jobError(file, key, path, "keys must be strings; aliases and merge keys are not allowed")
+			return nil, jobError(file, key, path, "keys must be strings")
 		}
 		field := path + "." + key.Value
 		if _, exists := fields[key.Value]; exists {

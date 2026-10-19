@@ -444,7 +444,7 @@ func safeYAMLLine(err error) int {
 }
 
 // parse accepts only the implemented settings and job schema. Unknown fields,
-// aliases, duplicate keys, nulls, and trailing documents cannot silently hide errors.
+// duplicate keys, nulls, and trailing documents cannot silently hide errors.
 func parse(data []byte) (map[string]*yaml.Node, error) {
 	if len(data) == 0 {
 		return map[string]*yaml.Node{}, nil
@@ -454,13 +454,16 @@ func parse(data []byte) (map[string]*yaml.Node, error) {
 	if err := decoder.Decode(&doc); err != nil {
 		// Decoder diagnostics can quote raw environment values (for example an
 		// unknown anchor). Keep only a numeric line; never forward their text.
-		return nil, &yamlDiagnostic{line: safeYAMLLine(err), message: "invalid YAML: expected one mapping; check syntax and do not use aliases"}
+		return nil, &yamlDiagnostic{line: safeYAMLLine(err), message: "invalid YAML: expected one mapping; check syntax and file-local alias references"}
 	}
 	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil, &yamlDiagnostic{line: 1, message: "expected a YAML mapping"}
 	}
 	values := make(map[string]*yaml.Node)
-	root := doc.Content[0]
+	root, err := resolveYAML(doc.Content[0])
+	if err != nil {
+		return nil, err
+	}
 	for i := 0; i < len(root.Content); i += 2 {
 		key, value := root.Content[i], root.Content[i+1]
 		if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
@@ -473,6 +476,10 @@ func parse(data []byte) (map[string]*yaml.Node, error) {
 		case "version":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!int" || value.Value != "1" {
 				return nil, &yamlDiagnostic{line: value.Line, message: "version must be 1"}
+			}
+		case "definitions":
+			if value.Kind != yaml.MappingNode {
+				return nil, &yamlDiagnostic{line: value.Line, message: "definitions must be a mapping"}
 			}
 		case "agents":
 			// The profile schema is validated with source and YAML-path diagnostics below.
