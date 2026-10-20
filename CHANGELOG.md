@@ -6,11 +6,18 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- **config:** Load per-job env files
+
+## [v0.9.0](https://github.com/brettinternet/noon/compare/v0.8.0...v0.9.0) - 2026-10-20
+
+### Added
+
 - **schedule:** Add deterministic per-occurrence jitter
 - **scheduler:** Add stable per-job schedule splay
 
 ### Documentation
 
+- Note jitter in schedule windows and refresh changelog
 - Describe the scheduled job environment
 - Show multiline lifecycle hooks
 

@@ -478,7 +478,7 @@ tests  weekdays at 09:00  Mon 09:00 (in 64h)  never  "go" "version"
 
 Times use the project timezone. Intervals preview `now + interval` until `noon serve` records their
 phase. `noon list --json` adds each job's `source`, `shared`, `overrides`, `digest`, `approval`
-(`not_required`, `approved`, `needs_approval`), sorted `env_keys`, `agent_args` when set, and
+(`not_required`, `approved`, `needs_approval`), `env_file` paths, sorted `env_keys`, `agent_args` when set, and
 `webhook_path`. Environment
 values are never printed; still, keep secrets out of commands and descriptions.
 
