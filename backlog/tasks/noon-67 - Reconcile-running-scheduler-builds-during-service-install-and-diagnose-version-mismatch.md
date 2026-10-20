@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-10-20 22:58'
-updated_date: '2026-10-20 23:31'
+updated_date: '2026-10-20 23:41'
 labels: []
 dependencies:
   - NOON-66
@@ -74,6 +74,8 @@ Review: one independent reviewer pass found no validated defects; noted stopped-
 AC#2: task cli:test PKG="./internal/service ./internal/app ./internal/cli ./internal/scheduler ./internal/store" -- -count=1 -> exit 0 on final implementation.
 Delivery: implementation commit ae03873a7b76886dd682deeafd99c992138b4928 passed task ci (security, formatting, vet, Staticcheck, full tests, race, smoke), then fast-forward merged into main. task check:staged passed before commit. All acceptance and definition-of-done requirements met. No blockers or remaining implementation steps.
 Cleanup: verified session creation receipt and clean worktree, then Worktrunk removed noon-67 checkout and branch. Herdr workspace wJE was verified absent afterward. Unrelated fix-suggested-action checkout/workspace belongs to other work and was preserved. Worklease claim will be released after the final bookkeeping commit and verification.
+
+Release review: clarified unchanged-install warning when no live scheduler existed beforehand (install may have just started the current build); service status prints Build only with a scheduler record; tidied imports; refreshed CHANGELOG. task ci passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

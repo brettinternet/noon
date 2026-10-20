@@ -4,7 +4,7 @@ title: Restart the scheduler explicitly after upgrades and document install migr
 status: Done
 assignee: []
 created_date: '2026-10-20 22:54'
-updated_date: '2026-10-20 23:16'
+updated_date: '2026-10-20 23:41'
 labels: []
 dependencies:
   - NOON-11
@@ -68,6 +68,8 @@ AC#4: git diff --check -> exit 0; README.md, docs/service.md, docs/cli.md, docs/
 Validation: task ci -> exit 0 (security, formatting, vet, staticcheck, all tests, race tests, smoke); all modified Go LSP diagnostics clean. First CI invocation hit tool timeout during race tests; rerun completed successfully. No tests deleted, skipped, or weakened. Independent scoped review pending; next commit/integrate and run CI on final commit.
 
 Delivery: implementation b689623c50d6aa69b2a250358c0c7435b1e5a02a merged into main as 7deeb14853fd3ed161d4ed83a53f285d45ce095e. task check:staged passed before commits; task ci passed on merged commit 7deeb14. Independent reviewer completed one scoped review: no validated findings. All acceptance criteria and DoD satisfied; no remaining blocker or resumable implementation step. Final bookkeeping commit receives another task ci run before releasing Worklease. Owned worktree .worktrees/noon-66-service-restart and its branch removed via Worktrunk after verifying this session creation receipt and merged status; matching Herdr workspace wJD disappeared. No owned checkout/workspace retained. Unrelated NOON-67 planning commit preserved. No push performed.
+
+Release review: missing-unit restart now returns code service_not_installed with a structured, state-dir-aware install hint (previously inline guidance dropped --state-dir). Verified on macOS with a disposable launchd agent that bootout waits for a slow-exiting job before bootstrap, so restart has no race. task ci passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
