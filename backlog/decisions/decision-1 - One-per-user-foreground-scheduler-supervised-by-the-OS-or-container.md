@@ -24,7 +24,9 @@ Recurring jobs need something alive at the scheduled time. The seeded design pro
 2. Persistence across logout and reboot comes from `noon service install`, run once per machine,
    which registers a launchd agent or systemd user unit running `noon serve` with the installer's
    `PATH` captured explicitly. Docker runs the same foreground process. Noon never forks itself into
-   the background, and no command other than `service install` registers or starts a service.
+   the background. Only `service install` registers a service; explicit `service restart` may
+   restart an already installed service without rewriting its definition. Restart interrupts active
+   jobs rather than draining them; binary upgrades never restart the scheduler automatically.
 3. `noon run NAME` runs in the foreground without a scheduler.
 4. There is no IPC socket. Clients coordinate through the SQLite store; the scheduler polls it every
    second and polls config files every two seconds. Commands needing a scheduler record durable
