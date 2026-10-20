@@ -305,11 +305,27 @@ func TestServeUserProjectIsolationAndLastGoodReload(t *testing.T) {
 		}
 	}
 
+	waitForUserRuns := func(count int) {
+		t.Helper()
+		state, err := store.OpenExisting(fixture.stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		waitFor(t, func() bool {
+			runs, err := state.RunsForProject(userProject, "", 50)
+			return err == nil && len(runs) == count && runs[0].Status == "succeeded"
+		})
+	}
+
 	fixture.step(t, serveTestStart.Add(time.Minute))
 	waitFor(t, func() bool {
 		data, err := os.ReadFile(marker)
 		return err == nil && strings.TrimSpace(string(data)) == userProject
 	})
+	// Output can arrive before completion is persisted. Advancing the clock then
+	// would skip the next occurrence under the default overlap policy.
+	waitForUserRuns(1)
 	broken := "jobs: {personal: {schedule: every day, run: 'true'}}\n"
 	if err := os.WriteFile(userConfig, []byte(broken), 0o600); err != nil {
 		t.Fatal(err)
@@ -333,6 +349,7 @@ func TestServeUserProjectIsolationAndLastGoodReload(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(data)) != userProject+"\n"+userProject {
 		t.Fatalf("last-good user schedule output=%q err=%v", data, err)
 	}
+	waitForUserRuns(2)
 	fixture.stop(t)
 
 	state, err = store.OpenExisting(fixture.stateDir)
