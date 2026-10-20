@@ -1,10 +1,10 @@
 ---
 id: NOON-65
 title: Interpolate vars_file values into selected job fields
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-20 21:04'
-updated_date: '2026-10-20 21:28'
+updated_date: '2026-10-20 22:07'
 labels:
   - config
 dependencies: []
@@ -80,24 +80,34 @@ Modified-file contract: internal/config/**; internal/app/** for doctor, inspecti
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 task cli:test PKG=./internal/config -- -count=1 exits 0. Public loading tests cover every allowlisted field in every job source: a present value, an empty value, an absent value with and without a default, a default with no vars_file, $$ and bare $NAME literals, single-pass substitution (a value containing ${X} or $$ stays literal), malformed expressions and unsupported operators, and normal validation after expansion. A substituted value containing YAML syntax stays one string. A missing required variable fails with file, line, YAML path, and the variable name.
-- [ ] #2 task cli:test PKG=./internal/config -- -count=1 exits 0. Critical regressions: env values, run, hooks, prompts, agent_args, and job names keep literal ${X} and $X text; job env and env_file contents and the process environment (a variable set only in the test process) never supply values. vars_file resolves from the project root (including from .git/noon.yaml and for user jobs), applies only to jobs in its own file, and ignores the vars_file of any other file. A missing file supplies no values. Unreadable, directory, FIFO, oversized, and malformed files fail with the configured path and line, without a sentinel value. add/remove round-trips preserve vars_file and expressions.
-- [ ] #3 task cli:test PKG=./internal/cli -- -count=1 exits 0. Isolated CLI regressions through cli.Run: config check and list --json show the resolved schedule; an absent required variable fails config check with exit 1; after enable, a resolved schedule change through the vars file and an inline value change each make the shared job needs_approval. An expression rewrite with identical resolution, and a change to an unused variable, keep it approved. A job added with an expression in --schedule is approved on the next load. doctor reports vars_file ok when present and warn when absent. Vars values appear in no job or hook environment.
-- [ ] #4 task cli:test PKG=./integration -- -count=1 exits 0. An isolated built-binary scheduler regression: with serve running and an enabled, approved shared job whose schedule comes from vars_file, creating or editing the file to change that schedule is detected without restarting serve and blocks unattended runs as needs_approval. Re-running enable resumes scheduling at the new schedule.
-- [ ] #5 noon.schema.json accepts a non-empty string vars_file and rejects other types. examples/jobs.yaml and a self-contained vars-file example validate without personal files or environment: task cli:test PKG=./integration -- -run TestExamplesValidate -count=1 exits 0. docs/configuration.md covers the field, path rule, per-file scope, missing-file behavior, allowlist, syntax, compatibility note, no process environment, the not-for-secrets warning, approval, reload, and the env_file relationship. docs/design.md and docs/service.md match. task ci exits 0.
+- [x] #1 task cli:test PKG=./internal/config -- -count=1 exits 0. Public loading tests cover every allowlisted field in every job source: a present value, an empty value, an absent value with and without a default, a default with no vars_file, $$ and bare $NAME literals, single-pass substitution (a value containing ${X} or $$ stays literal), malformed expressions and unsupported operators, and normal validation after expansion. A substituted value containing YAML syntax stays one string. A missing required variable fails with file, line, YAML path, and the variable name.
+- [x] #2 task cli:test PKG=./internal/config -- -count=1 exits 0. Critical regressions: env values, run, hooks, prompts, agent_args, and job names keep literal ${X} and $X text; job env and env_file contents and the process environment (a variable set only in the test process) never supply values. vars_file resolves from the project root (including from .git/noon.yaml and for user jobs), applies only to jobs in its own file, and ignores the vars_file of any other file. A missing file supplies no values. Unreadable, directory, FIFO, oversized, and malformed files fail with the configured path and line, without a sentinel value. add/remove round-trips preserve vars_file and expressions.
+- [x] #3 task cli:test PKG=./internal/cli -- -count=1 exits 0. Isolated CLI regressions through cli.Run: config check and list --json show the resolved schedule; an absent required variable fails config check with exit 1; after enable, a resolved schedule change through the vars file and an inline value change each make the shared job needs_approval. An expression rewrite with identical resolution, and a change to an unused variable, keep it approved. A job added with an expression in --schedule is approved on the next load. doctor reports vars_file ok when present and warn when absent. Vars values appear in no job or hook environment.
+- [x] #4 task cli:test PKG=./integration -- -count=1 exits 0. An isolated built-binary scheduler regression: with serve running and an enabled, approved shared job whose schedule comes from vars_file, creating or editing the file to change that schedule is detected without restarting serve and blocks unattended runs as needs_approval. Re-running enable resumes scheduling at the new schedule.
+- [x] #5 noon.schema.json accepts a non-empty string vars_file and rejects other types. examples/jobs.yaml and a self-contained vars-file example validate without personal files or environment: task cli:test PKG=./integration -- -run TestExamplesValidate -count=1 exits 0. docs/configuration.md covers the field, path rule, per-file scope, missing-file behavior, allowlist, syntax, compatibility note, no process environment, the not-for-secrets warning, approval, reload, and the env_file relationship. docs/design.md and docs/service.md match. task ci exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Refinement: rename config_env_file to vars_file, because Compose uses "env file" for both its interpolation file and runtime injection, a known confusion; Noon keeps env_file runtime-only. Drop the process environment as a source: shell and service environments differ by design, so inspection/approval would diverge from scheduling. Drop env values from the allowlist: env_file already sets job env from a file at run time, and interpolating env would pin secrets in digests and make rotation re-approval. To export, list the same file in env_file. Missing vars_file is empty, Compose .env style, so committed manifests work on fresh clones; doctor warns on absence. Approval digests resolved values only (the YAML-composition precedent), so expression-only edits and unused variables do not churn approval. Code facts: scheduler reloads only when stamped config paths change (internal/scheduler/serve.go configPaths/statPaths), so vars files must be stamped; noon add/verify compute digests via config.JobFromSource, which must resolve identically to Load.
+
+Implementation in .worktrees/feat-noon-65-vars (branch feat/noon-65-vars), owned receipt .git/worktrees/feat-noon-65-vars/agent-creation.json. Executor timed out after successful task ci; parent took over validation and delivery. Contract expansion: internal/scheduler/serve_test.go adds a critical regression for stale reload stamps after failed loads; this directly validates the mandated broken/missing vars-file reload behavior. examples/README.md adds discoverability for the required self-contained example (examples already included in modified files). AC#1: task cli:test PKG=./internal/config -- -count=1 -> exit 0. AC#2: same uncached config suite -> exit 0. AC#3: task cli:test PKG=./internal/cli -- -count=1 -> exit 0. AC#4: task cli:test PKG=./integration -- -count=1 -> exit 0. AC#5 (partial evidence): task cli:test PKG=./integration -- -run TestExamplesValidate -count=1 -> exit 0; schema assertions pass in config suite. Independent review in progress; final-commit CI and delivery pending.
+
+AC#5: task ci on final implementation commit 435ff311289d929b98f71cd7331f6a156e6f8567 -> exit 0 (security, formatting/vet/Staticcheck, full tests, race tests, build and isolated smoke). Schema, examples, and docs completed. One independent review found two concrete reload defects: dangling-to-absent symlinks shared an absent stamp, and manifest discovery bypassed the size bound. Both fixed; task cli:test PKG=./internal/scheduler -- -run TestServeVarsFileDanglingToAbsent -count=1 and task cli:test PKG=./internal/config -- -count=1 -> exit 0; full CI rerun passed. LSP diagnostics clean. No tests deleted, skipped, or weakened. Implementation committed as 435ff31 and fast-forward merged into main. Worktrunk removed the verified session-owned worktree and branch; Herdr workspace wJC disappearance verified. No retained task worktrees or workspaces; no push. All acceptance and delivery obligations satisfied; no blockers or next implementation step.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented document-scoped vars_file interpolation for schedule, cwd, env_file, prompt_file, timeout, cooldown, splay, and jitter. Resolution is single-pass, file-only, non-exporting, and approval-sensitive; editing preserves expressions. Added doctor visibility, reload tracking, schema, docs, example, and critical regression coverage. Delivered locally on main in 435ff31; full CI passed; owned worktree cleaned up.
+<!-- SECTION:FINAL_SUMMARY:END -->
