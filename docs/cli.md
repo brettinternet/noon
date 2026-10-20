@@ -416,6 +416,21 @@ ok job tests command: go
 Warnings exit 0; failures exit 1. JSON has `ok` and `checks` (`name`, `status`, `message`,
 `hint`). Doctor never fixes anything, runs jobs, migrates, or creates state.
 
+## Service restart and upgrades
+
+`noon service restart` explicitly restarts the installed per-user scheduler after a same-path
+binary upgrade. It interrupts active jobs rather than draining them, uses the installed definition
+without rewriting its environment, and fails with install guidance if no unit exists.
+JSON returns `restarted: true` and `unit_path`; manager failures return an error.
+
+Use `noon service install` for changed executable paths or captured environment settings.
+An unchanged running unit is left alone by install. To switch installation methods, invoke the
+new executable's `service install` with the same state directory, `HOME`, and `XDG_CONFIG_HOME`
+to retain configuration and history. See [service upgrades](service.md#upgrades).
+
+Job config reloads every two seconds and `env_file` is read at each run start, without restarting.
+Changed shared job definitions still require `noon enable`; restart never grants approval.
+
 ## TUI
 
 `noon tui` needs a terminal and refreshes every second. It never edits jobs or enables projects.

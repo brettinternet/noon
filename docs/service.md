@@ -6,6 +6,7 @@ Noon never backgrounds itself.
 
 ```sh
 noon service install          # install or update, then start
+noon service restart          # explicitly restart; interrupts active jobs
 noon service                  # unit, manager state, scheduler heartbeat
 noon service install --print  # show the unit; writes and starts nothing
 noon service uninstall        # stop and remove the unit; keep state and history
@@ -81,9 +82,44 @@ journalctl --user -u noon.service -f
 
 ## Upgrades
 
-Reinstalling reloads changed units: launchd units are bootstrapped again, systemd units are
-reloaded and restarted. If an older binary meets a database from a newer Noon, `noon serve` exits
-75 and the manager keeps retrying; install the newer binary.
+Replacing the binary does not restart the running scheduler. After upgrading at the same path
+(for example, behind Homebrew's stable symlink), explicitly restart:
+
+```sh
+brew upgrade noon
+noon service restart
+```
+
+Restart uses the installed definition, without rewriting its executable, state directory, or
+captured environment. It refuses a missing service with `noon service install` guidance.
+**Restart interrupts active jobs; it does not wait for them to finish.** Choose a quiet time.
+Noon never restarts automatically on upgrade.
+
+For a changed executable path, `PATH`, `XDG_CONFIG_HOME`, or other unit settings, run
+`noon service install` instead. It reconciles and restarts changed units; an unchanged running
+unit is left alone, even if the binary behind its path has changed.
+
+### Switching installation methods
+
+Install the new binary, then invoke that executable's `service install` (use its full path if
+both installations remain on `PATH`). Keep the same absolute state directory and config location:
+
+```sh
+/path/to/new/noon --state-dir /existing/noon-state service install
+```
+
+Use the same `HOME` and `XDG_CONFIG_HOME` as before and preserve the existing configuration.
+The state directory retains registered projects, approvals, queued work, and run history; no
+copying or relocation is needed. A changed unit restarts the scheduler and interrupts active jobs.
+If its contents are unchanged, use `service restart` explicitly. Remove the old installation only
+after the installed unit points to the new executable.
+
+Job configuration reloads every two seconds; `vars_file` edits reload too. `env_file` is read at
+each run start. These edits need no service restart. Changed shared job definitions still need
+`noon enable` approval; restarting does not approve them.
+
+If an older binary meets a database from a newer Noon, `noon serve` exits 75 and the manager keeps
+retrying; install the newer binary.
 
 ## Linux lingering
 

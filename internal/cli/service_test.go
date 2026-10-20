@@ -117,6 +117,56 @@ func TestServiceCommands(t *testing.T) {
 		}
 	}
 
+	// A same-path upgrade needs explicit restart, with no captured-environment rewrite.
+	beforeRestart := readManagerLog(t, managerLog)
+	t.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+filepath.Join(root, "restart-shell"))
+	for _, jsonOutput := range []bool{false, true} {
+		out.Reset()
+		stderr.Reset()
+		args := []string{"noon", "--state-dir", "relative-state", "service", "restart"}
+		if jsonOutput {
+			args = append(args, "--json")
+		}
+		code = cli.Run(context.Background(), args, config.BuildOpts{}, &out, &stderr)
+		wantOutput := "Restarted service"
+		if jsonOutput {
+			wantOutput = `"restarted":true`
+		}
+		if code != 0 || !strings.Contains(out.String(), wantOutput) {
+			t.Fatalf("restart: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
+		}
+		got, err := os.ReadFile(unit.Path)
+		if err != nil || !bytes.Equal(got, contents) {
+			t.Fatalf("restart rewrote installed environment: %s, %v", got, err)
+		}
+	}
+	restartCommands := readManagerLog(t, managerLog)[len(beforeRestart):]
+	operation := "bootout"
+	if unit.Platform == service.Systemd {
+		operation = "restart"
+	}
+	if !strings.Contains(strings.Join(restartCommands, "\n"), "\t"+operation+"\t") {
+		t.Fatalf("explicit restart did not restart: %v", restartCommands)
+	}
+	t.Setenv("NOON_FAIL_OPERATION", operation)
+	out.Reset()
+	stderr.Reset()
+	code = cli.Run(context.Background(), []string{"noon", "--json", "service", "restart"}, config.BuildOpts{}, &out, &stderr)
+	if code != 1 || !strings.Contains(out.String(), `"code":"service"`) {
+		t.Fatalf("failed restart: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
+	}
+	t.Setenv("NOON_FAIL_OPERATION", "")
+	if unit.Platform == service.Systemd {
+		t.Setenv("NOON_NO_MANAGER", "yes")
+		out.Reset()
+		stderr.Reset()
+		code = cli.Run(context.Background(), []string{"noon", "--json", "service", "restart"}, config.BuildOpts{}, &out, &stderr)
+		if code != 1 || !strings.Contains(out.String(), `"code":"service_unsupported"`) {
+			t.Fatalf("unsupported restart: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
+		}
+		t.Setenv("NOON_NO_MANAGER", "")
+	}
+
 	database, err := store.Open(stateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -229,6 +279,16 @@ func TestServiceCommands(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "noon.db")); err != nil {
 		t.Fatalf("uninstall removed state/history: %v", err)
+	}
+	beforeMissing := readManagerLog(t, managerLog)
+	out.Reset()
+	stderr.Reset()
+	code = cli.Run(context.Background(), []string{"noon", "service", "restart"}, config.BuildOpts{}, &out, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "noon service install") || len(readManagerLog(t, managerLog)) != len(beforeMissing) {
+		t.Fatalf("missing restart: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
+	}
+	if _, err := os.Stat(unit.Path); !os.IsNotExist(err) {
+		t.Fatalf("restart installed missing service: %v", err)
 	}
 	previousLog := readManagerLog(t, managerLog)
 	out.Reset()

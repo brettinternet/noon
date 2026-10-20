@@ -71,6 +71,22 @@ func installService(ctx context.Context, cmd *urfave.Command) error {
 	return nil
 }
 
+func restartService(ctx context.Context, cmd *urfave.Command) error {
+	options, err := serviceOptions(cmd)
+	if err != nil {
+		return err
+	}
+	path, err := app.RestartService(ctx, options, service.ExecRunner{})
+	if err != nil {
+		return serviceError(err)
+	}
+	if cmd.Bool("json") {
+		return emit(cmd, map[string]any{"restarted": true, "unit_path": path})
+	}
+	fmt.Fprintf(cmd.Writer, "Restarted service · %s\n", path)
+	return nil
+}
+
 func uninstallService(ctx context.Context, cmd *urfave.Command) error {
 	options, err := serviceOptions(cmd)
 	if err != nil {

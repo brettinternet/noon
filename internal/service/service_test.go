@@ -1,15 +1,90 @@
 package service
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/brettinternet/noon/internal/config"
 )
+
+// Restart must run even for unchanged units and must never install or rewrite them.
+func TestServiceRestart(t *testing.T) {
+	for _, platform := range []Platform{Launchd, Systemd} {
+		t.Run(string(platform), func(t *testing.T) {
+			unit := Unit{Platform: platform, Path: filepath.Join(t.TempDir(), "unit"), Contents: []byte("new shell settings")}
+			runner := &restartRunner{}
+			err := Restart(t.Context(), unit, runner)
+			if err == nil || !strings.Contains(err.Error(), "noon service install") || len(runner.calls) != 0 {
+				t.Fatalf("missing service: err=%v calls=%v", err, runner.calls)
+			}
+			if _, err := os.Stat(unit.Path); !os.IsNotExist(err) {
+				t.Fatalf("restart installed missing unit: %v", err)
+			}
+			installed := []byte("installed executable and environment")
+			if err := os.WriteFile(unit.Path, installed, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"launchctl bootout " + launchDomain() + " " + unit.Path, "launchctl bootstrap " + launchDomain() + " " + unit.Path}
+			if platform == Systemd {
+				want = []string{"systemctl --user show-environment", "systemctl --user restart noon.service"}
+			}
+			if err := Restart(t.Context(), unit, runner); err != nil || !reflect.DeepEqual(runner.calls, want) {
+				t.Fatalf("restart: err=%v calls=%v want=%v", err, runner.calls, want)
+			}
+			for _, fail := range want {
+				runner.calls = nil
+				runner.fail = fail
+				if err := Restart(t.Context(), unit, runner); err == nil {
+					t.Fatalf("swallowed manager failure: %s", fail)
+				} else if platform == Systemd && fail == want[0] && !IsUnsupported(err) {
+					t.Fatalf("unavailable manager lost unsupported contract: %v", err)
+				}
+				got, err := os.ReadFile(unit.Path)
+				if err != nil || !bytes.Equal(got, installed) {
+					t.Fatalf("restart changed installed unit: %q, %v", got, err)
+				}
+			}
+			if platform == Launchd {
+				runner.fail = want[0]
+				runner.failure = errors.New("Could not find service")
+				runner.calls = nil
+				if err := Restart(t.Context(), unit, runner); err != nil || !reflect.DeepEqual(runner.calls, want) {
+					t.Fatalf("restart unloaded unit: err=%v calls=%v", err, runner.calls)
+				}
+			}
+		})
+	}
+	runner := &restartRunner{}
+	if err := Restart(t.Context(), Unit{Platform: "unsupported"}, runner); !IsUnsupported(err) || len(runner.calls) != 0 {
+		t.Fatalf("unsupported platform: err=%v calls=%v", err, runner.calls)
+	}
+}
+
+type restartRunner struct {
+	calls   []string
+	fail    string
+	failure error
+}
+
+func (r *restartRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	call := strings.Join(append([]string{name}, args...), " ")
+	r.calls = append(r.calls, call)
+	if call == r.fail {
+		if r.failure != nil {
+			return nil, r.failure
+		}
+		return nil, errors.New("manager failed")
+	}
+	return nil, nil
+}
 
 func TestServiceUnits(t *testing.T) {
 	installDir := filepath.Join(t.TempDir(), "install here")

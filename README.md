@@ -55,6 +55,13 @@ Installing a binary never installs or starts a scheduler service. Set up backgro
 explicitly with `noon service install` after installation; use `noon serve` to run it in the
 foreground instead.
 
+After a same-path binary upgrade, run `noon service restart` explicitly: it interrupts active
+jobs rather than draining them. Changed executable paths or captured environment settings need
+`noon service install`. When switching installation methods, invoke the new executable's
+`service install` with the same state directory and config location to retain history and settings.
+Job config reloads automatically and `env_file` is read at run start; neither needs restart.
+Changed shared jobs still need `noon enable`. See [upgrades and migration](docs/service.md#upgrades).
+
 ## Quick start
 
 `noon add` writes a job to the private `.git/noon.yaml`, which Git can't commit. Add `--shared` to
@@ -165,6 +172,7 @@ suggests `noon --user add` without creating files.
 | `noon enable` / `disable` | Opt this checkout in or out of background runs |
 | `noon serve` | Foreground scheduler; optionally serve signed webhooks and an authenticated remote API/MCP listener |
 | `noon service install` | Run `noon serve` as a per-user launchd/systemd service |
+| `noon service restart` | Explicitly restart the installed scheduler; interrupts active jobs |
 | `noon doctor` | Read-only setup checks |
 | `noon tui` | Keyboard-driven jobs, runs, and logs |
 | `noon mcp` | MCP tools over stdio for coding agents |
