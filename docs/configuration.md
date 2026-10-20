@@ -160,8 +160,8 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | --- | --- | --- |
 | `description` | — | Shown by `list`, the TUI, and MCP |
 | `schedule` | manual only | Cron, macro, calendar phrase, or interval ([grammar](design.md#schedules)) |
-| `splay` | — | Stable forward offset window, `1s`–`1h`; cron, macro, or calendar schedules only |
-| `jitter` | — | Duration of at least `1s`; per-occurrence forward window requiring a schedule and bounded by half its shortest gap |
+| `splay` | — | Stable forward offset window, `1s`–`1h` ([Splay and jitter](#splay-and-jitter)) |
+| `jitter` | — | Per-occurrence forward offset window ([Splay and jitter](#splay-and-jitter)) |
 | `run` | — | String runs with `/bin/sh -c`; list is exact argv |
 | `noop_exit_code` | — | Integer 1–124: record a normally exited run with this code as `noop` |
 | `prompt` | — | Inline agent prompt, ≤ 64 KiB |
@@ -169,7 +169,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `agent` | `default_agent` | Agent profile for prompt jobs |
 | `agent_args` | — | Non-empty literal argv list for a prompt job; requires an explicit `agent` |
 | `cwd` | project root | Absolute or project-relative; checked by `doctor`, not validation |
-| `env_file` | — | Path string or non-empty list; read at every run start, ≤ 64 KiB each. Approval covers ordered paths, not contents |
+| `env_file` | — | Path or list of paths loaded at each run start ([Env files](#env-files)) |
 | `env` | — | String values (quote numbers). `NOON_*` is reserved. Values are never printed |
 | `timeout` | `1h` | `30s`, `10m`, `1h30m`, `2d` (≥ 1s), or `none` |
 | `overlap` | `skip` | `skip` or `queue` (at most one pending) |
@@ -181,29 +181,6 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `cooldown` | — | Minimum gap between queued requests; incompatible with `requests: each` ([Triggers](triggers.md)) |
 | `on_success`, `on_failure` | user default | Hook command; `[]` disables the default ([Hooks](hooks.md)) |
 | `webhook` | — | `{secret_env: NAME}` ([Webhooks](webhooks.md)) |
-
-Set `splay: 10m` to spread jobs over a stable per-job window. Noon derives one whole-second
-offset in [0, splay) from the canonical project path and job name. It stays the same across
-restarts; moving the checkout, renaming the job, or changing splay may change it. Durations use
-the same integer `s`, `m`, `h`, `d` components as timeout, between 1s and 1h.
-Manual jobs and intervals reject splay.
-
-Set `jitter: 20m` to vary the forward offset on every occurrence. Each occurrence gets a
-whole-second offset in [0, jitter), derived deterministically from the canonical project path,
-job name, and nominal occurrence time. Restarts and inspection produce the same offset; no random
-or stored state is used. Jitter requires a schedule and cannot exceed half its shortest gap: for
-intervals, half the interval; for clock schedules, half the smallest time-of-day gap, including the
-wrap across midnight and ignoring day fields. For example, `*/15 * * * *` allows at most `7m30s`.
-The effective start is nominal time plus any splay offset plus that occurrence's jitter. To center
-a 20-minute jitter window around 9am, use `schedule: weekdays at 8:50am`; it starts from 08:50:00
-through 09:09:59. Intervals retain their nominal phase and jitter never accumulates into it.
-
-Both fields affect only scheduled occurrences, not foreground runs, queued requests, triggers,
-hooks, or webhooks. Changing either on a shared job needs approval. `noon list` appends
-`+<splay offset>` and then `~<jitter>` to SCHEDULE when set. All next-run displays include both
-offsets; JSON and MCP `list_jobs` expose normalized `splay`, `splay_offset`, and `jitter`
-duration strings only when configured. `NOON_SCHEDULED_AT` remains nominal; lateness checks
-should allow for configured splay and jitter.
 
 A job's optional `os` and `arch` lists must be non-empty, duplicate-free, and use the exact supported Go `GOOS`/`GOARCH` values shown above. Aliases such as `macos`, `x86_64`, and `aarch64` are rejected with a suggestion. Every declared field must match the running binary; an omitted field matches any value. A nonmatching job stays visible as `other platform`, but isn't scheduled, caught up, dispatched, or runnable by `noon run` or any queueing interface. `list --json` includes the declared lists and `platform_supported`; `doctor` skips command and working-directory checks for nonmatching jobs.
 
@@ -218,14 +195,49 @@ noon: config /home/me/app/noon.yaml:5: jobs.lint.run: must be a string (quote nu
 A missing file, a zero-byte file, and `{}` are fine; a whitespace-only file is not. A broken lower-priority file is
 still an error even if a later file overrides its settings.
 
-### Config-time variables
+### Splay and jitter
 
-Set an optional top-level `vars_file` when machine-specific values affect a job's schedule or
-paths. It uses the same strict, non-interpolating env-file format as [`env_file`](#env-files),
-but is read while configuration is loaded:
+Both push scheduled starts forward, never earlier:
 
 ```yaml
-vars_file: .noon.vars # gitignored and created locally
+jobs:
+  fetch:
+    schedule: every day at 7am
+    splay: 10m    # same offset every day, somewhere in 07:00:00–07:09:59
+    run: ./fetch
+  standup:
+    schedule: weekdays at 8:50am
+    jitter: 20m   # new offset each weekday, 08:50:00–09:09:59 (centered on 9am)
+    run: ./standup
+```
+
+```console
+$ noon list --wide
+JOB      SCHEDULE                  NEXT                LAST   COMMAND
+fetch    every day at 07:00 +1m8s  Wed 07:01 (in 12h)  never  ./fetch
+standup  weekdays at 08:50 ~20m    Wed 08:54 (in 14h)  never  ./standup
+```
+
+| | `splay` | `jitter` |
+| --- | --- | --- |
+| Offset | One per job: hash of project path and job name | One per occurrence: hash of project path, job name, and nominal time |
+| Range | `1s`–`1h` | ≥ `1s`, ≤ half the shortest gap (`*/15 * * * *` → `7m30s`; `every 1h` → `30m`) |
+| Schedules | cron, macro, calendar | any, including intervals |
+
+Offsets are whole seconds and deterministic: restarts and inspection agree, and nothing random is
+stored. Moving the checkout or renaming the job changes them. Intervals keep their nominal phase.
+Only scheduled occurrences move; foreground runs, queued requests, triggers, hooks, and webhooks
+don't. `NOON_SCHEDULED_AT` stays nominal, so lateness checks should allow for both. JSON and MCP
+`list_jobs` add `splay`, `splay_offset`, and `jitter` when set. Changing either on a shared job
+needs approval. See [Design](design.md#schedules) for how gaps and offsets are computed.
+
+### Config-time variables
+
+A top-level `vars_file` fills `${...}` in a few job fields when config loads, for machine-specific
+schedules and paths:
+
+```yaml
+vars_file: .noon.vars # optional; gitignore it
 jobs:
   sync:
     schedule: ${SYNC_SCHEDULE:-every 1h}
@@ -233,110 +245,92 @@ jobs:
     run: ./sync.sh
 ```
 
-The file is optional. If it is absent, it supplies no values, so expressions with defaults work on
-a fresh clone; `noon doctor` warns for each missing configured file and says it is using expression
-defaults. A present but unreadable, non-regular, oversized, or malformed file fails config loading.
-Errors name the configured path and, for syntax errors, a 1-based line number; they never print file
-contents or values. The file is reread on every config load. `noon serve` stamps configured paths,
-including paths absent or broken on the previous load, so creating, editing, fixing, or deleting a
-file is noticed without restarting the scheduler.
+```dotenv
+# .noon.vars
+SYNC_SCHEDULE=weekdays at 9am
+```
 
-Relative `vars_file` paths resolve from the project root (the user project directory for user
-config), including when declared in `.git/noon.yaml` or a `--config` file. Paths are literal:
-there is no interpolation or `~` expansion. Each document supplies values only to its own jobs.
-Values do not leak between user settings, `noon.yaml`, `.git/noon.yaml`, or `--config`; a private
-replacement uses the private file's values, while an `enabled: false`-only override leaves the
-shared job and its resolution intact. There is no automatic `.env` discovery.
+| Syntax | Result |
+| --- | --- |
+| `${NAME}` | Value from the vars file; an error if absent (empty is allowed) |
+| `${NAME:-default}` | Literal default when absent or empty, or when there is no vars file |
+| `$$` | Literal `$` |
+| `$NAME`, lone `$` | Unchanged |
 
-Only these string scalars are expanded, before their normal validation: `schedule`, `cwd`, each
-`env_file` path, `prompt_file`, `timeout`, `cooldown`, `splay`, and `jitter`. Expansion happens
-after YAML parsing, so substituted YAML punctuation remains part of one string. All other values
-stay literal, including job names, `run`, `prompt`, hooks, `env`, and `agent_args`. The Noon process
-environment, job `env`, and runtime `env_file` contents are never interpolation sources.
+Only `schedule`, `cwd`, each `env_file` path, `prompt_file`, `timeout`, `cooldown`, `splay`, and
+`jitter` expand. Everything else stays literal, including `run`, `prompt`, `env`, hooks, and
+`agent_args`. The vars file is the only source: never the process environment, job `env`, or
+`env_file` contents. Expansion is single-pass after YAML parsing; nesting, other operators, and
+invalid names are errors. Because `$$` and `${` now mean something in those fields, existing values
+containing them may resolve differently.
 
-- `${NAME}` requires a value in the vars file; an empty value is substituted as empty and then
-  validated normally.
-- `${NAME:-default}` uses the literal default when the name is absent or empty. It works without a
-  configured vars file.
-- `$$` becomes a literal `$`; bare `$NAME` and other lone dollar signs remain literal.
-- Names match `^[A-Za-z_][A-Za-z0-9_]*$`. Expansion is single-pass: values and defaults are not
-  expanded again. Unterminated or malformed braces, invalid names, nesting, and operators other
-  than `:-` are errors.
+- The file uses the [env-file format](#env-files). Relative paths resolve from the project root
+  (the user project directory for user config), even in `.git/noon.yaml` or `--config`. The path
+  itself is literal: no `${}` or `~`. There is no automatic `.env` discovery.
+- Each config file's `vars_file` applies only to its own jobs. A private replacement uses the
+  private file's values; an `enabled: false` override leaves the shared job's resolution intact.
+- A missing file supplies nothing, so defaults work on a fresh clone; `doctor` warns. An unreadable,
+  non-regular, oversized, or malformed file fails config loading, naming the path and line but
+  never values.
+- The file is reread on every load. `noon serve` notices it being created, edited, fixed, or deleted
+  without a restart.
+- **Not secret, not exported.** Resolved values appear in inspection and validation errors. To also
+  give the values to the job, list the same file in `env_file`.
+- Approval uses resolved values: changing an effective schedule or path needs approval; rewriting
+  an expression with the same result, or changing an unused variable, doesn't.
+- `noon add` stores `SCHEDULE`, `--timeout`, and `--prompt-file` verbatim and checks them against
+  the target file's `vars_file`. A new `.git/noon.yaml` has none, so use `:-` defaults or `--shared`.
 
-Resolved allowlisted values are visible in inspection and may appear in validation errors. **Do not
-put secrets in a vars file.** Vars-file values are not exported to jobs or hooks. To pass values at
-run time, list the same file in the job's `env_file` too; it is then separately read under the
-runtime env-file rules. `vars_file` contents are not part of a job's approval digest. Digests use
-resolved values, so changing an effective schedule or path requires approval again, while rewriting
-an expression with the same result or changing an unused variable does not. `noon add` stores
-`SCHEDULE`, `--timeout`, and `--prompt-file` values verbatim and validates them against the target
-file's own `vars_file`; a new `.git/noon.yaml` has none, so use `:-` defaults or `--shared` there.
-Because `$$` and `${` now have meaning in allowlisted fields, existing values there that contain
-those sequences may resolve differently.
+[`examples/basics/env-files`](../examples/basics/env-files/) runs both files side by side.
 
 ### Env files
 
-Use `env_file` for values generated by a script or secret manager, without committing them:
+`env_file` loads a job's environment from files at each run start, for values generated by a script
+or secret manager:
 
 ```yaml
 jobs:
   sync:
     run: ./sync.sh
-    env_file: [.env, /home/me/.config/secrets/sync.env]
+    env_file: [.env, /home/me/.config/secrets/sync.env] # or a single path
     env:
       LOG_LEVEL: debug
 ```
 
-A single path (`env_file: .env`) is equivalent to a one-item list. The field works in every
-job source, including user config, shared `noon.yaml`, private `.git/noon.yaml`, and `--config`.
-Each path must be non-empty. Relative paths resolve from the project root, not the manifest
-directory or job `cwd`: `.env` in `.git/noon.yaml` means the current checkout's `.env`,
-including in linked worktrees. User jobs use the user project directory. Absolute paths can share
-a file across worktrees. Paths do not expand `~`; `env_file` paths may use vars-file interpolation
-as described in [Config-time variables](#config-time-variables).
+Precedence: inherited environment < files in list order < job `env:` < `NOON_*` metadata.
 
-Precedence is inherited environment < files in list order < job `env:` < `NOON_*` metadata.
-All files are read at each run's start, for foreground and every background trigger. Rotation
-needs no scheduler restart. Hooks receive the values loaded for that run and never reread files.
-Every file is required, must be regular and readable, and must be at most 64 KiB. There are no
-owner or permission-mode checks. A file failure stops the run before starting its process with
-exit 125; errors name the configured path and syntax errors include a 1-based line number,
-never the offending content. `config check` validates `env_file` paths' shape without reading those
-runtime files; `vars_file` is read during config loading. `doctor` checks each runtime file and uses
-its variables for command resolution.
+- Relative paths resolve from the project root, not `cwd` or the manifest directory: `.env` in
+  `.git/noon.yaml` means each worktree's own `.env`. Use an absolute path to share one file. User
+  jobs resolve from the user project directory. Paths may use [`${...}`](#config-time-variables);
+  `~` is not expanded.
+- Files are read at every run start, foreground and background, so rotation needs no restart. Hooks
+  get the values loaded for that run and never reread files.
+- Every file is required, regular, readable, and at most 64 KiB; there are no permission-mode
+  checks. A failure stops the run before its process starts, with exit 125 and an error naming the
+  path and line, never content.
+- `config check` validates paths only; `doctor` reads the files and uses them to resolve commands.
+- **Approval pins paths and their order, not contents.** Only enable jobs whose files you trust.
+- Inspection JSON (CLI, MCP, HTTP) shows `env_file` paths or `null`; `env_keys` lists only `env:`
+  keys. Noon doesn't redact secrets a job prints. Webhook `secret_env` reads the scheduler's
+  environment, not env files.
 
-The format is a strict, non-interpolating, single-line subset of
+The format is a strict, single-line, non-interpolating subset of
 [Compose's env-file syntax](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/#env-file-syntax):
 
 ```dotenv
-# .env — keep this file gitignored
-export API_URL=https://api.example.com   # comment
-TOKEN="abc\tdef"
-LITERAL='$NOT_EXPANDED'
+# Comments and blank lines are ignored; CRLF is fine.
+export API_URL=https://api.example.com  # optional export; a comment needs a space before #
+PAGE=docs#intro                         # no space, so # is part of the value
+WINDOWS=C:\temp                         # unquoted: backslashes literal, trailing space trimmed
+TOKEN="abc\tdef"                        # double quotes decode only \n \r \t \" \\
+LITERAL='$NOT_EXPANDED'                 # single quotes are literal; only \' is decoded
 EMPTY=
 ```
 
-- UTF-8 without NUL; LF lines may end in CRLF. Blank lines and comments beginning with `#`
-  after leading whitespace are ignored.
-- Optional `export` plus whitespace precedes `KEY=value`. Keys match
-  `^[A-Za-z_][A-Za-z0-9_]*$`; `NOON_` names are reserved. Spaces/tabs around `=` are ignored.
-- Unquoted values keep backslashes literally, trim trailing whitespace, and begin a comment at
-  space followed by `#` (not `#` alone). Empty values are allowed.
-- Single quotes preserve literal values, including `$`. Only `\'` becomes `'`; other
-  backslash pairs remain unchanged.
-- Double quotes decode only `\n`, `\r`, `\t`, `\"`, and `\\`.
-  Other escapes fail. After either closing quote, only whitespace and an optional `#` comment
-  are allowed.
-- `$` in unquoted or double-quoted values fails rather than interpolating. Multiline values,
-  unterminated quotes, `:` assignments, and bare inherit-only keys fail. Duplicate keys use the
-  last assignment. Compose's long form and optional files are not supported.
-
-Approval pins the ordered configured paths, **not file contents**. Changing a path or its order
-needs approval; changing file contents does not. Only enable jobs whose referenced files you trust.
-Inspection JSON (including MCP and HTTP) exposes `env_file` as a path list, or `null` when unset.
-`env_keys` lists only job `env:` keys, never keys or values loaded from files. Child output is
-still stored raw: Noon does not redact secrets a job prints. Webhook `secret_env` continues to
-use the scheduler's startup environment, not job env files.
+Keys match `^[A-Za-z_][A-Za-z0-9_]*$`, spaces around `=` are ignored, and the last duplicate wins. Errors: `NOON_*` keys, `$`
+outside single quotes, other double-quote escapes, text after a closing quote, multiline or
+unterminated values, `KEY: value`, bare `KEY`, and NUL. Compose's long form and optional files
+aren't supported.
 
 ### YAML composition
 

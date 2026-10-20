@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/brettinternet/noon/main/noon.schema.json
+version: 1
+vars_file: vars.env # read when config loads; fills ${...} in selected job fields
+
+jobs:
+  greet:
+    schedule: ${GREET_SCHEDULE:-every 1h} # vars.env sets weekdays at 9am
+    env_file: runtime.env                 # read at every run start; exported to the job
+    env:
+      TARGET: noon                        # job env beats runtime.env
+    run: 'echo "$GREETING, $TARGET (GREET_SCHEDULE=${GREET_SCHEDULE:-not exported})"'

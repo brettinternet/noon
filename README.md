@@ -14,9 +14,11 @@ jobs:
   deps:
     schedule: "0 6 * * 1"
     run: ./scripts/check-deps     # string: /bin/sh -c
+    env_file: .env                # gitignored, read at each run
     timeout: 10m
   review:
     schedule: weekdays at 9am
+    jitter: 15m                   # start between 09:00 and 09:15
     agent: claude
     prompt: Review open PRs and list risks.
 ```

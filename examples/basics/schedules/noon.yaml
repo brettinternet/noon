@@ -44,6 +44,18 @@ jobs:
     schedule: every 1d12h
     run: [echo, sync]
 
+  # --- Spreading starts: forward offsets, never earlier than the schedule ---
+  fetch:
+    description: Same offset every day, somewhere in 07:00–07:09:59.
+    schedule: every day at 7am
+    splay: 10m           # stable per job; cron, macro, or calendar only
+    run: [echo, fetch]
+  standup:
+    description: A different start each weekday, 08:50–09:09:59 (centered on 9am).
+    schedule: weekdays at 8:50am
+    jitter: 20m          # per occurrence; at most half the shortest gap
+    run: [echo, standup]
+
   # --- Policies ---
   report:
     description: >

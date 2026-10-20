@@ -22,11 +22,9 @@ noon service uninstall        # stop and remove the unit; keep state and history
 Jobs run with that `PATH`. Re-run `noon service install` after changing any of these; an unchanged
 unit is left alone. `noon service` says when the installed unit is out of date.
 
-The service and interactive CLI resolve schedules and allowlisted paths identically from each
-manifest's optional `vars_file`, never from their different process environments. The scheduler
-rereads and stamps vars files during config reload, including a file that was absent or broken
-before; no service restart is needed. Vars-file values are not passed to jobs. See
-[Config-time variables](configuration.md#config-time-variables).
+`${...}` in schedules and paths resolves only from a manifest's
+[`vars_file`](configuration.md#config-time-variables), never the process environment, so the
+service and your shell see the same jobs. Edits to it need no restart.
 
 ## Job environment
 
@@ -34,17 +32,16 @@ Scheduled runs inherit the scheduler's environment, not your shell's. Under the 
 `PATH` and `XDG_CONFIG_HOME` above plus whatever launchd or systemd adds; in a container it's the
 container's environment. Noon never sources shell rc files, so `TERM`, `SHELL`, and your shell's
 exports are usually unset. Stdin is `/dev/null` and output goes to the run log, not a terminal.
-Set anything a job needs in its `env`, or use [`env_file`](configuration.md#env-files) for a
-gitignored or externally generated file. Runtime env files are read at each run start, so rotating
-values needs no service restart; job `env` overrides file values. A `vars_file` is separate:
-configuration-time values are never exported, and the file should not contain secrets.
+Set what a job needs in `env`, or in an [`env_file`](configuration.md#env-files) read at each run
+start (rotation needs no restart):
 
 ```yaml
 jobs:
   report:
     run: ./report.sh
+    env_file: .env          # gitignored secrets
     env:
-      TERM: xterm-256color
+      TERM: xterm-256color  # beats .env
 ```
 
 When a job works in your shell but fails on schedule, run it inside the scheduler to get the exact

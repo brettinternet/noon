@@ -4,6 +4,12 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ## Unreleased
 
+### Documentation
+
+- Show splay, jitter, and env files by example
+
+## [v0.10.0](https://github.com/brettinternet/noon/compare/v0.9.0...v0.10.0) - 2026-10-20
+
 ### Added
 
 - **config:** Interpolate vars files in job fields

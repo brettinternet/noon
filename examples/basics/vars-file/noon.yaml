@@ -1,8 +1,0 @@
-version: 1
-vars_file: vars.env
-
-jobs:
-  sync:
-    schedule: ${SYNC_SCHEDULE:-every 1h}
-    cwd: ${SYNC_DIRECTORY:-.}
-    run: [echo, "config-time values are not exported to this job"]

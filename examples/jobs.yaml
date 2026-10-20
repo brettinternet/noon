@@ -1,6 +1,6 @@
 version: 1
 timezone: America/Chicago
-vars_file: .noon.vars # Optional, local config-time values; see vars-file example.
+vars_file: .noon.vars # Optional, local config-time values; see basics/env-files.
 
 jobs:
   tests:

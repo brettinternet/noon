@@ -27,7 +27,7 @@ is validated by `integration/examples_test.go`.
 | [hello](basics/hello/) | beginner | argv vs shell jobs, the `NOON_*` job environment, a cron schedule |
 | [schedules](basics/schedules/) | beginner | every schedule form, `timezone`, `overlap`, `missed`, `timeout`, `enabled` |
 | [local-overrides](basics/local-overrides/) | beginner | config layers, toggles, replacements, and OS/architecture constraints |
-| [vars-file](basics/vars-file/) | beginner | config-time expansion in the selected job fields, separate from runtime `env_file` |
+| [env-files](basics/env-files/) | beginner | run-time `env_file` vs config-time `vars_file`, env precedence |
 | [event-requests](basics/event-requests/) | beginner | `merge` vs `each`, preserved/discarded payloads, idempotency keys |
 | [crontab-import](basics/crontab-import/) | beginner | preview-first `noon import crontab` and what it refuses |
 
