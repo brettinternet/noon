@@ -49,6 +49,13 @@ func Doctor(ctx context.Context, input config.Input, now time.Time) DoctorView {
 	if configErr == nil {
 		_, err := time.LoadLocation(cfg.Timezone)
 		check("timezone", cfg.Timezone, "Set a valid IANA timezone", err)
+		for _, varsFile := range cfg.VarsFiles {
+			if varsFile.Present {
+				add("vars_file", "ok", varsFile.Configured, "")
+			} else {
+				add("vars_file", "warn", varsFile.Configured+" (missing; using expression defaults)", "Create it or correct vars_file")
+			}
+		}
 	} else if strings.Contains(configErr.Error(), "timezone") {
 		add("timezone", "fail", configErr.Error(), "Set a valid IANA timezone")
 	}

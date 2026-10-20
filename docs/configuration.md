@@ -82,7 +82,7 @@ Use the comment, not a `$schema` YAML key, which Noon rejects as an unknown fiel
 
 | Key | User config | `noon.yaml` | `.git/noon.yaml` |
 | --- | --- | --- | --- |
-| `version`, `timezone` | yes | yes | yes |
+| `version`, `timezone`, `vars_file` | yes | yes | yes |
 | `jobs` | yes | yes | yes |
 | `default_agent` | yes | no | yes |
 | `state_dir`, `agents`, `on_success`, `on_failure` | yes | no | no |
@@ -104,10 +104,11 @@ An empty `NOON_*` variable is an error; unset it instead.
 Paths:
 
 - A path in a YAML setting is relative to that file's directory.
-- Relative job `cwd`, `env_file`, and `prompt_file` paths are based on the project root,
-  even in `.git/noon.yaml`; `cwd` and `env_file` also accept absolute paths.
+- Relative `vars_file` paths and job `cwd`, `env_file`, and `prompt_file` paths are based on the
+  project root, even in `.git/noon.yaml`; `cwd` and `env_file` also accept absolute paths.
 - Flag and environment paths are relative to where you ran the command.
-- YAML never expands `~` or `$VARS`. `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` must be absolute.
+- YAML never expands `~`. Only the selected job fields described below expand `${NAME}`; every
+  other YAML value keeps `$` literal. `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` must be absolute.
 
 ## User project
 
@@ -152,7 +153,8 @@ jobs:
 
 Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 `^[a-z][a-z0-9_-]{0,63}$`, so a bare number on the command line is always a run ID.
-[`examples/jobs.yaml`](../examples/jobs.yaml) uses every field.
+[`examples/jobs.yaml`](../examples/jobs.yaml) uses every field. A document may set a top-level
+`vars_file`; it supplies config-time values only to jobs in that same file.
 
 | Field | Default | Values |
 | --- | --- | --- |
@@ -216,6 +218,61 @@ noon: config /home/me/app/noon.yaml:5: jobs.lint.run: must be a string (quote nu
 A missing file, a zero-byte file, and `{}` are fine; a whitespace-only file is not. A broken lower-priority file is
 still an error even if a later file overrides its settings.
 
+### Config-time variables
+
+Set an optional top-level `vars_file` when machine-specific values affect a job's schedule or
+paths. It uses the same strict, non-interpolating env-file format as [`env_file`](#env-files),
+but is read while configuration is loaded:
+
+```yaml
+vars_file: .noon.vars # gitignored and created locally
+jobs:
+  sync:
+    schedule: ${SYNC_SCHEDULE:-every 1h}
+    cwd: ${SYNC_DIRECTORY:-.}
+    run: ./sync.sh
+```
+
+The file is optional. If it is absent, it supplies no values, so expressions with defaults work on
+a fresh clone; `noon doctor` warns for each missing configured file and says it is using expression
+defaults. A present but unreadable, non-regular, oversized, or malformed file fails config loading.
+Errors name the configured path and, for syntax errors, a 1-based line number; they never print file
+contents or values. The file is reread on every config load. `noon serve` stamps configured paths,
+including paths absent or broken on the previous load, so creating, editing, fixing, or deleting a
+file is noticed without restarting the scheduler.
+
+Relative `vars_file` paths resolve from the project root (the user project directory for user
+config), including when declared in `.git/noon.yaml` or a `--config` file. Paths are literal:
+there is no interpolation or `~` expansion. Each document supplies values only to its own jobs.
+Values do not leak between user settings, `noon.yaml`, `.git/noon.yaml`, or `--config`; a private
+replacement uses the private file's values, while an `enabled: false`-only override leaves the
+shared job and its resolution intact. There is no automatic `.env` discovery.
+
+Only these string scalars are expanded, before their normal validation: `schedule`, `cwd`, each
+`env_file` path, `prompt_file`, `timeout`, `cooldown`, `splay`, and `jitter`. Expansion happens
+after YAML parsing, so substituted YAML punctuation remains part of one string. All other values
+stay literal, including job names, `run`, `prompt`, hooks, `env`, and `agent_args`. The Noon process
+environment, job `env`, and runtime `env_file` contents are never interpolation sources.
+
+- `${NAME}` requires a value in the vars file; an empty value is substituted as empty and then
+  validated normally.
+- `${NAME:-default}` uses the literal default when the name is absent or empty. It works without a
+  configured vars file.
+- `$$` becomes a literal `$`; bare `$NAME` and other lone dollar signs remain literal.
+- Names match `^[A-Za-z_][A-Za-z0-9_]*$`. Expansion is single-pass: values and defaults are not
+  expanded again. Unterminated or malformed braces, invalid names, nesting, and operators other
+  than `:-` are errors.
+
+Resolved allowlisted values are visible in inspection and may appear in validation errors. **Do not
+put secrets in a vars file.** Vars-file values are not exported to jobs or hooks. To pass values at
+run time, list the same file in the job's `env_file` too; it is then separately read under the
+runtime env-file rules. `vars_file` contents are not part of a job's approval digest. Digests use
+resolved values, so changing an effective schedule or path requires approval again, while rewriting
+an expression with the same result or changing an unused variable does not. `noon add` stores flag
+values verbatim; expressions in supported flag values are resolved on the next config load.
+Because `$$` and `${` now have meaning in allowlisted fields, existing values there that contain
+those sequences may resolve differently.
+
 ### Env files
 
 Use `env_file` for values generated by a script or secret manager, without committing them:
@@ -234,7 +291,8 @@ job source, including user config, shared `noon.yaml`, private `.git/noon.yaml`,
 Each path must be non-empty. Relative paths resolve from the project root, not the manifest
 directory or job `cwd`: `.env` in `.git/noon.yaml` means the current checkout's `.env`,
 including in linked worktrees. User jobs use the user project directory. Absolute paths can share
-a file across worktrees. YAML does not expand `~` or `$VARS`.
+a file across worktrees. Paths do not expand `~`; `env_file` paths may use vars-file interpolation
+as described in [Config-time variables](#config-time-variables).
 
 Precedence is inherited environment < files in list order < job `env:` < `NOON_*` metadata.
 All files are read at each run's start, for foreground and every background trigger. Rotation
@@ -242,8 +300,9 @@ needs no scheduler restart. Hooks receive the values loaded for that run and nev
 Every file is required, must be regular and readable, and must be at most 64 KiB. There are no
 owner or permission-mode checks. A file failure stops the run before starting its process with
 exit 125; errors name the configured path and syntax errors include a 1-based line number,
-never the offending content. `config check` validates paths' shape without reading files;
-`doctor` checks each file and uses its variables for command resolution.
+never the offending content. `config check` validates `env_file` paths' shape without reading those
+runtime files; `vars_file` is read during config loading. `doctor` checks each runtime file and uses
+its variables for command resolution.
 
 The format is a strict, non-interpolating, single-line subset of
 [Compose's env-file syntax](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/#env-file-syntax):

@@ -37,6 +37,7 @@ type Job struct {
 	Name               string
 	Description        string
 	Schedule           *schedule.Schedule
+	ScheduleExpression string
 	Splay              time.Duration
 	Jitter             time.Duration
 	Run                any

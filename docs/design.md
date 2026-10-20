@@ -94,6 +94,10 @@ digests are in [Configuration](configuration.md).
 - The user project is the canonical `$XDG_CONFIG_HOME/noon` directory (else `~/.config/noon`). Its jobs come only from
   its `config.yaml`; repository manifests, local Git config, and files above it are never loaded. `--user` and `-C` to
   that directory select the same project. Normal repository loads validate user config but never include its jobs.
+- Optional top-level `vars_file` values are document-local and resolve only the allowlisted job fields before validation.
+  Missing files provide no values for literal `:-` defaults. The process environment, job `env`, and runtime `env_file`
+  are never interpolation sources; vars-file values are not exported. See [Configuration](configuration.md#config-time-variables)
+  for the grammar and security rules.
 - User jobs are private (`shared: false`, no approval), and their root/default `cwd` plus relative `cwd` and prompt paths
   use the user project directory.
 - Durations combine `s`, `m`, `h`, and `d` (24h), as in `1h30m`.
@@ -230,8 +234,9 @@ self-daemonizes and is not one process per repo.
   heartbeat. A second scheduler fails with `scheduler_running`, naming the owner. A database newer
   than the binary exits 75.
 - It polls every second and reloads candidate config files (including absent ones) every two
-  seconds. It validates before swapping; an invalid edit keeps the last valid jobs and records the
-  error on the project. A heartbeat older than five seconds reads as offline.
+  seconds. It stamps each configured `vars_file`, including paths absent or broken on the previous
+  load. It validates before swapping; an invalid edit keeps the last valid jobs and records the error
+  on the project. A heartbeat older than five seconds reads as offline.
 - On SIGINT or SIGTERM it stops dispatch, terminates active process groups, and records their runs
   as `interrupted` before releasing the lock.
 - Each project loads with the config selection recorded by `noon enable` plus user settings. Selecting the user project
@@ -264,9 +269,8 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
 - Privacy needs a file repository content can't supply. Git refuses paths inside its directory, so
   a branch can't add or replace `.git/noon.yaml`. A filename in the tree is never private: a commit
   can add `.noon.yaml` despite ignore rules, so Noon never loads it.
-- The digest covers what runs and when (schedule, splay, jitter, action, agent, cwd, env, ordered env_file paths, timeout, overlap, missed,
-  cooldown, hooks, webhook, `os`, `arch`, and `requests` when explicitly set), not the description, and not
-  referenced file contents. Omitting `requests` preserves existing job digests. A prompt job's
+- The digest covers what runs and when (resolved schedule, splay, jitter, action, agent, cwd, env, ordered env_file paths, timeout, overlap, missed,
+  cooldown, hooks, webhook, `os`, `arch`, and `requests` when explicitly set), not the description or vars-file contents. A vars-file edit needs approval only when it changes an effective allowlisted value; expression rewrites with the same result and unused variables do not. Omitting `requests` preserves existing job digests. A prompt job's
   digest also covers its agent profile when that profile comes from the same `--config` file;
   built-in and user-config profiles are machine choices and stay out.
 - `noon add` enables the project when the new job has a schedule or queued run, and approves only
@@ -294,7 +298,7 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
 - The log interleaves stdout and stderr. The first 1 MiB is written live; after that the last 1 MiB
   is kept in memory and appended after an omission marker at exit, so `--follow` sees the head live
   and the tail at the end.
-- Environment: inherited (the scheduler's or your shell's), then `env_file` values in list order
+- Environment: inherited (the scheduler's or your shell's), then runtime `env_file` values in list order
   (later files win), then job `env`, then `NOON_PROJECT`,
   `NOON_JOB`, `NOON_RUN_ID`, `NOON_TRIGGER`, `NOON_SCHEDULED_AT`, `NOON_LAST_SUCCESS_AT` (start of the
   last successful run), `NOON_DEPTH` (stored request depth + 1), `NOON_AGENT` for prompt jobs,
@@ -466,8 +470,9 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 | Job and hook output | Untrusted bytes | Stored raw and bounded; never interpreted |
 | Environment values | Secret by default | Never printed by list, status, JSON, or MCP |
 
-Env files may appear in every job source; approval pins paths and order, not secret contents.
-Noon never prints file keys or values during inspection, but does not redact child output.
+Runtime env files may appear in every job source; approval pins paths and order, not secret contents.
+Config-time vars files are a separate, non-secret source for allowlisted interpolation; their resolved
+values are visible in inspection and are never exported to jobs or hooks. Noon does not redact child output.
 
 Approval is not a sandbox. An agent with your shell can do anything you can; isolation is the
 container's or OS's job.

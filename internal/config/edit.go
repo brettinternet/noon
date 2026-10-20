@@ -187,14 +187,25 @@ func JobNames(src []byte) ([]string, error) {
 }
 
 // JobFromSource validates one raw definition, even when another file shadows it.
-func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool) (Job, error) {
-	root, err := documentRoot(src)
+func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool, projectRoot ...string) (Job, error) {
+	values, err := parse(src)
 	if err != nil {
 		return Job{}, err
 	}
-	jobs, _ := rootField(root, "jobs")
+	root := "."
+	if len(projectRoot) > 0 && projectRoot[0] != "" {
+		root = projectRoot[0]
+	}
+	varsFile, vars, err := resolveDocumentVars("<edited>", root, values)
+	if err != nil {
+		return Job{}, err
+	}
+	jobs := values["jobs"]
 	if jobs == nil || jobs.Kind != yaml.MappingNode || jobs.Style&yaml.FlowStyle != 0 {
 		return Job{}, fmt.Errorf("config_edit: jobs must be a block mapping")
+	}
+	if err := expandJobValues("<edited>", jobs, vars, varsFile.Configured); err != nil {
+		return Job{}, err
 	}
 	for i := 0; i < len(jobs.Content); i += 2 {
 		key, node := jobs.Content[i], jobs.Content[i+1]
@@ -262,6 +273,8 @@ func jobFields(job Job) map[string]any {
 	} else {
 		if job.Schedule != nil {
 			fields["schedule"] = job.Schedule.String()
+		} else if job.ScheduleExpression != "" {
+			fields["schedule"] = job.ScheduleExpression
 		}
 		if job.Splay > 0 {
 			fields["splay"] = job.Splay.String()

@@ -19,6 +19,10 @@
       "description": "Local, UTC, or an IANA timezone name such as America/Denver.",
       "default": "Local"
     },
+    "vars_file": {
+      "$ref": "#/definitions/nonBlankString",
+      "description": "Optional config-time values file for allowlisted job-field interpolation. Relative paths use the project root; a missing file supplies no values. Do not store secrets here."
+    },
     "jobs": {
       "type": "object",
       "description": "Named jobs. Omit schedule for manual-only jobs.",

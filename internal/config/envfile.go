@@ -1,13 +1,47 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"unicode"
 	"unicode/utf8"
 )
 
 const MaxEnvFileBytes = 64 * 1024
+
+// ReadEnvFile reads a regular, bounded env file without blocking on special files.
+// Relative paths are based at project, matching job env_file semantics.
+func ReadEnvFile(project, configuredPath string) (map[string]string, error) {
+	path := configuredPath
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(project, path)
+	}
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("must be a regular file")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, MaxEnvFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxEnvFileBytes {
+		return nil, errors.New("exceeds 64 KiB")
+	}
+	return ParseEnvFile(data)
+}
 
 // ParseEnvFile parses Noon's non-interpolating, single-line Compose env subset.
 // Diagnostics contain only line numbers and fixed descriptions, never secrets.

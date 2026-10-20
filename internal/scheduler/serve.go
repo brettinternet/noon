@@ -728,29 +728,37 @@ func configSelection(project store.EnabledProject) string {
 }
 
 func configPaths(project store.EnabledProject, userConfigDir string) []string {
+	var paths []string
+	input := config.Input{CWD: project.Path, UserConfigDir: userConfigDir, Project: &project.Path}
 	if config.IsUserProject(project.Path, userConfigDir) {
-		return []string{filepath.Join(project.Path, "config.yaml")}
-	}
-	if project.ConfigFile.Valid {
+		paths = append(paths, filepath.Join(project.Path, "config.yaml"))
+	} else if project.ConfigFile.Valid {
 		// Loading validates the user config even when an explicit file supplies jobs.
-		return []string{project.Path, project.ConfigFile.String, filepath.Join(userConfigDir, "noon", "config.yaml")}
+		input.File = &project.ConfigFile.String
+		paths = append(paths, project.Path, project.ConfigFile.String, filepath.Join(userConfigDir, "noon", "config.yaml"))
+	} else {
+		paths = append(paths,
+			project.Path,
+			filepath.Join(userConfigDir, "noon", "config.yaml"),
+			filepath.Join(project.Path, "noon.yaml"),
+		)
+		// A broken .git fails the reload itself, so it needs no stamp here.
+		if local, err := config.LocalPath(project.Path); err == nil && local != "" {
+			paths = append(paths, local)
+		}
 	}
-	paths := []string{
-		project.Path,
-		filepath.Join(userConfigDir, "noon", "config.yaml"),
-		filepath.Join(project.Path, "noon.yaml"),
-	}
-	// A broken .git fails the reload itself, so it needs no stamp here.
-	if local, err := config.LocalPath(project.Path); err == nil && local != "" {
-		paths = append(paths, local)
-	}
-	return paths
+	return append(paths, config.VarsFilePaths(input)...)
 }
 
 func statPaths(paths []string) []fileStamp {
 	stamps := make([]fileStamp, 0, len(paths))
 	for _, path := range paths {
 		info, err := os.Stat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			// A dangling symlink is invalid config, unlike an absent optional
+			// file. Stamp the link so removing it triggers recovery.
+			info, err = os.Lstat(path)
+		}
 		stamp := fileStamp{path: path, info: info}
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			stamp.errText = err.Error()
@@ -768,7 +776,7 @@ func sameStamps(a, b []fileStamp) bool {
 		if a[i].path != b[i].path || a[i].errText != b[i].errText || (a[i].info == nil) != (b[i].info == nil) {
 			return false
 		}
-		if a[i].info != nil && (a[i].info.Size() != b[i].info.Size() || !a[i].info.ModTime().Equal(b[i].info.ModTime()) || !os.SameFile(a[i].info, b[i].info)) {
+		if a[i].info != nil && (a[i].info.Size() != b[i].info.Size() || a[i].info.Mode() != b[i].info.Mode() || !a[i].info.ModTime().Equal(b[i].info.ModTime()) || !os.SameFile(a[i].info, b[i].info)) {
 			return false
 		}
 	}

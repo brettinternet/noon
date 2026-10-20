@@ -13,6 +13,31 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
+func TestVarsFileSchema(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "noon.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []any{".noon.vars", "/tmp/noon.vars"} {
+		if err := resolved.Validate(map[string]any{"vars_file": value}); err != nil {
+			t.Errorf("schema rejected vars_file %v: %v", value, err)
+		}
+	}
+	for _, value := range []any{"", " ", float64(1), []any{".noon.vars"}, nil, map[string]any{"path": ".noon.vars"}} {
+		if err := resolved.Validate(map[string]any{"vars_file": value}); err == nil {
+			t.Errorf("schema accepted vars_file %v", value)
+		}
+	}
+}
+
 func TestNoopExitCodeSchemaRange(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "noon.schema.json"))
 	if err != nil {

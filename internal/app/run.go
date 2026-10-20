@@ -100,32 +100,7 @@ func RunSpec(project string, job config.Job, inherited []string) (runner.Spec, e
 
 // readEnvFile uses a bounded, nonblocking read so special files cannot hang startup.
 func readEnvFile(project, configuredPath string) (map[string]string, error) {
-	path := configuredPath
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(project, path)
-	}
-	values, err := func() (map[string]string, error) {
-		file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-		info, err := file.Stat()
-		if err != nil {
-			return nil, err
-		}
-		if !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("must be a regular file")
-		}
-		data, err := io.ReadAll(io.LimitReader(file, config.MaxEnvFileBytes+1))
-		if err != nil {
-			return nil, err
-		}
-		if len(data) > config.MaxEnvFileBytes {
-			return nil, fmt.Errorf("exceeds 64 KiB")
-		}
-		return config.ParseEnvFile(data)
-	}()
+	values, err := config.ReadEnvFile(project, configuredPath)
 	if err != nil {
 		return nil, fmt.Errorf("env_file %q: %w", configuredPath, err)
 	}

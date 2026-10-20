@@ -56,6 +56,7 @@ type Config struct {
 	Sources      []string                `json:"sources"`
 	Jobs         map[string]Job          `json:"-"`
 	Agents       map[string]AgentProfile `json:"-"`
+	VarsFiles    []VarsFile              `json:"-"`
 	DefaultAgent string                  `json:"default_agent"`
 	Platform     Platform                `json:"-"`
 	OnSuccess    any                     `json:"-"`
@@ -119,8 +120,12 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 		userFile = filepath.Join(project, "config.yaml")
 	}
 	if !stateOnly && input.UserConfigDir != "" && !userProject {
-		if err := validateUserConfig(userFile, input.UserConfigDir, stateDefault, override); err != nil {
+		varsFiles, err := validateUserConfig(userFile, input.UserConfigDir, stateDefault, override)
+		if err != nil {
 			return Config{}, err
+		}
+		if input.File != nil {
+			cfg.VarsFiles = append(cfg.VarsFiles, varsFiles...)
 		}
 	}
 	if stateOnly && input.StateDir != nil {
@@ -297,16 +302,19 @@ func canonicalPath(path string) (string, error) {
 	}
 }
 
-func validateUserConfig(path, userConfigDir, stateDefault string, override *fileOverride) error {
+func validateUserConfig(path, userConfigDir, stateDefault string, override *fileOverride) ([]VarsFile, error) {
 	project, err := UserProjectDir(userConfigDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	validation := Config{Project: project, Timezone: "Local", StateDir: stateDefault, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
 	if err := validation.applyFile(path, true, "user", path, false, override, true); err != nil {
-		return err
+		return nil, err
 	}
-	return validation.resolveAgents()
+	if err := validation.resolveAgents(); err != nil {
+		return nil, err
+	}
+	return validation.VarsFiles, nil
 }
 
 func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath string, stateOnly bool, override *fileOverride, includeJobs bool) error {
@@ -350,6 +358,23 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 		for key := range values {
 			if key != "state_dir" {
 				delete(values, key)
+			}
+		}
+	} else {
+		varsProject := cfg.Project
+		if kind == "user" {
+			varsProject = filepath.Dir(userConfigPath)
+		}
+		varsFile, vars, err := resolveDocumentVars(path, varsProject, values)
+		if err != nil {
+			return err
+		}
+		if varsFile.Configured != "" {
+			cfg.VarsFiles = append(cfg.VarsFiles, varsFile)
+		}
+		if jobs, ok := values["jobs"]; ok {
+			if err := expandJobValues(path, jobs, vars, varsFile.Configured); err != nil {
+				return err
 			}
 		}
 	}
@@ -491,7 +516,7 @@ func parse(data []byte) (map[string]*yaml.Node, error) {
 			// Hook commands retain source-aware diagnostics in applyFile.
 		case "jobs":
 			// Nested job validation retains source lines and YAML paths.
-		case "timezone", "state_dir":
+		case "timezone", "state_dir", "vars_file":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				return nil, &yamlDiagnostic{line: value.Line, message: fmt.Sprintf("%s must be a string", key.Value)}
 			}

@@ -60,7 +60,9 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		job.Agent = cmd.String("agent")
 	}
 	if cmd.IsSet("timeout") {
-		if cmd.String("timeout") == "none" {
+		if strings.Contains(cmd.String("timeout"), "$") {
+			job.Timeout = cmd.String("timeout")
+		} else if cmd.String("timeout") == "none" {
 			job.Timeout = "none"
 		} else {
 			d, e := schedule.ParseDuration(cmd.String("timeout"))
@@ -71,11 +73,15 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		}
 	}
 	if len(args) == 2 {
-		parsed, parseErr := schedule.Parse(args[1])
-		if parseErr != nil {
-			return usageError(parseErr.Error(), "Try every day at 9am")
+		if strings.Contains(args[1], "$") {
+			job.ScheduleExpression = args[1]
+		} else {
+			parsed, parseErr := schedule.Parse(args[1])
+			if parseErr != nil {
+				return usageError(parseErr.Error(), "Try every day at 9am")
+			}
+			job.Schedule = &parsed
 		}
-		job.Schedule = &parsed
 	}
 	actions := 0
 	if cmd.IsSet("sh") {
@@ -195,15 +201,17 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	if !sameNames(newTargetNames, append(append([]string(nil), oldTargetNames...), name)) {
 		return editVerificationError("edited job names do not match the requested addition")
 	}
-	requestedDigest, err := config.DigestJobDefinition(job, cfg.Agents, cfg.DefaultAgent)
-	if err != nil {
-		return usageError(err.Error(), "")
+	if !jobHasInterpolation(job) {
+		requestedDigest, err := config.DigestJobDefinition(job, cfg.Agents, cfg.DefaultAgent)
+		if err != nil {
+			return usageError(err.Error(), "")
+		}
+		rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project)
+		if err != nil || rawAddedJob.Digest != requestedDigest {
+			return editVerificationError("added job digest differs from the requested definition")
+		}
 	}
-	rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, nil, nil, false)
-	if err != nil || rawAddedJob.Digest != requestedDigest {
-		return editVerificationError("added job digest differs from the requested definition")
-	}
-	addedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil)
+	addedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil, cfg.Project)
 	if err != nil {
 		return editVerificationError("added job could not inherit configured hook defaults")
 	}
@@ -223,7 +231,8 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	}
 	loadedInput := values
 	updated := candidate
-	if job.Schedule != nil || queued {
+	scheduled := addedJob.Schedule != nil
+	if scheduled || queued {
 		addedJob.Shared = cmd.Bool("shared") && !userProject
 		if err := app.EnableAddedJob(updated, addedJob, now); err != nil {
 			return stateError(err)
@@ -235,7 +244,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		}
 	}
 	var view app.Inspection
-	if job.Schedule != nil || queued {
+	if scheduled || queued {
 		view, err = app.Inspect(loadedInput, now)
 		if err != nil {
 			return configError(err)
@@ -250,8 +259,8 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		}
 	}
 	scheduleText := "manual"
-	if job.Schedule != nil {
-		scheduleText = job.Schedule.String()
+	if scheduled {
+		scheduleText = addedJob.Schedule.String()
 	}
 	if cmd.Bool("json") {
 		notes := []string{}
@@ -259,9 +268,9 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			notes = append(notes, "Local job "+name+" overrides the shared definition.")
 		}
 		var nextAt *time.Time
-		if job.Schedule != nil {
+		if scheduled {
 			location, _ := time.LoadLocation(updated.Timezone)
-			_, next := job.Schedule.NextEffective(now, location, updated.Project, name, job.Splay, job.Jitter, time.Time{})
+			_, next := addedJob.Schedule.NextEffective(now, location, updated.Project, name, addedJob.Splay, addedJob.Jitter, time.Time{})
 			nextAt = &next
 		} else if queued {
 			nextAt = &queueDue
@@ -273,7 +282,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			}
 		}
 		next := "noon run " + name
-		if (job.Schedule != nil || queued) && view.Project.Scheduler != "running" {
+		if (scheduled || queued) && view.Project.Scheduler != "running" {
 			hint, err := serviceGuidance(updated.StateDir)
 			if err != nil {
 				return err
@@ -283,13 +292,13 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			}
 		}
 		return emit(cmd, map[string]any{"added": name, "file": file, "shared": cmd.Bool("shared") && !userProject,
-			"schedule": scheduleText, "next_at": nextAt, "scheduling_enabled": job.Schedule != nil || queued,
+			"schedule": scheduleText, "next_at": nextAt, "scheduling_enabled": scheduled || queued,
 			"notes": notes, "needs_approval": needsApproval, "next": guidance(cmd, next)})
 	}
 	fmt.Fprintf(cmd.Writer, "Added %s to %s (%s) · %s", name, displayPath(cfg.Project, file), kind, scheduleText)
-	if job.Schedule != nil {
+	if scheduled {
 		location, _ := time.LoadLocation(updated.Timezone)
-		_, next := job.Schedule.NextEffective(now, location, updated.Project, name, job.Splay, job.Jitter, time.Time{})
+		_, next := addedJob.Schedule.NextEffective(now, location, updated.Project, name, addedJob.Splay, addedJob.Jitter, time.Time{})
 		fmt.Fprintf(cmd.Writer, " · next %s", next.Format("Mon 15:04"))
 	} else if queued {
 		location, _ := time.LoadLocation(updated.Timezone)
@@ -299,7 +308,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	if overrides {
 		fmt.Fprintf(cmd.Writer, "Local job %s overrides the shared definition.\n", name)
 	}
-	if job.Schedule != nil || queued {
+	if scheduled || queued {
 		fmt.Fprintf(cmd.Writer, "Scheduling enabled for %s.\n", view.Project.Path)
 		if view.Project.Scheduler == "running" {
 			fmt.Fprintln(cmd.Writer, "The scheduler is running.")
@@ -334,6 +343,11 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon run "+name))
 	}
 	return nil
+}
+
+func jobHasInterpolation(job config.Job) bool {
+	return job.ScheduleExpression != "" || strings.Contains(job.Timeout, "$") ||
+		job.PromptFile != nil && strings.Contains(*job.PromptFile, "$")
 }
 
 func removeJob(_ context.Context, cmd *urfave.Command) error {

@@ -23,6 +23,72 @@ import (
 
 var serveTestStart = time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 
+func TestFileStampsDetectPermissionChanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vars.env")
+	if err := os.WriteFile(path, []byte("SCHEDULE=every 1h\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beforeInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := statPaths([]string{path})
+	if err := os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, beforeInfo.ModTime(), beforeInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	afterInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !afterInfo.ModTime().Equal(beforeInfo.ModTime()) {
+		t.Fatalf("test filesystem changed mtime while changing mode: before=%v after=%v", beforeInfo.ModTime(), afterInfo.ModTime())
+	}
+	if sameStamps(before, statPaths([]string{path})) {
+		t.Fatal("permission change was not detected")
+	}
+}
+
+// Deleting a broken optional vars-file link must clear the error and restore
+// defaults, even when its parent is nested and the project mtime stays unchanged.
+func TestServeVarsFileDanglingToAbsent(t *testing.T) {
+	fixture := newServeFixture(t, "vars_file: nested/vars.env\njobs:\n  probe:\n    schedule: ${SCHEDULE:-every 1h}\n    run: 'true'\n")
+	defer fixture.stop(t)
+	fixture.step(t, serveTestStart)
+	path := filepath.Join(fixture.project, "nested", "vars.env")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("SCHEDULE=every 2h\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.step(t, serveTestStart.Add(2*time.Second))
+	if message := fixture.configError(t); message != "" {
+		t.Fatal(message)
+	}
+	if err := os.Rename(path, path+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(path+".missing", path); err != nil {
+		t.Fatal(err)
+	}
+	fixture.step(t, serveTestStart.Add(4*time.Second))
+	if message := fixture.configError(t); !strings.Contains(message, "vars_file") {
+		t.Fatalf("dangling link error = %q", message)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	fixture.step(t, serveTestStart.Add(6*time.Second))
+	if message := fixture.configError(t); message != "" {
+		t.Fatalf("deleted broken link did not recover: %s", message)
+	}
+	fixture.step(t, serveTestStart.Add(time.Hour+6*time.Second))
+	waitFor(t, func() bool { return len(fixture.runs(t)) == 1 })
+}
+
 type serveFixture struct {
 	root, project, stateDir, userConfig string
 	stateDirDefault                     string

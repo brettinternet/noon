@@ -15,8 +15,11 @@ import (
 func TestImportWrite(t *testing.T) {
 	root := sandbox(t)
 	configPath := filepath.Join(root, ".git", "noon.yaml")
-	original := []byte("# keep root comment\nversion: 1\njobs:\n  # keep existing job comment\n  backup:\n    run: echo existing\n")
+	original := []byte("# keep root comment\nversion: 1\nvars_file: vars.env\njobs:\n  # keep existing job comment\n  backup:\n    run: echo existing\n  expression:\n    schedule: ${EXISTING_SCHEDULE}\n    run: echo expression\n")
 	if err := os.WriteFile(configPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "vars.env"), []byte("EXISTING_SCHEDULE=every 30m\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	crontabPath := filepath.Join(root, "crontab.txt")
@@ -48,17 +51,23 @@ func TestImportWrite(t *testing.T) {
 			t.Errorf("written manifest lost comment %q:\n%s", comment, written)
 		}
 	}
+	if !strings.Contains(string(written), "vars_file: vars.env") || !strings.Contains(string(written), "schedule: ${EXISTING_SCHEDULE}") {
+		t.Fatalf("import changed vars_file or raw expression:\n%s", written)
+	}
 	loaded, err := config.Load(config.Input{CWD: root})
 	if err != nil {
 		t.Fatalf("written manifest did not load: %v", err)
 	}
-	for _, name := range []string{"backup", "backup-2", "backup-3"} {
+	for _, name := range []string{"backup", "backup-2", "backup-3", "expression"} {
 		if _, exists := loaded.Jobs[name]; !exists {
 			t.Errorf("written job %q missing", name)
 		}
 	}
 	if loaded.Jobs["backup-2"].Env["TOKEN"] != "secret" || loaded.Jobs["backup-2"].Missed != "skip" || loaded.Jobs["backup-2"].Timeout != "none" {
 		t.Fatalf("written imported definition: %+v", loaded.Jobs["backup-2"])
+	}
+	if got := loaded.Jobs["expression"].Schedule.String(); got != "every 30m" {
+		t.Fatalf("existing expression stopped resolving after import: %s", got)
 	}
 
 	beforeFailure := append([]byte(nil), written...)
