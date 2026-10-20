@@ -4,7 +4,7 @@ title: Spread scheduled starts with a stable per-job offset
 status: To Do
 assignee: []
 created_date: '2026-10-18 16:33'
-updated_date: '2026-10-20 19:15'
+updated_date: '2026-10-20 19:18'
 labels:
   - scheduler
   - schedule
@@ -46,7 +46,7 @@ ordinal: 21100
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Why: humans pick round times (`weekdays at 9am`, `0 * * * *`), so prompt jobs across projects become due on the same second. The scheduler serializes work beyond one run per project and four overall, but the first four still start together, and a burst against one agent provider can trip rate limits or usage windows. Promoted at the user's request, ahead of observed rate-limit evidence. Prior art: Claude Desktop scheduled tasks add a deterministic few-minute delay per task; systemd timers offer RandomizedDelaySec with FixedRandomDelay. Random per-run jitter for organic-looking starts is a separate draft that builds on this task.
+Why: humans pick round times (`weekdays at 9am`, `0 * * * *`), so prompt jobs across projects become due on the same second. The scheduler serializes work beyond one run per project and four overall, but the first four still start together, and a burst against one agent provider can trip rate limits or usage windows. Promoted at the user's request, ahead of observed rate-limit evidence. Prior art: Claude Desktop scheduled tasks add a deterministic few-minute delay per task; systemd timers offer RandomizedDelaySec with FixedRandomDelay. Random per-run jitter for organic-looking starts is NOON-63, which builds on this task.
 
 Outcome: a job may declare a stable start offset:
 
@@ -68,7 +68,7 @@ Settled contract:
 - `splay` is an optional duration in `schedule.ParseDuration` form, at least `1s` and at most `1h`, normalized like `timeout` and `cooldown`. It requires a cron, macro, or calendar `schedule`; on a manual job or an interval schedule (`every 6h`) it is a config error with file, line, and YAML path. Intervals already keep their own phase.
 - The job's offset is whole seconds in [0, splay), derived only from the canonical project path Noon stores for the project, the job name, and the splay: the first 8 bytes of SHA-256(project path, NUL, job name), big-endian, modulo the splay in seconds. It never reads the clock or randomness, so it is identical across restarts, hosts sharing the path, `list`, and the scheduler. Moving the checkout or renaming the job changes it.
 - Every occurrence is shifted by the same offset: the job's effective schedule is the nominal schedule plus the offset, computed as `Next(after - offset) + offset` after wall-clock resolution, so the offset is elapsed time and existing DST rules apply to the nominal time. One shared helper computes this for the scheduler, inspection, and `noon add` output.
-- Persisted schedule state stores the effective next time. The state key gains the offset only when `splay` is set, so jobs without it keep their existing state across upgrade; changing the splay, project path, or job name resets state and starts from now like a schedule change.
+- Persisted schedule state stores the nominal next occurrence; the planner and displays derive the effective time from it (NOON-63 needs the nominal time, which a per-run offset makes unrecoverable from the effective one). The state key gains the offset only when `splay` is set, so jobs without it keep their existing state across upgrade; changing the splay, project path, or job name resets state and starts from now like a schedule change.
 - The 60s on-time window, missed-run handling, overlap, and catch-up apply to the effective time. A scheduled run's `due_at` is its effective time (or now for `catch_up`); its `scheduled_at` and `NOON_SCHEDULED_AT` remain the nominal occurrence, so scripts and history still identify "the 09:00 run".
 - `splay` is an execution field in the approval digest; changing it requires re-approval for shared jobs.
 - Only schedule occurrences are offset. `noon run`, `--detach`, `--in`, `--at`, MCP, triggers, shell `--on-enter`, hooks, and webhooks are unchanged.
@@ -78,7 +78,7 @@ Scope: parsing and validation, digest, offset and shifted-next helper, planner a
 
 Tests (critical only): offset is stable and always within [0, splay) for representative paths, names, and splays (a modulo or seeding bug would fire jobs outside the window or move them on restart); planner fires at the effective time, records nominal `scheduled_at`, catches up once after a missed window, and leaves state keys of jobs without splay unchanged (state transition, upgrade regression); splay changes the digest (authorization boundary); validation rejections (parsing). Extend existing internal/schedule, internal/scheduler, and internal/config tests.
 
-Non-goals: random or per-run jitter (separate draft); offsets before the nominal time; splay for interval or manual schedules; a user-level default; load-aware scheduling, rate-limit detection, or retries; `noon add`/`noon import` flags for splay; showing the offset in TUI or dashboard schedule cells beyond NEXT.
+Non-goals: random or per-run jitter (NOON-63); offsets before the nominal time; splay for interval or manual schedules; a user-level default; load-aware scheduling, rate-limit detection, or retries; `noon add`/`noon import` flags for splay; showing the offset in TUI or dashboard schedule cells beyond NEXT.
 
 Dependencies: none.
 
