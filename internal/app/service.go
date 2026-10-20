@@ -22,6 +22,14 @@ func InstallService(ctx context.Context, config service.Config, runner service.R
 	return service.Install(ctx, config, runner)
 }
 
+func RestartService(ctx context.Context, config service.Config, runner service.Runner) (string, error) {
+	unit, err := service.CurrentUnit(config)
+	if err != nil {
+		return "", err
+	}
+	return unit.Path, service.Restart(ctx, unit, runner)
+}
+
 func UninstallService(ctx context.Context, config service.Config, runner service.Runner) (string, bool, error) {
 	return service.Uninstall(ctx, config, runner)
 }

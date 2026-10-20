@@ -386,6 +386,33 @@ func Install(ctx context.Context, config Config, runner Runner) (result InstallR
 	return result, nil
 }
 
+// Restart restarts an installed unit without changing its contents or environment.
+// Only Platform and Path are used; Contents is never installed.
+func Restart(ctx context.Context, unit Unit, runner Runner) error {
+	if unit.Platform != Launchd && unit.Platform != Systemd {
+		return &UnsupportedError{Message: fmt.Sprintf("user services are not supported on %q", unit.Platform)}
+	}
+	installed, _, err := readUnit(unit.Path)
+	if err != nil {
+		return err
+	}
+	if !installed {
+		return fmt.Errorf("service is not installed: %s; run noon service install first", unit.Path)
+	}
+	if unit.Platform == Launchd {
+		if _, err := runner.Run(ctx, "launchctl", "bootout", launchDomain(), unit.Path); err != nil && !notLoaded(err) {
+			return err
+		}
+		_, err = runner.Run(ctx, "launchctl", "bootstrap", launchDomain(), unit.Path)
+		return err
+	}
+	if _, err := runner.Run(ctx, "systemctl", "--user", "show-environment"); err != nil {
+		return unsupportedManager("systemd user manager is unavailable", err)
+	}
+	_, err = runner.Run(ctx, "systemctl", "--user", "restart", SystemdUnit)
+	return err
+}
+
 func IsInstalled(config Config) (string, bool, error) {
 	unit, err := CurrentUnit(config)
 	if err != nil {

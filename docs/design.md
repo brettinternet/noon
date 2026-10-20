@@ -245,6 +245,12 @@ self-daemonizes and is not one process per repo.
 - `noon service install` registers a launchd agent or systemd user unit. It records `PATH`,
   optional `XDG_CONFIG_HOME`, and the absolute state directory, because service managers otherwise
   run with a minimal `PATH` and a different working directory. Nothing else installs services.
+- `noon service restart` explicitly restarts an already installed service using its existing
+  definition, without rewriting the unit or capturing shell settings. Missing services require
+  `service install`. Restart interrupts active jobs, not drains them. Same-path binary upgrades
+  require explicit restart; changed unit settings require install. Unchanged install remains
+  idempotent, and config reloads never trigger a service restart. Switching installations preserves
+  state and history by installing with the new executable and the same state/config locations.
 - Docker runs the same process in the foreground. `noon run NAME` needs no scheduler, like `task NAME`.
 - There is no local IPC socket. Local clients read SQLite for scheduler status and next times; the optional HTTP API is an adapter over shared app operations, not a second scheduler. The scheduler polls SQLite every second and config files every two seconds. Revisit polling only if latency or cost becomes a measured problem.
 - Queueing (`--detach`, `--in`, `--at`, MCP `run_job`) is one immediate SQLite transaction that

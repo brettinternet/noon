@@ -95,6 +95,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				{Name: "install", Usage: "Install and start the per-user scheduler service", Flags: []urfave.Flag{
 					&urfave.BoolFlag{Name: "print", Usage: "Print the service unit without installing or starting it"},
 				}, Action: installService},
+				{Name: "restart", Usage: "Explicitly restart the installed scheduler, interrupting active jobs", Description: "Restart using the installed service definition without rewriting its environment. Active jobs are interrupted, not drained. After a same-path binary upgrade, restart explicitly; use service install for changed executable paths or environment settings. A missing service must be installed first.", Action: restartService},
 				{Name: "uninstall", Usage: "Stop and remove the per-user scheduler service", Action: uninstallService},
 			}},
 			{Name: "status", Usage: "Show the project dashboard without running anything", Action: status},
