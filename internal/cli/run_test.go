@@ -49,6 +49,116 @@ func TestRunColorPreservesChildOutput(t *testing.T) {
 	}
 }
 
+// Invalid files must fail durably before starting a process or leaking secrets;
+// successful runs and hooks must share the same precedence-resolved snapshot.
+func TestRunEnvFiles(t *testing.T) {
+	root := sandbox(t)
+	t.Setenv("FROM_FILE", "shell")
+	t.Setenv("BOTH", "shell")
+	t.Setenv("INHERITED", "shell")
+	t.Setenv("NOON_JOB", "wrong")
+	write := func(name, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("noon.yaml", `jobs:
+  show:
+    run: |
+      touch started
+      printf '%s|%s|%s|%s|%s\n' "$FROM_FILE" "$BOTH" "$INHERITED" "$EMPTY" "$NOON_JOB"
+      printf 'FROM_FILE=rotated\n' > .env
+    env_file: [.env, override.env]
+    env: {BOTH: yaml}
+    on_success: 'printf "%s" "$FROM_FILE" > hook-value'
+    on_failure: 'printf "%s" "$FROM_FILE" > hook-value'
+`)
+	write("override.env", "INHERITED=second\nEMPTY=\n")
+	valid := "FROM_FILE=file\nBOTH=file\nINHERITED=file\nEMPTY=first\n"
+	write(".env", valid)
+	var out, stderr bytes.Buffer
+	run := func(args ...string) int {
+		t.Helper()
+		out.Reset()
+		stderr.Reset()
+		return cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)
+	}
+	if code := run("run", "show"); code != 0 || out.String() != "file|yaml|second||show\n" {
+		t.Fatalf("precedence: code=%d out=%q err=%s", code, out.String(), stderr.String())
+	}
+	if got := mustRead(t, filepath.Join(root, "hook-value")); got != "file" {
+		t.Fatalf("hook reread file: %q", got)
+	}
+	if err := os.Remove(filepath.Join(root, "started")); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, content string }{
+		{"missing", ""}, {"directory", ""}, {"fifo", ""}, {"oversized", strings.Repeat("x", 65537)},
+		{"interpolation", "TOKEN=hunter2 $X"}, {"quoted interpolation", `TOKEN="hunter2$X"`},
+		{"unterminated", `TOKEN="hunter2`}, {"escape", `TOKEN="hunter2\q"`},
+		{"trailing", `TOKEN='hunter2'junk`}, {"colon", "TOKEN:hunter2"},
+		{"inherit", "TOKEN hunter2"}, {"reserved", "NOON_X=hunter2"}, {"key", "1TOKEN=hunter2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.Remove(filepath.Join(root, ".env")); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			switch tc.name {
+			case "missing":
+			case "directory":
+				if err := os.Mkdir(filepath.Join(root, ".env"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			case "fifo":
+				if err := syscall.Mkfifo(filepath.Join(root, ".env"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				write(".env", tc.content)
+			}
+			if code := run("run", "show"); code != 125 || !strings.Contains(stderr.String(), `env_file \".env\"`) || strings.Contains(stderr.String(), "hunter2") {
+				t.Fatalf("failure: code=%d err=%s", code, stderr.String())
+			}
+			if strings.Contains(tc.content, "hunter2") && !strings.Contains(stderr.String(), "line 1") {
+				t.Fatal("missing syntax line")
+			}
+			if _, err := os.Stat(filepath.Join(root, "started")); !os.IsNotExist(err) {
+				t.Fatalf("process started: %v", err)
+			}
+			if got := mustRead(t, filepath.Join(root, "hook-value")); got != "shell" {
+				t.Fatalf("failure hook got partial file values: %q", got)
+			}
+			if code := run("history", "show", "--json"); code != 0 {
+				t.Fatal(stderr.String())
+			}
+			var history struct {
+				Runs []struct {
+					Status   string `json:"status"`
+					ExitCode int    `json:"exit_code"`
+				} `json:"runs"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &history); err != nil || len(history.Runs) == 0 || history.Runs[0].Status != "failed" || history.Runs[0].ExitCode != 125 {
+				t.Fatalf("history: %s %v", out.String(), err)
+			}
+			if code := run("doctor", "--json"); code != 1 || strings.Contains(out.String(), "hunter2") || !strings.Contains(out.String(), "job show env_file") {
+				t.Fatalf("doctor: %d %s %s", code, out.String(), stderr.String())
+			}
+		})
+	}
+	write(".env", valid)
+	// Doctor must use the file PATH rather than the inherited PATH to resolve argv.
+	write("tool", "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(filepath.Join(root, "tool"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write(".env", "PATH="+root+"\n")
+	write("noon.yaml", "jobs:\n  show:\n    run: [tool]\n    env_file: .env\n")
+	if code := run("doctor", "--json"); code != 0 {
+		t.Fatalf("file PATH not used: %d %s %s", code, out.String(), stderr.String())
+	}
+}
+
 func TestRunNoopSemantics(t *testing.T) {
 	root := sandbox(t)
 	latestMarker := filepath.Join(root, "latest-ran")

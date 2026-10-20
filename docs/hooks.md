@@ -50,7 +50,10 @@ its approval digest; user-config defaults aren't, so changing them never revokes
 
 ## What a hook gets
 
-The hook runs in the job's directory with the job's environment, plus:
+The hook runs in the job's directory with the job's environment, including `env_file` values
+loaded for that run; it never rereads those files. If startup failed before the environment was
+built (including an env-file failure), hooks receive the environment without file values.
+Hooks also receive:
 
 | Variable | Value |
 | --- | --- |
@@ -167,7 +170,7 @@ old outage look new. Failed hooks aren't retried.
 
 ## Post to chat
 
-Forward the JSON from stdin. Keep the URL in the scheduler's environment, not in YAML:
+Forward the JSON from stdin. Keep the URL in the job's gitignored `env_file` or the scheduler's environment, not in YAML:
 
 ```sh
 #!/bin/sh

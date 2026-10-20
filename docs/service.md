@@ -28,7 +28,9 @@ Scheduled runs inherit the scheduler's environment, not your shell's. Under the 
 `PATH` and `XDG_CONFIG_HOME` above plus whatever launchd or systemd adds; in a container it's the
 container's environment. Noon never sources shell rc files, so `TERM`, `SHELL`, and your shell's
 exports are usually unset. Stdin is `/dev/null` and output goes to the run log, not a terminal.
-Set anything a job needs in its `env`:
+Set anything a job needs in its `env`, or use [`env_file`](configuration.md#env-files) for a
+gitignored or externally generated file. Files are read at each run start, so rotating values
+needs no service restart; job `env` overrides file values:
 
 ```yaml
 jobs:

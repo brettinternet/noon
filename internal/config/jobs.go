@@ -52,6 +52,7 @@ type Job struct {
 	PromptMode         string
 	AgentSessionIDFlag string
 	CWD                string
+	EnvFile            []string
 	Env                map[string]string `json:"-"`
 	Timeout            string
 	NoopExitCode       int
@@ -554,6 +555,25 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				job.AgentArgs = append(job.AgentArgs, text)
 			}
 			execution[key] = job.AgentArgs
+		case "env_file":
+			paths := []*yaml.Node{value}
+			if value.Kind == yaml.SequenceNode && value.Tag == "!!seq" {
+				paths = value.Content
+				if len(paths) == 0 {
+					return Job{}, jobError(file, value, field, "must be a non-empty list of paths")
+				}
+			}
+			for _, item := range paths {
+				text, err := jobString(file, field, item)
+				if err != nil {
+					return Job{}, err
+				}
+				if strings.TrimSpace(text) == "" || strings.ContainsRune(text, 0) {
+					return Job{}, jobError(file, item, field, "must be a non-empty path without NUL")
+				}
+				job.EnvFile = append(job.EnvFile, text)
+			}
+			execution[key] = job.EnvFile
 		case "env":
 			env, err := jobMapping(file, field, value)
 			if err != nil {

@@ -264,7 +264,7 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
 - Privacy needs a file repository content can't supply. Git refuses paths inside its directory, so
   a branch can't add or replace `.git/noon.yaml`. A filename in the tree is never private: a commit
   can add `.noon.yaml` despite ignore rules, so Noon never loads it.
-- The digest covers what runs and when (schedule, splay, jitter, action, agent, cwd, env, timeout, overlap, missed,
+- The digest covers what runs and when (schedule, splay, jitter, action, agent, cwd, env, ordered env_file paths, timeout, overlap, missed,
   cooldown, hooks, webhook, `os`, `arch`, and `requests` when explicitly set), not the description, and not
   referenced file contents. Omitting `requests` preserves existing job digests. A prompt job's
   digest also covers its agent profile when that profile comes from the same `--config` file;
@@ -286,7 +286,7 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   is gone, cancellation checks process identity, terminates only a matching group, and records
   `cancelled`.
 - A run that can't start is `failed` with `env`-style codes: 127 not found, 126 not executable, 125
-  anything else (missing `cwd`, bad prompt file). With a configured `noop_exit_code`, a process that
+  anything else (missing `cwd`, bad prompt or env file). With a configured `noop_exit_code`, a process that
   started and exited normally with exactly that code is `noop`; timeout, cancellation, and start
   failure are never noops. Noops retain their log, duration, and actual exit code. Foreground `noon
   run` treats a noop as a successful command exit (0), while its summary says `noop` and JSON reports
@@ -294,7 +294,8 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
 - The log interleaves stdout and stderr. The first 1 MiB is written live; after that the last 1 MiB
   is kept in memory and appended after an omission marker at exit, so `--follow` sees the head live
   and the tail at the end.
-- Environment: inherited (the scheduler's or your shell's), then job `env`, then `NOON_PROJECT`,
+- Environment: inherited (the scheduler's or your shell's), then `env_file` values in list order
+  (later files win), then job `env`, then `NOON_PROJECT`,
   `NOON_JOB`, `NOON_RUN_ID`, `NOON_TRIGGER`, `NOON_SCHEDULED_AT`, `NOON_LAST_SUCCESS_AT` (start of the
   last successful run), `NOON_DEPTH` (stored request depth + 1), `NOON_AGENT` for prompt jobs,
   `NOON_AGENT_SESSION_ID` only for prompt profiles with `session_id_flag`, and
@@ -302,7 +303,11 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   `NOON_STATUS`, `NOON_EXIT_CODE`, `NOON_SCHEDULED_AT`, and the rest of the names above and in
   hooks) is stripped, so a job started from a hook never sees its parent's values. Depth comes from the stored run,
   not the scheduler's environment. Noon never sources shell rc files, creates worktrees, or changes
-  branches.
+  branches. Env files are required regular files of at most 64 KiB each, opened nonblocking and
+  parsed at each run start; errors name the configured path and syntax line, never values.
+  Paths are absolute or project-relative even in private Git config; file contents are not digested.
+  Hooks reuse the run environment without rereading files, or fall back without file values on
+  pre-environment startup failures. See [Env files](configuration.md#env-files) for the strict format.
 
 Log reading ([Command reference](cli.md#logs)):
 
@@ -454,12 +459,15 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 | User project `config.yaml`, `.git/noon.yaml` | Yours: user config is outside the repository; Git cannot commit `.git` paths | Runs unattended once the project is enabled |
 | In-tree `.noon.yaml` | Repository content: commits can add it | Never loaded |
 | `noon.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
-| Scripts and prompt files | Not pinned | Approval covers what and when, not file contents |
+| Scripts, prompt files, and env files | Not pinned | Approval covers what and when, not file contents |
 | MCP clients and authenticated HTTP API clients | Inspect, queue approved jobs, read logs, cancel runs | Can't add, edit, enable, disable, approve, pause, or resume jobs; identity is metadata |
 | HTTP API bearer token | One shared token read from `--api-token-file` | Required before `/v1/` and `/mcp` routing; never logged, persisted, echoed, or passed to jobs/hooks |
 | Webhooks | HMAC-authenticated data | Never select or build commands; payload is a file |
 | Job and hook output | Untrusted bytes | Stored raw and bounded; never interpreted |
 | Environment values | Secret by default | Never printed by list, status, JSON, or MCP |
+
+Env files may appear in every job source; approval pins paths and order, not secret contents.
+Noon never prints file keys or values during inspection, but does not redact child output.
 
 Approval is not a sandbox. An agent with your shell can do anything you can; isolation is the
 container's or OS's job.

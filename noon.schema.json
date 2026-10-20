@@ -137,9 +137,16 @@
           "description": "Working directory, absolute or relative to the project root.",
           "default": "."
         },
+        "env_file": {
+          "oneOf": [
+            { "$ref": "#/definitions/nonBlankString" },
+            { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/nonBlankString" } }
+          ],
+          "description": "Required env files, absolute or project-relative, read at each run start (64 KiB each). Later files override earlier; env overrides files. Approval covers ordered paths, not contents."
+        },
         "env": {
           "type": "object",
-          "description": "Variables overlaid on the inherited environment. Scheduled runs inherit the scheduler's minimal environment, not your shell's: TERM, SHELL, and shell rc exports are usually unset. Quote numbers; NOON_* names are reserved.",
+          "description": "Variables overlaid on env_file values and the inherited environment. Scheduled runs inherit the scheduler's minimal environment, not your shell's: TERM, SHELL, and shell rc exports are usually unset. Quote numbers; NOON_* names are reserved.",
           "propertyNames": {
             "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
             "not": { "pattern": "^NOON_" }

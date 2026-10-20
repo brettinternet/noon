@@ -11,6 +11,7 @@ jobs:
     jitter: 5m
     run: [go, test, ./...]
     cwd: .
+    env_file: .env # Create this gitignored file before running; config check does not read it.
     env:
       GOFLAGS: "-count=1"
     timeout: 10m

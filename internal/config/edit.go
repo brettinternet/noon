@@ -287,6 +287,9 @@ func jobFields(job Job) map[string]any {
 		if job.CWD != "" {
 			fields["cwd"] = job.CWD
 		}
+		if len(job.EnvFile) > 0 {
+			fields["env_file"] = job.EnvFile
+		}
 		if len(job.Env) > 0 {
 			fields["env"] = job.Env
 		}

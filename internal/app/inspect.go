@@ -30,6 +30,7 @@ type Job struct {
 	Run               any        `json:"run"`
 	Prompt            *string    `json:"prompt"`
 	PromptFile        *string    `json:"prompt_file"`
+	EnvFile           []string   `json:"env_file"`
 	Agent             string     `json:"agent,omitempty"`
 	AgentArgs         []string   `json:"agent_args,omitempty"`
 	CWD               string     `json:"cwd"`
@@ -79,7 +80,7 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 	slices.Sort(names)
 	for _, name := range names {
 		job := cfg.Jobs[name]
-		view := Job{Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, Agent: job.Agent, AgentArgs: job.AgentArgs, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, NoopExitCode: job.NoopExitCode, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, OS: job.OS, Arch: job.Arch, PlatformSupported: job.MatchesPlatform(cfg.Platform), Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
+		view := Job{Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, EnvFile: job.EnvFile, Agent: job.Agent, AgentArgs: job.AgentArgs, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, NoopExitCode: job.NoopExitCode, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, OS: job.OS, Arch: job.Arch, PlatformSupported: job.MatchesPlatform(cfg.Platform), Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
 		view.Approval = "not_required"
 		if job.Shared {
 			view.Approval = "needs_approval"

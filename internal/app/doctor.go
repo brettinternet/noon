@@ -132,6 +132,16 @@ func Doctor(ctx context.Context, input config.Input, now time.Time) DoctorView {
 				err = fmt.Errorf("%s is not a directory", job.CWD)
 			}
 			check("job "+name+" cwd", job.CWD, "Create the job cwd or correct its configuration", err)
+			inherited := os.Environ()
+			for _, path := range job.EnvFile {
+				values, err := readEnvFile(cfg.Project, path)
+				check("job "+name+" env_file", path, "Provide a valid readable regular env file of at most 64 KiB", err)
+				for key, value := range values {
+					inherited = append(inherited, key+"="+value)
+				}
+			}
+			// Each file is read once; prompt and command checks stay independent of failures.
+			job.EnvFile = nil
 			if job.PromptFile != nil {
 				_, err := RunSpec(cfg.Project, job, nil)
 				check("job "+name+" prompt_file", *job.PromptFile, "Provide a readable regular prompt file of at most 64 KiB", err)
@@ -140,7 +150,7 @@ func Doctor(ctx context.Context, input config.Input, now time.Time) DoctorView {
 				job.PromptFile = nil
 				job.Prompt = &empty
 			}
-			spec, err := RunSpec(cfg.Project, job, os.Environ())
+			spec, err := RunSpec(cfg.Project, job, inherited)
 			if err == nil && len(spec.Argv) > 0 {
 				_, err = runner.ResolveExecutable(spec.Argv[0], spec.Env, spec.Dir)
 				check("job "+name+" command", spec.Argv[0], "Install "+spec.Argv[0]+" or correct the job PATH/command", err)

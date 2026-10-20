@@ -109,6 +109,78 @@ func TestAgentArgsSchema(t *testing.T) {
 	}
 }
 
+// Env-file validation and canonical ordered paths are an approval boundary.
+func TestEnvFileDefinition(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "noon.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		value any
+		valid bool
+	}{
+		{".env", true}, {[]any{".env", "/tmp/other.env"}, true},
+		{"", false}, {[]any{}, false}, {[]any{""}, false}, {float64(1), false},
+		{[]any{float64(1)}, false}, {map[string]any{"path": ".env"}, false}, {nil, false},
+	} {
+		instance := map[string]any{"jobs": map[string]any{"tests": map[string]any{"run": "true", "env_file": tc.value}}}
+		if err := resolved.Validate(instance); (err == nil) != tc.valid {
+			t.Errorf("schema %v: %v", tc.value, err)
+		}
+	}
+	root := t.TempDir()
+	load := func(value string) (config.Job, error) {
+		put(t, filepath.Join(root, "noon.yaml"), "jobs:\n  tests:\n    run: 'true'\n    env_file: "+value+"\n")
+		cfg, err := config.Load(config.Input{CWD: root})
+		return cfg.Jobs["tests"], err
+	}
+	for _, value := range []string{`""`, `[]`, `[""]`, `1`, `[1]`, `{path: .env}`, `null`} {
+		_, err := load(value)
+		if err == nil || !strings.Contains(err.Error(), "noon.yaml:4: jobs.tests.env_file:") {
+			t.Errorf("%s: %v", value, err)
+		}
+	}
+	one, err := load(".env")
+	if err != nil || !reflect.DeepEqual(one.EnvFile, []string{".env"}) {
+		t.Fatalf("string form: %v %v", one.EnvFile, err)
+	}
+	list, err := load("[.env]")
+	if err != nil || list.Digest != one.Digest {
+		t.Fatalf("normalization: %v", err)
+	}
+	ordered, err := load("[.env, /tmp/other.env]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"[/tmp/other.env, .env]", "[.env, /tmp/changed.env]", "/tmp/other.env"} {
+		changed, err := load(value)
+		if err != nil || changed.Digest == ordered.Digest {
+			t.Fatalf("%s did not change digest: %v", value, err)
+		}
+	}
+	put(t, filepath.Join(root, ".env"), "KEY=rotated\n")
+	rotated, err := load("[.env, /tmp/other.env]")
+	if err != nil || rotated.Digest != ordered.Digest {
+		t.Fatalf("contents changed digest: %v", err)
+	}
+	encoded, err := config.AddJob(nil, "tests", config.Job{Name: "tests", Run: "true", Enabled: true, EnvFile: ordered.EnvFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := config.JobFromSource(encoded, "tests", config.BuiltInAgents(), "", nil, nil, false)
+	if err != nil || roundTrip.Digest != ordered.Digest {
+		t.Fatalf("round trip lost paths: %s %v", encoded, err)
+	}
+}
+
 func TestLoadJobs(t *testing.T) {
 	t.Parallel()
 	builtins := config.BuiltInAgents()

@@ -81,11 +81,55 @@ func RunSpec(project string, job config.Job, inherited []string) (runner.Spec, e
 			spec.Argv = append([]string(nil), run...)
 		}
 	}
+	inherited = slices.Clone(inherited)
+	for _, path := range job.EnvFile {
+		values, err := readEnvFile(project, path)
+		if err != nil {
+			return runner.Spec{}, err
+		}
+		for key, value := range values {
+			inherited = append(inherited, key+"="+value)
+		}
+	}
 	spec.Env = JobEnvironment(project, job, inherited)
 	if job.Timeout != "none" {
 		spec.Timeout, _ = time.ParseDuration(job.Timeout)
 	}
 	return spec, nil
+}
+
+// readEnvFile uses a bounded, nonblocking read so special files cannot hang startup.
+func readEnvFile(project, configuredPath string) (map[string]string, error) {
+	path := configuredPath
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(project, path)
+	}
+	values, err := func() (map[string]string, error) {
+		file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("must be a regular file")
+		}
+		data, err := io.ReadAll(io.LimitReader(file, config.MaxEnvFileBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > config.MaxEnvFileBytes {
+			return nil, fmt.Errorf("exceeds 64 KiB")
+		}
+		return config.ParseEnvFile(data)
+	}()
+	if err != nil {
+		return nil, fmt.Errorf("env_file %q: %w", configuredPath, err)
+	}
+	return values, nil
 }
 
 // RunSpecForExecution adds the assigned session ID to a prompt profile that
