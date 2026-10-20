@@ -22,6 +22,33 @@ noon service uninstall        # stop and remove the unit; keep state and history
 Jobs run with that `PATH`. Re-run `noon service install` after changing any of these; an unchanged
 unit is left alone. `noon service` says when the installed unit is out of date.
 
+## Job environment
+
+Scheduled runs inherit the scheduler's environment, not your shell's. Under the service that's the
+`PATH` and `XDG_CONFIG_HOME` above plus whatever launchd or systemd adds; in a container it's the
+container's environment. Noon never sources shell rc files, so `TERM`, `SHELL`, and your shell's
+exports are usually unset. Stdin is `/dev/null` and output goes to the run log, not a terminal.
+Set anything a job needs in its `env`:
+
+```yaml
+jobs:
+  report:
+    run: ./report.sh
+    env:
+      TERM: xterm-256color
+```
+
+When a job works in your shell but fails on schedule, run it inside the scheduler to get the exact
+environment:
+
+```sh
+noon run report --detach
+noon logs <run-id> --follow
+```
+
+For a rough local check without a scheduler, strip your shell's environment:
+`env -i PATH="$PATH" HOME="$HOME" noon run report`.
+
 ## Logs
 
 macOS writes scheduler output to `scheduler.log` in the state directory:

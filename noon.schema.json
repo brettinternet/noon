@@ -129,7 +129,7 @@
         },
         "env": {
           "type": "object",
-          "description": "Environment overrides. Quote numbers; NOON_* names are reserved.",
+          "description": "Variables overlaid on the inherited environment. Scheduled runs inherit the scheduler's minimal environment, not your shell's: TERM, SHELL, and shell rc exports are usually unset. Quote numbers; NOON_* names are reserved.",
           "propertyNames": {
             "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
             "not": { "pattern": "^NOON_" }
