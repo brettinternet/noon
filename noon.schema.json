@@ -94,6 +94,11 @@
           "description": "Cron, macro, calendar phrase, or interval; validated by noon config check.",
           "examples": ["every 30m", "weekdays at 9am", "0 6 * * 1"]
         },
+        "splay": {
+          "$ref": "#/definitions/nonBlankString",
+          "description": "Stable forward offset window, 1s to 1h; requires a cron, macro, or calendar schedule. Validated by noon config check.",
+          "examples": ["10m"]
+        },
         "run": { "$ref": "#/definitions/command" },
         "noop_exit_code": {
           "type": "integer",

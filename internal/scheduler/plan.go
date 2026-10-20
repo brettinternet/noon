@@ -17,12 +17,14 @@ type JobKey struct {
 // JobInput is a validated job. Active includes project opt-in, approval and pause
 // state. Nil Location means UTC, as in schedule.Next.
 type JobInput struct {
-	Key      JobKey
-	Schedule *schedule.Schedule // nil means manual
-	Location *time.Location
-	Active   bool
-	Missed   string // run_once | skip
-	Overlap  string // skip | queue
+	Key         JobKey
+	Schedule    *schedule.Schedule // nil means manual
+	ProjectPath string
+	Splay       time.Duration
+	Location    *time.Location
+	Active      bool
+	Missed      string // run_once | skip
+	Overlap     string // skip | queue
 }
 
 type JobState struct {
@@ -71,17 +73,19 @@ func Due(now time.Time, jobs []JobInput, states []JobState, runs []Run) (upsert 
 		if loc == nil {
 			loc = time.UTC
 		}
-		key := job.Schedule.String() + "|" + loc.String()
+		offset := schedule.SplayOffset(job.ProjectPath, job.Key.Job, job.Splay)
+		key := schedule.StateKey(job.Schedule.String(), loc.String(), job.ProjectPath, job.Key.Job, job.Splay)
 		state, exists := previous[job.Key]
 		if !exists || state.ScheduleKey != key {
-			upsert = append(upsert, JobState{job.Key, key, job.Schedule.Next(now, loc)})
+			upsert = append(upsert, JobState{job.Key, key, job.Schedule.NextWithOffset(now, loc, offset).Add(-offset)})
 			continue
 		}
-		if state.NextAt.After(now) {
+		effective := state.NextAt.Add(offset)
+		if effective.After(now) {
 			continue
 		}
-		run := NewRun{job.Key, "queued", "schedule", state.NextAt, state.NextAt}
-		if now.Sub(state.NextAt) > time.Minute {
+		run := NewRun{job.Key, "queued", "schedule", state.NextAt, effective}
+		if now.Sub(effective) > time.Minute {
 			run.DueAt = now
 			if job.Missed == "skip" {
 				run.Status = "missed"
@@ -97,7 +101,7 @@ func Due(now time.Time, jobs []JobInput, states []JobState, runs []Run) (upsert 
 			// Add the remainder to now rather than multiplying an interval count.
 			state.NextAt = now.Add(interval - now.Sub(state.NextAt)%interval)
 		} else {
-			state.NextAt = job.Schedule.Next(now, loc)
+			state.NextAt = job.Schedule.NextWithOffset(now, loc, offset).Add(-offset)
 		}
 		upsert = append(upsert, state)
 	}

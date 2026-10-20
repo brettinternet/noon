@@ -824,7 +824,7 @@ func makeJobInputs(snapshot store.SchedulerSnapshot, configs map[int64]*projectC
 		}
 		for name, job := range cached.config.Jobs {
 			active := job.Enabled && job.MatchesPlatform(cached.config.Platform) && !project.Paused[name] && (!job.Shared || project.Approvals[name] == job.Digest)
-			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap})
+			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, ProjectPath: project.Path, Splay: job.Splay, Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap})
 		}
 	}
 	return jobs, nil

@@ -262,6 +262,9 @@ func jobFields(job Job) map[string]any {
 		if job.Schedule != nil {
 			fields["schedule"] = job.Schedule.String()
 		}
+		if job.Splay > 0 {
+			fields["splay"] = job.Splay.String()
+		}
 		if job.Run != nil {
 			fields["run"] = job.Run
 		}

@@ -1,6 +1,41 @@
 package schedule
 
-import "time"
+import (
+	"crypto/sha256"
+	"encoding/binary"
+	"fmt"
+	"time"
+)
+
+// SplayOffset is a stable whole-second offset in [0, splay). Project must be
+// the canonical project path. A zero splay leaves scheduling unchanged.
+func SplayOffset(project, name string, splay time.Duration) time.Duration {
+	seconds := splay / time.Second
+	if seconds <= 0 {
+		return 0
+	}
+	sum := sha256.Sum256([]byte(project + "\x00" + name))
+	return time.Duration(binary.BigEndian.Uint64(sum[:8])%uint64(seconds)) * time.Second
+}
+
+// NextWithOffset shifts resolved occurrences by elapsed time, including across DST.
+func (s Schedule) NextWithOffset(after time.Time, loc *time.Location, offset time.Duration) time.Time {
+	next := s.Next(after.Add(-offset), loc)
+	if next.IsZero() {
+		return next
+	}
+	return next.Add(offset)
+}
+
+// StateKey preserves pre-splay keys for jobs that omit splay. Include the full
+// identity as well as the window so even offset collisions reset changed jobs.
+func StateKey(text, timezone, project, name string, splay time.Duration) string {
+	key := text + "|" + timezone
+	if splay > 0 {
+		key += fmt.Sprintf("|splay=%s|offset=%s|project=%q|job=%q", splay, SplayOffset(project, name, splay), project, name)
+	}
+	return key
+}
 
 // Next returns the first occurrence strictly after after, in loc. Intervals
 // simply add their duration; retaining an interval's phase is the caller's job.

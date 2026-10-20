@@ -127,6 +127,23 @@ func TestLoadJobs(t *testing.T) {
 				t.Fatalf("defaults: %+v", j)
 			}
 		}},
+		{name: "splay", shared: "jobs: {tests: {run: 'true', schedule: '@daily', splay: 600s}}", check: func(t *testing.T, c config.Config) {
+			job := c.Jobs["tests"]
+			if job.Splay != 10*time.Minute {
+				t.Fatalf("splay = %s", job.Splay)
+			}
+			digest, err := config.DigestJobDefinition(job, c.Agents, c.DefaultAgent)
+			if err != nil || digest != job.Digest {
+				t.Fatalf("splay round trip: %s, %v", digest, err)
+			}
+		}},
+		{name: "splay manual", shared: "jobs: {tests: {run: hi, splay: 10m}}", want: "noon.yaml:1: jobs.tests.splay: requires a cron, macro, or calendar schedule"},
+		{name: "splay interval", shared: "jobs: {tests: {run: hi, schedule: every 6h, splay: 10m}}", want: "noon.yaml:1: jobs.tests.splay: cannot be used with an interval schedule"},
+		{name: "splay zero", shared: "jobs: {tests: {run: hi, schedule: '@daily', splay: 0s}}", want: "noon.yaml:1: jobs.tests.splay: must be between 1s and 1h"},
+		{name: "splay large", shared: "jobs: {tests: {run: hi, schedule: '@daily', splay: 2h}}", want: "noon.yaml:1: jobs.tests.splay: must be between 1s and 1h"},
+		{name: "splay number", shared: "jobs: {tests: {run: hi, schedule: '@daily', splay: 10}}", want: "noon.yaml:1: jobs.tests.splay: must be a string"},
+		{name: "splay missing unit", shared: "jobs: {tests: {run: hi, schedule: '@daily', splay: '10'}}", want: "noon.yaml:1: jobs.tests.splay: invalid duration"},
+		{name: "splay list", shared: "jobs: {tests: {run: hi, schedule: '@daily', splay: [10m]}}", want: "noon.yaml:1: jobs.tests.splay: must be a string"},
 		{name: "cooldown", shared: "jobs: {tests: {run: 'true', cooldown: 2m}}", check: func(t *testing.T, c config.Config) {
 			if got := c.Jobs["tests"].Cooldown; got != 2*time.Minute {
 				t.Fatalf("cooldown = %s, want 2m", got)
@@ -409,6 +426,13 @@ func TestJobDigest(t *testing.T) {
 	}
 	if load(base+"    noop_exit_code: 78\n", "{}") == digest {
 		t.Fatal("noop_exit_code did not change the digest")
+	}
+	splayed := load(base+"    splay: 10m\n", "{}")
+	if splayed == digest || splayed == load(base+"    splay: 11m\n", "{}") {
+		t.Fatal("splay did not change digest")
+	}
+	if splayed != load(base+"    splay: 600s\n", "{}") {
+		t.Fatal("equivalent splay changed digest")
 	}
 	hookDefinition := "    run: echo hi\n    on_success: [notify, done]\n"
 	hookDigest := load(hookDefinition, "{}")

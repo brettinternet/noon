@@ -7,6 +7,7 @@ jobs:
       Run the full Go test suite on weekdays or after Go code changes.
       Before reporting verification complete, wait for success and inspect failures.
     schedule: weekdays at 9am
+    splay: 10m
     run: [go, test, ./...]
     cwd: .
     env:

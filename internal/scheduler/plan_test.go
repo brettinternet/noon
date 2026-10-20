@@ -103,6 +103,84 @@ func TestPlanDue(t *testing.T) {
 	}
 }
 
+func TestSplayedDue(t *testing.T) {
+	nominal := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	daily, err := schedule.Parse("every day at 9am")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := JobInput{Key: JobKey{1, "triage"}, ProjectPath: "/repo", Splay: 10 * time.Minute, Schedule: &daily, Active: true, Missed: "run_once"}
+	jobs := []JobInput{job}
+	effective := nominal.Add(487 * time.Second)
+	// First sight between nominal and effective must not discard today's run.
+	states, _, runs := Due(nominal.Add(time.Minute), jobs, nil, nil)
+	if len(states) != 1 || !states[0].NextAt.Equal(nominal) || len(runs) != 0 {
+		t.Fatalf("initial state = %+v, runs = %+v", states, runs)
+	}
+	for _, tc := range []struct {
+		name            string
+		now             time.Time
+		status, trigger string
+		due             time.Time
+	}{
+		{"before", effective.Add(-time.Second), "", "", time.Time{}},
+		{"on time", effective, "queued", "schedule", effective},
+		{"window boundary", effective.Add(time.Minute), "queued", "schedule", effective},
+		{"missed", effective.Add(72 * time.Hour), "queued", "catch_up", effective.Add(72 * time.Hour)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			updated, _, created := Due(tc.now, jobs, states, nil)
+			if tc.status == "" {
+				if len(created) != 0 || len(updated) != 0 {
+					t.Fatalf("premature run: %+v", created)
+				}
+				return
+			}
+			if len(created) != 1 || created[0].Status != tc.status || created[0].Trigger != tc.trigger || !created[0].ScheduledAt.Equal(nominal) || !created[0].DueAt.Equal(tc.due) {
+				t.Fatalf("created = %+v", created)
+			}
+			if len(updated) != 1 || !updated[0].NextAt.Add(487*time.Second).After(tc.now) {
+				t.Fatalf("next = %+v", updated)
+			}
+			_, _, again := Due(tc.now, jobs, updated, nil)
+			if len(again) != 0 {
+				t.Fatalf("duplicate catch-up: %+v", again)
+			}
+		})
+	}
+	skip := job
+	skip.Missed = "skip"
+	_, _, skipped := Due(effective.Add(61*time.Second), []JobInput{skip}, states, nil)
+	if len(skipped) != 1 || skipped[0].Status != "missed" || !skipped[0].ScheduledAt.Equal(nominal) {
+		t.Fatalf("missed: %+v", skipped)
+	}
+	_, _, overlap := Due(effective, jobs, states, []Run{{ID: 1, Key: job.Key, Status: "running"}})
+	if len(overlap) != 1 || overlap[0].Status != "skipped" {
+		t.Fatalf("overlap: %+v", overlap)
+	}
+	for _, change := range []string{"splay", "path", "name"} {
+		changed := job
+		switch change {
+		case "splay":
+			changed.Splay = time.Hour
+		case "path":
+			changed.ProjectPath = "/moved"
+		case "name":
+			changed.Key.Job = "renamed"
+		}
+		updated, _, created := Due(effective.Add(72*time.Hour), []JobInput{changed}, states, nil)
+		if len(created) != 0 || len(updated) != 1 || updated[0].ScheduleKey == states[0].ScheduleKey {
+			t.Fatalf("%s did not reset: %+v %+v", change, updated, created)
+		}
+	}
+	plain := job
+	plain.Splay = 0
+	unchanged, _, _ := Due(nominal, []JobInput{plain}, nil, nil)
+	if len(unchanged) != 1 || unchanged[0].ScheduleKey != "every day at 09:00|UTC" {
+		t.Fatalf("legacy key changed: %+v", unchanged)
+	}
+}
+
 func TestPlanDispatch(t *testing.T) {
 	now := time.Date(2026, 10, 1, 14, 30, 0, 0, time.UTC)
 	a, b, c, d, e := JobKey{1, "a"}, JobKey{2, "b"}, JobKey{3, "c"}, JobKey{4, "d"}, JobKey{5, "e"}

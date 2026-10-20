@@ -163,20 +163,33 @@ In the project timezone:
 - Intervals are elapsed time and ignore DST.
 - `--at` accepts `HH:MM` (next occurrence), `YYYY-MM-DD HH:MM`, or RFC 3339; `--in` takes a duration.
 
+Optional `splay` (1s–1h) shifts each cron, macro, or calendar occurrence forward by a
+stable whole-second offset; manual and interval jobs reject it. The offset is the first eight
+bytes of SHA-256(canonical project path, NUL, job name), big-endian, modulo splay in seconds.
+The shared shifted-next helper computes `Next(after - offset) + offset`: resolve nominal wall
+time first, then add elapsed time, preserving the DST rules above. No clock or randomness enters
+the offset. Inspection, scheduler, and add output use the same helper. All `next_at` views
+include the offset; list text appends it to SCHEDULE, and JSON/MCP expose `splay` and
+`splay_offset` only when set. Explicit runs and queued/triggered work are not shifted.
+
 ### Missed runs, overlap, and concurrency
 
 The pure `internal/scheduler.Due` and `Dispatch` planners decide; `noon serve` persists each tick's
 schedule and dispatch changes atomically, then starts runs. Schedule state is keyed by normalized
-schedule text plus timezone, so changing either resets it. Inactive, manual, and removed jobs lose
-their state.
+schedule text plus timezone, so changing either resets it. For splayed jobs only, the key also
+includes the splay, offset, canonical project path, and job name; changing any resets state.
+Unsplayed jobs keep their pre-splay keys. Persisted next occurrences are always nominal;
+the planner and displays derive effective times by adding the offset. Inactive, manual, and
+removed jobs lose their state.
 
 - First sight of a job, a schedule change, enabling, approving a changed job, re-adding, and
   resuming all start from now: no catch-up. These commands clear schedule state, so this holds
   even when the scheduler wasn't running.
-- An occurrence noticed within 60s is on time. Later, it was missed: `missed: run_once` (default)
+- An occurrence noticed within 60s of its effective (offset) time is on time. Later, it was missed: `missed: run_once` (default)
   runs once as `catch_up`, never a burst; `missed: skip` records one `missed` run. Both record the
   first missed occurrence. Cron advances to the first occurrence after now; intervals advance by
-  whole periods, keeping phase.
+  whole periods, keeping phase. Splayed runs retain nominal `scheduled_at` and `NOON_SCHEDULED_AT`;
+  `due_at` is the effective time (now for catch-up). Overlap also applies at the effective time.
 - `overlap: skip` (default) records a `skipped` run when the job is already running.
   `overlap: queue` keeps at most one pending run.
 - The scheduler starts a run only while fewer than one run is active in its project and fewer than
@@ -235,7 +248,7 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
 - Privacy needs a file repository content can't supply. Git refuses paths inside its directory, so
   a branch can't add or replace `.git/noon.yaml`. A filename in the tree is never private: a commit
   can add `.noon.yaml` despite ignore rules, so Noon never loads it.
-- The digest covers what runs and when (schedule, action, agent, cwd, env, timeout, overlap, missed,
+- The digest covers what runs and when (schedule, splay, action, agent, cwd, env, timeout, overlap, missed,
   cooldown, hooks, webhook, `os`, `arch`, and `requests` when explicitly set), not the description, and not
   referenced file contents. Omitting `requests` preserves existing job digests. A prompt job's
   digest also covers its agent profile when that profile comes from the same `--config` file;

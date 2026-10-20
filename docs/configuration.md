@@ -157,6 +157,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | --- | --- | --- |
 | `description` | — | Shown by `list`, the TUI, and MCP |
 | `schedule` | manual only | Cron, macro, calendar phrase, or interval ([grammar](design.md#schedules)) |
+| `splay` | — | Stable forward offset window, `1s`–`1h`; cron, macro, or calendar schedules only |
 | `run` | — | String runs with `/bin/sh -c`; list is exact argv |
 | `noop_exit_code` | — | Integer 1–124: record a normally exited run with this code as `noop` |
 | `prompt` | — | Inline agent prompt, ≤ 64 KiB |
@@ -175,6 +176,17 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `cooldown` | — | Minimum gap between queued requests; incompatible with `requests: each` ([Triggers](triggers.md)) |
 | `on_success`, `on_failure` | user default | Hook command; `[]` disables the default ([Hooks](hooks.md)) |
 | `webhook` | — | `{secret_env: NAME}` ([Webhooks](webhooks.md)) |
+
+Set `splay: 10m` to spread scheduled starts over ten minutes. Noon derives one whole-second
+offset in [0, splay) from the canonical project path and job name. It stays the same across
+restarts; moving the checkout, renaming the job, or changing splay may change it. Durations use
+the same integer `s`, `m`, `h`, `d` components as timeout, between 1s and 1h.
+Manual jobs and intervals reject splay. It affects only schedule occurrences, not foreground
+runs, queued requests, triggers, hooks, or webhooks. Changing splay on a shared job needs approval.
+
+`noon list` appends `+<offset>` to SCHEDULE, including `+0s`. All next-run displays include
+the offset; JSON and MCP `list_jobs` also expose normalized `splay` and `splay_offset`
+duration strings only when configured.
 
 A job's optional `os` and `arch` lists must be non-empty, duplicate-free, and use the exact supported Go `GOOS`/`GOARCH` values shown above. Aliases such as `macos`, `x86_64`, and `aarch64` are rejected with a suggestion. Every declared field must match the running binary; an omitted field matches any value. A nonmatching job stays visible as `other platform`, but isn't scheduled, caught up, dispatched, or runnable by `noon run` or any queueing interface. `list --json` includes the declared lists and `platform_supported`; `doctor` skips command and working-directory checks for nonmatching jobs.
 
@@ -254,7 +266,7 @@ jobs:
     run: ./scripts/triage
 ```
 
-An hour range covers whole hours, so `8-16` ends at 16:45. Interval schedules (`every 15m`) count
+An hour range covers whole hours, so `8-16` ends at 16:45. Splay shifts both window edges forward too: a five-minute offset makes this 08:05–16:50. Interval schedules (`every 15m`) count
 elapsed time and can't be limited to a window.
 
 The schedule doesn't limit queued runs from `noon run --detach`, MCP, webhooks, or hooks. To keep
@@ -399,7 +411,7 @@ the one `noon enable` approved. Private jobs need no approval. A local `enabled:
 the shared job's approval requirement.
 
 The digest is a SHA-256 of the job's execution fields: schedule, action, agent name, cwd, env,
-timeout, `noop_exit_code`, overlap, missed, cooldown, hooks, webhook, and platform constraints
+timeout, `noop_exit_code`, splay, overlap, missed, cooldown, hooks, webhook, and platform constraints
 (`os` and `arch`). `requests` joins the digest only when
 explicitly present, so jobs that omit it keep their existing digest and approval. Changing the
 description doesn't require re-approval. A prompt job whose agent profile is defined in the same

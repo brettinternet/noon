@@ -37,6 +37,7 @@ type Job struct {
 	Name               string
 	Description        string
 	Schedule           *schedule.Schedule
+	Splay              time.Duration
 	Run                any
 	OnSuccess          any
 	OnFailure          any
@@ -574,7 +575,7 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				job.Env[key] = text
 			}
 			execution[key] = job.Env
-		case "description", "schedule", "cwd", "timeout", "cooldown", "overlap", "missed":
+		case "description", "schedule", "splay", "cwd", "timeout", "cooldown", "overlap", "missed":
 			text, err := jobString(file, field, value)
 			if err != nil {
 				return Job{}, err
@@ -606,6 +607,16 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 					text = duration.String()
 				}
 				job.Timeout = text
+			case "splay":
+				duration, err := schedule.ParseDuration(text)
+				if err != nil {
+					return Job{}, jobError(file, value, field, err.Error())
+				}
+				if duration < time.Second || duration > time.Hour {
+					return Job{}, jobError(file, value, field, "must be between 1s and 1h")
+				}
+				job.Splay = duration
+				text = duration.String()
 			case "cooldown":
 				duration, err := schedule.ParseDuration(text)
 				if err != nil {
@@ -646,6 +657,14 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 		}
 		if fields["agent"] == nil {
 			return Job{}, jobError(file, value, path+".agent_args", "requires an explicit agent on the job")
+		}
+	}
+	if value := fields["splay"]; value != nil {
+		if job.Schedule == nil {
+			return Job{}, jobError(file, value, path+".splay", "requires a cron, macro, or calendar schedule")
+		}
+		if _, interval := job.Schedule.Interval(); interval {
+			return Job{}, jobError(file, value, path+".splay", "cannot be used with an interval schedule")
 		}
 	}
 	if job.Requests == "each" && fields["cooldown"] != nil {

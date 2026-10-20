@@ -9,6 +9,45 @@ import (
 	"github.com/brettinternet/noon/internal/schedule"
 )
 
+func TestSplay(t *testing.T) {
+	// A fixed vector catches changes to seeding, byte order, and modulo.
+	if got := schedule.SplayOffset("/repo", "triage", 10*time.Minute); got != 487*time.Second {
+		t.Fatalf("offset = %s, want 8m7s", got)
+	}
+	for _, project := range []string{"/repo", "/other/repo", "/repo/with spaces"} {
+		for _, name := range []string{"triage", "tests", "review"} {
+			for _, window := range []time.Duration{time.Second, 17 * time.Second, 10 * time.Minute, time.Hour} {
+				got := schedule.SplayOffset(project, name, window)
+				if got < 0 || got >= window || got%time.Second != 0 || got != schedule.SplayOffset(project, name, window) {
+					t.Fatalf("%s %s %s: invalid or unstable offset %s", project, name, window, got)
+				}
+			}
+		}
+	}
+	if schedule.SplayOffset("/repo", "triage", 0) != 0 {
+		t.Fatal("unset splay shifted time")
+	}
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ text, after, want string }{
+		{"every day at 9am", "2026-10-01T09:02:00-04:00", "2026-10-01T09:05:00-04:00"},
+		{"every day at 9am", "2026-10-01T09:05:00-04:00", "2026-10-02T09:05:00-04:00"},
+		{"every day at 2:30am", "2026-03-08T01:59:00-05:00", "2026-03-08T03:05:00-04:00"},
+		{"every day at 1:30am", "2026-11-01T01:34:00-04:00", "2026-11-01T01:35:00-04:00"},
+	} {
+		s, err := schedule.Parse(tc.text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		after, _ := time.Parse(time.RFC3339, tc.after)
+		if got := s.NextWithOffset(after, loc, 5*time.Minute).Format(time.RFC3339); got != tc.want {
+			t.Errorf("%s after %s: got %s, want %s", tc.text, tc.after, got, tc.want)
+		}
+	}
+}
+
 func TestScheduleParse(t *testing.T) {
 	for _, tt := range []struct{ input, want, err string }{
 		{"  0  9 * JAN-MAR MON-FRI  ", "0 9 * jan-mar mon-fri", ""},

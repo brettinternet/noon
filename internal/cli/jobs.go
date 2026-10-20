@@ -70,6 +70,9 @@ func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide
 		scheduled, next := "manual", "-"
 		if job.Schedule != nil {
 			scheduled = *job.Schedule
+			if job.SplayOffset != "" {
+				scheduled += " +" + job.SplayOffset
+			}
 		}
 		if !job.PlatformSupported {
 			next = "other platform"

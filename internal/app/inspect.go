@@ -2,10 +2,12 @@
 package app
 
 import (
+	"fmt"
 	"slices"
 	"time"
 
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/schedule"
 )
 
 type Project struct {
@@ -22,6 +24,8 @@ type Job struct {
 	Name              string     `json:"name"`
 	Description       string     `json:"description"`
 	Schedule          *string    `json:"schedule"`
+	Splay             string     `json:"splay,omitempty"`
+	SplayOffset       string     `json:"splay_offset,omitempty"`
 	NextAt            *time.Time `json:"next_at"`
 	Run               any        `json:"run"`
 	Prompt            *string    `json:"prompt"`
@@ -84,11 +88,21 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 			view.EnvKeys = append(view.EnvKeys, key)
 		}
 		slices.Sort(view.EnvKeys)
+		offset := schedule.SplayOffset(cfg.Project, name, job.Splay)
+		if job.Splay > 0 {
+			view.Splay = job.Splay.String()
+			if job.Splay%time.Hour == 0 {
+				view.Splay = fmt.Sprintf("%dh", job.Splay/time.Hour)
+			} else if job.Splay%time.Minute == 0 {
+				view.Splay = fmt.Sprintf("%dm", job.Splay/time.Minute)
+			}
+			view.SplayOffset = offset.String()
+		}
 		if job.Schedule != nil {
 			text := job.Schedule.String()
 			view.Schedule = &text
 			if job.Enabled && view.PlatformSupported {
-				next := job.Schedule.Next(now, loc).In(loc)
+				next := job.Schedule.NextWithOffset(now, loc, offset).In(loc)
 				if !next.IsZero() {
 					view.NextAt = &next
 				}

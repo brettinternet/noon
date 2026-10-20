@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/brettinternet/noon/internal/schedule"
 	"github.com/brettinternet/noon/internal/store"
 )
 
@@ -51,13 +52,15 @@ func WithScheduler(view Inspection, now time.Time) (Inspection, error) {
 		if job.Schedule == nil {
 			continue
 		}
+		splay, _ := schedule.ParseDuration(job.Splay)
+		offset := schedule.SplayOffset(view.Project.Path, job.Name, splay)
 		persisted, ok := byJob[job.Name]
-		if !ok || persisted.ScheduleKey != *job.Schedule+"|"+view.Project.Timezone {
+		if !ok || persisted.ScheduleKey != schedule.StateKey(*job.Schedule, view.Project.Timezone, view.Project.Path, job.Name, splay) {
 			continue
 		}
 		next, err := time.Parse(store.TimestampLayout, persisted.NextAt)
 		if err == nil {
-			value := next.In(location)
+			value := next.Add(offset).In(location)
 			job.NextAt = &value
 		}
 	}
