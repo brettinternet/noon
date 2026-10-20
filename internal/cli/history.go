@@ -42,9 +42,9 @@ func historyRuns(_ context.Context, cmd *urfave.Command) error {
 				fmt.Fprintf(cmd.Writer, "No runs match --status %s.\n", strings.Join(statuses, ","))
 			}
 		} else if job != "" {
-			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: %s\n", cell(job, -1), style.render(humanText(guidance(cmd, "noon run")+" "+shellArgument(job)), "heading"))
+			fmt.Fprintf(cmd.Writer, "No runs of %s yet. Suggested action: %s\n", cell(job, -1), style.render(humanText(guidance(cmd, "noon run")+" "+shellArgument(job)), "heading"))
 		} else {
-			fmt.Fprintln(cmd.Writer, "No runs yet. Next: "+style.render(humanText(guidance(cmd, "noon run")), "heading")+" (list jobs to run)")
+			fmt.Fprintln(cmd.Writer, "No runs yet. Suggested action: "+style.render(humanText(guidance(cmd, "noon run")), "heading")+" (list jobs to run)")
 		}
 		return nil
 	}
@@ -253,7 +253,7 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if hasSelection {
-		_, err = fmt.Fprintln(cmd.ErrWriter, "next: "+resume)
+		_, err = fmt.Fprintln(cmd.ErrWriter, "Continue: "+resume)
 	}
 	return err
 }
@@ -309,9 +309,9 @@ func noRuns(cmd *urfave.Command, job string, statuses []string) error {
 			fmt.Fprintf(cmd.Writer, "No runs match --status %s.\n", strings.Join(statuses, ","))
 		}
 	} else if job != "" {
-		fmt.Fprintf(cmd.Writer, "No runs of %s yet. Next: %s %s\n", job, guidance(cmd, "noon run"), shellArgument(job))
+		fmt.Fprintf(cmd.Writer, "No runs of %s yet. Suggested action: %s %s\n", job, guidance(cmd, "noon run"), shellArgument(job))
 	} else {
-		fmt.Fprintln(cmd.Writer, guidance(cmd, "No runs yet. Next: noon run (list jobs to run)"))
+		fmt.Fprintln(cmd.Writer, guidance(cmd, "No runs yet. Suggested action: noon run (list jobs to run)"))
 	}
 	return nil
 }

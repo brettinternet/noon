@@ -72,7 +72,7 @@ $ noon add tests "every day at 2am" -- go test ./...
 Added tests to .git/noon.yaml (private) · every day at 02:00 · next Sat 02:00
 Scheduling enabled for /home/me/app.
 The scheduler isn't running, so nothing runs in the background.
-Next: noon service install · noon run tests
+Suggested action: noon service install · noon run tests
 
 $ noon run tests
 ▶ tests · run 1 · "go" "test" "./..."
@@ -84,7 +84,7 @@ app · /home/me/app · scheduler offline · America/Denver
 JOB    SCHEDULE            NEXT       LAST
 tests  every day at 02:00  Sat 02:00  ✓ now (1s)
 Scheduler offline; background work will wait.
-Next: noon service install
+Suggested action: noon service install
 ```
 
 Nothing has run in the background yet. Scheduled runs need a scheduler:
@@ -107,7 +107,7 @@ app · /home/me/app · scheduler offline · Local
 JOB    SCHEDULE  NEXT            LAST
 lint   every 6h  needs approval  never
 Not enabled for background runs.
-Next: noon enable
+Suggested action: noon enable
 
 $ noon enable
 Enabled /home/me/app · 1 jobs · approved 1 shared jobs
@@ -215,7 +215,7 @@ $ noon logs check --status failed --match FAIL --context 1 --timestamps
 2026-10-19T09:15:30.125-06:00 2-ok 2
 2026-10-19T09:15:30.125-06:00 3:FAIL widget
 2026-10-19T09:15:30.126-06:00 4-ok 3
-next: noon logs 7 --after-cursor 27 --timestamps
+Continue: noon logs 7 --after-cursor 27 --timestamps
 ```
 
 ## Agents

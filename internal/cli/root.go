@@ -474,7 +474,7 @@ func initialize(_ context.Context, cmd *urfave.Command) error {
 	} else {
 		fmt.Fprintf(cmd.Writer, "Kept existing %s (not overwritten)\n", path)
 	}
-	fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon config check"))
+	fmt.Fprintln(cmd.Writer, guidance(cmd, "Suggested action: noon config check"))
 	return nil
 }
 

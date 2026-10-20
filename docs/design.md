@@ -43,7 +43,7 @@ The CLI is the product.
 - Commands without a target inspect, list candidates, or print examples. A missing target never
   means "all". `noon serve` runs all enabled projects; `enable` and `disable` act on the current one.
 - Human output is compact, uses the project timezone with relative hints ("in 14h"), and ends with
-  at most one `Next:` line. Errors are one `noon: MESSAGE` line on stderr, optionally followed by
+  at most one `Suggested action:` line. Errors are one `noon: MESSAGE` line on stderr, optionally followed by
   `Hint: …`.
 - Finishing commands accept `--json` and print exactly one object with `schema_version: 1`.
   Long-running commands (`serve`, `mcp`, `tui`, `logs --follow`) reject it. Errors are
@@ -61,9 +61,9 @@ The CLI is the product.
 Dashboard notices are prioritized: config errors, scheduled projects not enabled, pending
 approvals, enabled projects with an offline scheduler, orphaned runs, then queued work. An
 orphaned notice names every orphaned running run and job with its copyable `noon cancel ID`
-command and says they block background runs in the project; it fits 80 columns and shows at most three notices. The `Next:` step follows the same
+command and says they block background runs in the project; it fits 80 columns and shows at most three notices. The `Suggested action:` step follows the same
 order: `noon config check`, `noon enable`, `noon service install` (or `noon serve` if installed),
-`noon cancel ID` for the lowest orphaned run ID, then a runnable job or `noon add`.
+`noon cancel ID` for the lowest orphaned run ID, then an unpaused runnable job or `noon add`.
 
 `noon doctor` never executes jobs, repairs, migrates, or creates absent state. SQLite WAL/SHM
 sidecars for an existing database are allowed; application data stays read-only.

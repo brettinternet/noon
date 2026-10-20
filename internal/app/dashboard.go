@@ -192,7 +192,7 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 	default:
 		result.Next = "noon add"
 		for _, job := range result.Jobs {
-			if job.Enabled && job.PlatformSupported {
+			if job.Enabled && job.PlatformSupported && !job.Paused {
 				result.Next = "noon run " + job.Name
 				break
 			}

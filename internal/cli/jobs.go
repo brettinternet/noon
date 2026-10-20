@@ -56,9 +56,9 @@ func inspectJobs(cmd *urfave.Command) error {
 	}
 	switch {
 	case view.Project.Enabled && changed > 0:
-		fmt.Fprintf(cmd.Writer, "%d shared jobs changed since you enabled this project. Next: %s\n", changed, style.render(humanText(guidance(cmd, "noon enable")), "heading"))
+		fmt.Fprintf(cmd.Writer, "%d shared jobs changed since you enabled this project. Suggested action: %s\n", changed, style.render(humanText(guidance(cmd, "noon enable")), "heading"))
 	case !view.Project.Enabled && scheduled:
-		fmt.Fprintln(cmd.Writer, "Not enabled for background runs. Next: "+style.render(humanText(guidance(cmd, "noon enable")), "heading"))
+		fmt.Fprintln(cmd.Writer, "Not enabled for background runs. Suggested action: "+style.render(humanText(guidance(cmd, "noon enable")), "heading"))
 	}
 	return nil
 }

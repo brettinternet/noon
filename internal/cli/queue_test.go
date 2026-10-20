@@ -212,7 +212,7 @@ jobs:
 		t.Fatalf("queued dashboard notice: exit=%d stdout=%s stderr=%s", code, &dashboardOut, &dashboardErr)
 	}
 	var cancelListOut, cancelListErr bytes.Buffer
-	if code := cli.Run(context.Background(), []string{"noon", "cancel"}, config.BuildOpts{}, &cancelListOut, &cancelListErr); code != 0 || !strings.Contains(cancelListOut.String(), "Next: noon cancel "+fmt.Sprint(detachedID)) {
+	if code := cli.Run(context.Background(), []string{"noon", "cancel"}, config.BuildOpts{}, &cancelListOut, &cancelListErr); code != 0 || !strings.Contains(cancelListOut.String(), "Suggested action: noon cancel "+fmt.Sprint(detachedID)) {
 		t.Fatalf("active run inspection: exit=%d stdout=%s stderr=%s", code, &cancelListOut, &cancelListErr)
 	}
 	if run := queued(detachedID); run.Status != "queued" {
@@ -479,7 +479,7 @@ func TestCancelQueued(t *testing.T) {
 		ids = append(ids, runs[0].ID)
 	}
 	var listOut, listErr bytes.Buffer
-	if code := cli.Run(context.Background(), []string{"noon", "cancel"}, config.BuildOpts{}, &listOut, &listErr); code != 0 || !strings.Contains(listOut.String(), "Next: noon cancel") {
+	if code := cli.Run(context.Background(), []string{"noon", "cancel"}, config.BuildOpts{}, &listOut, &listErr); code != 0 || !strings.Contains(listOut.String(), "Suggested action: noon cancel") {
 		t.Fatalf("cancel list: exit=%d stdout=%s stderr=%s", code, &listOut, &listErr)
 	}
 	var cancelOut, cancelErr bytes.Buffer

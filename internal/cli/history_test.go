@@ -136,7 +136,7 @@ func TestTimestampedLogViews(t *testing.T) {
 	}
 	selectionArgs := []string{"logs", fmt.Sprint(runID), "--after-cursor", "0", "--limit-bytes", "3"}
 	code, _, rawGuidance := invokeText(selectionArgs...)
-	if code != 0 || !strings.HasPrefix(rawGuidance, "next: noon logs ") || !strings.Contains(rawGuidance, "--after-cursor 3 --limit-bytes 3") {
+	if code != 0 || !strings.HasPrefix(rawGuidance, "Continue: noon logs ") || !strings.Contains(rawGuidance, "--after-cursor 3 --limit-bytes 3") {
 		t.Fatalf("raw selection guidance: exit=%d stderr=%q", code, rawGuidance)
 	}
 	code, _, timestampGuidance := invokeText(append(selectionArgs, "--timestamps")...)
@@ -659,7 +659,7 @@ func TestHistoryAndLogs(t *testing.T) {
 		if code := cli.Run(context.Background(), []string{"noon", "logs", "tests", "--tail", "2"}, config.BuildOpts{}, &out, &stderr); code != 0 {
 			t.Fatalf("logs --tail 2: exit=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
 		}
-		if out.String() != "two\nthree\n" || stderr.String() != fmt.Sprintf("next: noon logs --state-dir %s 1 --after-cursor 14\n", stateDir) {
+		if out.String() != "two\nthree\n" || stderr.String() != fmt.Sprintf("Continue: noon logs --state-dir %s 1 --after-cursor 14\n", stateDir) {
 			t.Fatalf("tail output/cursor = stdout %q stderr %q", out.String(), stderr.String())
 		}
 		for _, args := range [][]string{

@@ -184,7 +184,7 @@ func TestDashboard(t *testing.T) {
 		selectors := []string{"-C", filepath.Base(project), "--config", filepath.Base(file), "--state-dir", filepath.Base(state), "--timezone", "UTC"}
 		invoke(append(selectors, "run", "check")...)
 		_, hint := invoke(append(selectors, "logs", "check", "--section", "job", "--match", "^keep|noon run", "--context", "0", "--after-cursor", "0", "--limit-bytes", "11")...)
-		command := strings.TrimSuffix(strings.TrimPrefix(hint, "next: "), "\n")
+		command := strings.TrimSuffix(strings.TrimPrefix(hint, "Continue: "), "\n")
 		other := filepath.Join(root, "other")
 		if err := os.Mkdir(other, 0700); err != nil {
 			t.Fatal(err)
@@ -256,6 +256,8 @@ func TestDashboard(t *testing.T) {
 		{"offline", true, false, []string{"scheduler_offline"}, "noon service install"},
 		{"installed offline", true, false, []string{"scheduler_offline"}, "noon serve"},
 		{"fresh", true, true, []string{}, "noon run t"},
+		{"paused first", true, true, []string{}, "noon run u"},
+		{"all paused", true, true, []string{}, "noon add"},
 		{"recorded config error", true, true, []string{"config_error"}, "noon config check"},
 		{"invalid config", false, false, []string{"config_error"}, "noon config check"},
 		{"queued", true, true, []string{"queued"}, "noon run t"},
@@ -268,12 +270,20 @@ func TestDashboard(t *testing.T) {
 			if tc.name == "empty" {
 				manifest = "timezone: UTC\n"
 			}
+			if tc.name == "paused first" {
+				manifest += "  u:\n    schedule: every 1h\n    run: [/bin/sh, -c, 'true']\n"
+			}
 			cfg := diagnosticConfig(t, root, manifest)
 			if tc.enabled {
 				state := diagnosticState(t, cfg, tc.fresh)
 				id, err := state.RegisterProject(cfg.Project, diagnosticNow)
 				if err != nil {
 					t.Fatal(err)
+				}
+				if tc.name == "paused first" || tc.name == "all paused" {
+					if err := state.SetPaused(cfg.Project, "t", true, diagnosticNow); err != nil {
+						t.Fatal(err)
+					}
 				}
 				if tc.name == "recorded config error" {
 					if err := state.SetProjectConfigError(id, "noon.yaml: invalid schedule"); err != nil {
@@ -344,11 +354,11 @@ func TestDashboard(t *testing.T) {
 				}
 			}
 			_, human := diagnosticCommand(t, false, false)
-			if strings.Count(human, "Next:") != 1 {
+			if strings.Count(human, "Suggested action:") != 1 {
 				t.Fatal(human)
 			}
 			if tc.name == "orphaned" {
-				if !strings.Contains(human, "removed-low") || !strings.Contains(human, "removed-high") || !strings.Contains(human, "Next: noon cancel 1") {
+				if !strings.Contains(human, "removed-low") || !strings.Contains(human, "removed-high") || !strings.Contains(human, "Suggested action: noon cancel 1") {
 					t.Fatalf("orphaned dashboard omitted removed jobs or cancel guidance:\n%s", human)
 				}
 				// Copyable cancel commands in the notice must target the same state as Next.

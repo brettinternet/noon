@@ -140,7 +140,7 @@ func serviceStatus(ctx context.Context, cmd *urfave.Command) error {
 		fmt.Fprintf(cmd.Writer, "Heartbeat:  %s\n", view.SchedulerHeartbeat.Format(time.RFC3339))
 	}
 	if view.Drift {
-		fmt.Fprintf(cmd.Writer, "Warning: service unit differs from current install settings. Next: %s\n", guidance(cmd, "noon service install"))
+		fmt.Fprintf(cmd.Writer, "Warning: service unit differs from current install settings. Suggested action: %s\n", guidance(cmd, "noon service install"))
 	}
 	return nil
 }
@@ -154,7 +154,7 @@ func serviceGuidance(stateDir string) (string, error) {
 	}
 	_, installed, err := app.ServiceUnitInstalled(options)
 	if service.IsUnsupported(err) {
-		return "Next: run noon serve under your own supervisor", nil
+		return "Suggested action: run noon serve under your own supervisor", nil
 	}
 	if err != nil {
 		return "", serviceError(err)
@@ -162,7 +162,7 @@ func serviceGuidance(stateDir string) (string, error) {
 	if installed {
 		return "Scheduler service is installed but offline. Run noon service to inspect manager status.", nil
 	}
-	return "Next: noon service install", nil
+	return "Suggested action: noon service install", nil
 }
 
 func serviceError(err error) error {

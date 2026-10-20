@@ -254,7 +254,7 @@ $ noon run tests --detach
 Queued tests as run 2 · due now
 Follow it: noon logs 2 --follow
 The scheduler isn't running, so nothing runs until it starts.
-Next: noon service install
+Suggested action: noon service install
 ```
 
 | Flag | Effect |
@@ -365,7 +365,7 @@ $ noon logs check --match FAIL --context 1
 2-ok 2
 3:FAIL widget
 4-ok 3
-next: noon logs 1 --after-cursor 27
+Continue: noon logs 1 --after-cursor 27
 ```
 
 Rules:
@@ -382,13 +382,14 @@ Rules:
 ## Status and doctor
 
 Bare `noon` and `noon status` show jobs, scheduler state, queued work, up to three notices, and
-one `Next:` step. JSON has `project`, `scheduler`, `service`, `jobs`, `queued`, `notices`, and
+one `Suggested action:` step. JSON has `project`, `scheduler`, `service`, `jobs`, `queued`, `notices`, and
 `next`. Notices rank config errors, scheduled projects not enabled, pending approvals, an offline
 enabled scheduler, orphaned runs, then queued work. An orphaned notice names each orphaned running
 run ID and job with its copyable `noon cancel ID` command and says it blocks background runs in
-the project. `Next:` prioritizes config check,
+the project. `Suggested action:` prioritizes config check,
 enablement, `noon service install` (or `noon serve` if installed), `noon cancel ID` for the lowest
-orphaned ID, then a runnable job or `noon add`. Scheduler startup takes precedence because it
+orphaned ID, then an unpaused runnable job or `noon add`. This is a command suggestion, not the
+next scheduled run; the table's `NEXT` column shows scheduling. Scheduler startup takes precedence because it
 recovers orphans. `noon list` shows the same jobs with commands and next-run times; its `LAST` value
 ignores noops, so a poll does not replace the latest result. A stale running last run is shown as
 `orphaned` with its elapsed time; the stored status remains `running`.

@@ -48,7 +48,7 @@ func TestUserJobsCLIFlow(t *testing.T) {
 	}
 
 	code, output := run(environment, "--user")
-	if code != 0 || !strings.Contains(output, "user ·") || !strings.Contains(output, "Next: noon --user add") {
+	if code != 0 || !strings.Contains(output, "user ·") || !strings.Contains(output, "Suggested action: noon --user add") {
 		t.Fatalf("empty user dashboard: exit=%d output=%s", code, output)
 	}
 	for _, path := range []string{configHome, stateHome, stateDir} {

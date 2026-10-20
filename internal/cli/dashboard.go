@@ -94,7 +94,7 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 		}
 		fmt.Fprintln(cmd.Writer, message)
 	}
-	fmt.Fprintln(cmd.Writer, "Next: "+style.render(humanText(view.Next), "heading"))
+	fmt.Fprintln(cmd.Writer, "Suggested action: "+style.render(humanText(view.Next), "heading"))
 	return nil
 }
 

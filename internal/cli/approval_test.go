@@ -140,7 +140,7 @@ func TestEnableApproval(t *testing.T) {
 	for _, args := range [][]string{{"list"}, {}} {
 		var out, stderr bytes.Buffer
 		args = append([]string{"noon", "--config", "explicit.yaml"}, args...)
-		if code := cli.Run(context.Background(), args, config.BuildOpts{}, &out, &stderr); code != 0 || !strings.Contains(out.String(), "needs approval") || strings.Count(out.String(), "Next: noon enable") != 1 {
+		if code := cli.Run(context.Background(), args, config.BuildOpts{}, &out, &stderr); code != 0 || !strings.Contains(out.String(), "needs approval") || strings.Count(out.String(), "Suggested action: noon enable") != 1 {
 			t.Fatalf("notice: %d %s %s", code, &out, &stderr)
 		}
 	}

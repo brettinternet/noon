@@ -287,7 +287,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			if err != nil {
 				return err
 			}
-			if strings.HasPrefix(hint, "Next: noon service install") {
+			if strings.HasPrefix(hint, "Suggested action: noon service install") {
 				next = "noon service install"
 			}
 		}
@@ -327,20 +327,20 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 			}
 		}
 		if view.Project.Scheduler == "running" {
-			fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon run "+name))
+			fmt.Fprintln(cmd.Writer, guidance(cmd, "Suggested action: noon run "+name))
 		} else {
 			hint, hintErr := serviceGuidance(updated.StateDir)
 			if hintErr != nil {
 				return hintErr
 			}
-			if strings.HasPrefix(hint, "Next: noon service install") {
-				fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Next: noon service install · noon run %s\n", name)))
+			if strings.HasPrefix(hint, "Suggested action: noon service install") {
+				fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Suggested action: noon service install · noon run %s\n", name)))
 			} else {
-				fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon run "+name))
+				fmt.Fprintln(cmd.Writer, guidance(cmd, "Suggested action: noon run "+name))
 			}
 		}
 	} else {
-		fmt.Fprintln(cmd.Writer, guidance(cmd, "Next: noon run "+name))
+		fmt.Fprintln(cmd.Writer, guidance(cmd, "Suggested action: noon run "+name))
 	}
 	return nil
 }
@@ -487,7 +487,7 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 }
 func printJobCandidates(cmd *urfave.Command, names []string) {
 	if len(names) == 0 {
-		fmt.Fprintln(cmd.Writer, guidance(cmd, "No jobs. Next: noon add tests -- go test ./..."))
+		fmt.Fprintln(cmd.Writer, guidance(cmd, "No jobs. Suggested action: noon add tests -- go test ./..."))
 		return
 	}
 	fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Choose a job: noon %s NAME\n", cmd.Name)))

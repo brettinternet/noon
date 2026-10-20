@@ -30,7 +30,7 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 			return emit(cmd, map[string]any{"runs": runs})
 		}
 		if len(runs) == 0 {
-			fmt.Fprintln(cmd.Writer, guidance(cmd, "No active runs. Next: noon run (list jobs to run)"))
+			fmt.Fprintln(cmd.Writer, guidance(cmd, "No active runs. Suggested action: noon run (list jobs to run)"))
 			return nil
 		}
 		style := styleFor(cmd, cmd.Writer)
@@ -42,7 +42,7 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 			}
 			fmt.Fprintln(cmd.Writer)
 		}
-		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Next: noon cancel %d\n", runs[0].ID)))
+		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Suggested action: noon cancel %d\n", runs[0].ID)))
 		return nil
 	}
 

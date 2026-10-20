@@ -749,7 +749,7 @@ func TestRunCommand(t *testing.T) {
 		stdout, stderr string
 		json           bool
 	}{
-		{"bare", []string{"run"}, 0, "Next: noon run h", "", false},
+		{"bare", []string{"run"}, 0, "Suggested action: noon run h", "", false},
 		{"bare json", []string{"run", "--json"}, 0, "description", "", true},
 		{"suggestion", []string{"--json", "run", "tset"}, 1, `"code":"not_found"`, "", true},
 		{"disabled", []string{"run", "disabled", "--json"}, 1, `"code":"disabled"`, "", true},
