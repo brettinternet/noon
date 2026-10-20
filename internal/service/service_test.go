@@ -22,7 +22,7 @@ func TestServiceRestart(t *testing.T) {
 			unit := Unit{Platform: platform, Path: filepath.Join(t.TempDir(), "unit"), Contents: []byte("new shell settings")}
 			runner := &restartRunner{}
 			err := Restart(t.Context(), unit, runner)
-			if err == nil || !strings.Contains(err.Error(), "noon service install") || len(runner.calls) != 0 {
+			if !errors.Is(err, ErrNotInstalled) || len(runner.calls) != 0 {
 				t.Fatalf("missing service: err=%v calls=%v", err, runner.calls)
 			}
 			if _, err := os.Stat(unit.Path); !os.IsNotExist(err) {

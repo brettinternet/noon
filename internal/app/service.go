@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/brettinternet/noon/internal/config"
 	process "github.com/brettinternet/noon/internal/runner"
-	"time"
-
 	"github.com/brettinternet/noon/internal/service"
 	"github.com/brettinternet/noon/internal/store"
 )
@@ -36,7 +35,8 @@ func InstallService(ctx context.Context, options service.Config, runner service.
 		return result, err
 	}
 	if !exists || !schedulerLive(record, now) {
-		result.Warning = "Running scheduler build is unavailable; use noon service restart explicitly after an upgrade."
+		// Install may have just started the current build; an older one may also be hung.
+		result.Warning = "No live scheduler was found before install; if an older build is still running, use noon service restart."
 		return result, nil
 	}
 	mismatch, known := compareSchedulerBuild(record, build)

@@ -71,6 +71,9 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 	return output, nil
 }
 
+// ErrNotInstalled reports an operation that requires an existing unit.
+var ErrNotInstalled = errors.New("service is not installed")
+
 type UnsupportedError struct{ Message string }
 
 func (e *UnsupportedError) Error() string { return e.Message }
@@ -399,7 +402,7 @@ func Restart(ctx context.Context, unit Unit, runner Runner) error {
 		return err
 	}
 	if !installed {
-		return fmt.Errorf("service is not installed: %s; run noon service install first", unit.Path)
+		return fmt.Errorf("%w: %s", ErrNotInstalled, unit.Path)
 	}
 	if unit.Platform == Launchd {
 		if _, err := runner.Run(ctx, "launchctl", "bootout", launchDomain(), unit.Path); err != nil && !notLoaded(err) {

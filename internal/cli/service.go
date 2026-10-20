@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -83,6 +84,9 @@ func restartService(ctx context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	path, err := app.RestartService(ctx, options, service.ExecRunner{})
+	if errors.Is(err, service.ErrNotInstalled) {
+		return &Error{Code: "service_not_installed", Message: err.Error(), Hint: "Run noon service install"}
+	}
 	if err != nil {
 		return serviceError(err)
 	}
@@ -135,8 +139,8 @@ func serviceStatus(ctx context.Context, cmd *urfave.Command) error {
 		installed = "yes"
 	}
 	fmt.Fprintf(cmd.Writer, "Installed:  %s\nUnit:       %s\nManager:    %s\nScheduler:  %s\n", installed, view.UnitPath, view.ManagerState, view.SchedulerState)
-	fmt.Fprintf(cmd.Writer, "Build:      version=%q commit=%q\n", view.SchedulerVersion, view.SchedulerCommit)
 	if view.SchedulerHeartbeat != nil {
+		fmt.Fprintf(cmd.Writer, "Build:      version=%q commit=%q\n", view.SchedulerVersion, view.SchedulerCommit)
 		fmt.Fprintf(cmd.Writer, "Heartbeat:  %s\n", view.SchedulerHeartbeat.Format(time.RFC3339))
 	}
 	if view.Drift {

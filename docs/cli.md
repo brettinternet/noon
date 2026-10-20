@@ -421,7 +421,8 @@ Warnings exit 0; failures exit 1. JSON has `ok` and `checks` (`name`, `status`, 
 
 `noon service restart` explicitly restarts the installed per-user scheduler after a same-path
 binary upgrade. It interrupts active jobs rather than draining them, uses the installed definition
-without rewriting its environment, and fails with install guidance if no unit exists.
+without rewriting its environment, and fails with error code `service_not_installed` and install
+guidance if no unit exists.
 JSON returns `restarted: true` and `unit_path`; manager failures return an error.
 
 Use `noon service install` for changed executable paths or captured environment settings.
