@@ -424,7 +424,12 @@ without rewriting its environment, and fails with install guidance if no unit ex
 JSON returns `restarted: true` and `unit_path`; manager failures return an error.
 
 Use `noon service install` for changed executable paths or captured environment settings.
-An unchanged running unit is left alone by install. To switch installation methods, invoke the
+For an unchanged unit, install restarts a verified service-owned scheduler only when a known
+version or commit differs. Matching builds remain running; unknown metadata needs explicit
+`service restart`. Upgrade-triggered restarts interrupt active jobs. Status and service inspection
+show the scheduler version and commit, while doctor reports `scheduler_version_mismatch`
+independently of configuration errors. These inspections and `install --print` are read-only.
+To switch installation methods, invoke the
 new executable's `service install` with the same state directory, `HOME`, and `XDG_CONFIG_HOME`
 to retain configuration and history. See [service upgrades](service.md#upgrades).
 

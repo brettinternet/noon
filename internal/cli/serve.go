@@ -13,7 +13,7 @@ import (
 	urfave "github.com/urfave/cli/v3"
 )
 
-func serveAction(version string) func(context.Context, *urfave.Command) error {
+func serveAction(build config.BuildOpts) func(context.Context, *urfave.Command) error {
 	return func(ctx context.Context, cmd *urfave.Command) error {
 		if cmd.Args().Len() != 0 {
 			return usageError("serve accepts no arguments", "Run noon serve")
@@ -58,7 +58,7 @@ func serveAction(version string) func(context.Context, *urfave.Command) error {
 		}
 		options := scheduler.ServeOptions{
 			StateDir: stateDir, StateDirDefault: values.StateDirDefault,
-			UserConfigDir: values.UserConfigDir, Version: version, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: listenAddr, APITokenFile: apiTokenFile,
+			UserConfigDir: values.UserConfigDir, Version: build.Version, Commit: build.Commit, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: listenAddr, APITokenFile: apiTokenFile,
 		}
 		if err := scheduler.Serve(ctx, options); err != nil {
 			var running *scheduler.SchedulerRunningError

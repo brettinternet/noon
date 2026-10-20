@@ -21,7 +21,8 @@ noon service uninstall        # stop and remove the unit; keep state and history
 - Your current `PATH`, and `XDG_CONFIG_HOME` if set. No other environment, so secrets aren't copied.
 
 Jobs run with that `PATH`. Re-run `noon service install` after changing any of these; an unchanged
-unit is left alone. `noon service` says when the installed unit is out of date.
+unit is not rewritten. Install also reconciles a known running-build mismatch (see below).
+`noon service` shows the scheduler version and commit and says when the installed unit is out of date.
 
 `${...}` in schedules and paths resolves only from a manifest's
 [`vars_file`](configuration.md#config-time-variables), never the process environment, so the
@@ -83,21 +84,35 @@ journalctl --user -u noon.service -f
 ## Upgrades
 
 Replacing the binary does not restart the running scheduler. After upgrading at the same path
-(for example, behind Homebrew's stable symlink), explicitly restart:
+(for example, behind Homebrew's stable symlink), explicitly reconcile the service:
 
 ```sh
 brew upgrade noon
-noon service restart
+noon service install
 ```
 
-Restart uses the installed definition, without rewriting its executable, state directory, or
+Alternatively, `noon service restart` uses the installed definition, without rewriting its executable, state directory, or
 captured environment. It refuses a missing service with `noon service install` guidance.
 **Restart interrupts active jobs; it does not wait for them to finish.** Choose a quiet time.
 Noon never restarts automatically on upgrade.
 
 For a changed executable path, `PATH`, `XDG_CONFIG_HOME`, or other unit settings, run
-`noon service install` instead. It reconciles and restarts changed units; an unchanged running
-unit is left alone, even if the binary behind its path has changed.
+`noon service install`. It reconciles and restarts changed units once. For an unchanged unit,
+it restarts only when a fresh scheduler record has a verified process identity, the service
+manager owns that PID, and a known version or commit differs from the invoking binary.
+Matching known builds remain running. Missing metadata or unknown development identifiers
+are not proof of a match; install reports explicit `noon service restart` guidance instead of
+guessing. A known differing field is sufficient even when the other is unavailable.
+Stale records and unrelated foreground schedulers cannot authorize a mismatch restart.
+First installs and stopped-service startup retain their normal behavior.
+
+**Install-triggered upgrade restarts also interrupt active jobs; they do not drain them.**
+No background upgrade watcher runs. `noon doctor` reports `scheduler_version_mismatch`
+with both builds and guidance, independently of genuine `scheduler_config` errors.
+`noon status` and `noon service` expose scheduler version and commit in human and JSON output;
+these inspections, doctor, and `install --print` never restart services or rewrite state.
+Older databases remain readable; an absent commit is shown as empty, not inferred.
+Rebuilt binaries with identical version and commit cannot be distinguished.
 
 ### Switching installation methods
 
@@ -111,7 +126,8 @@ both installations remain on `PATH`). Keep the same absolute state directory and
 Use the same `HOME` and `XDG_CONFIG_HOME` as before and preserve the existing configuration.
 The state directory retains registered projects, approvals, queued work, and run history; no
 copying or relocation is needed. A changed unit restarts the scheduler and interrupts active jobs.
-If its contents are unchanged, use `service restart` explicitly. Remove the old installation only
+If its contents are unchanged, install reconciles known build differences as above; use
+`service restart` explicitly when build metadata is unknown. Remove the old installation only
 after the installed unit points to the new executable.
 
 Job configuration reloads every two seconds; `vars_file` edits reload too. `env_file` is read at

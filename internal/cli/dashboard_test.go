@@ -16,6 +16,7 @@ import (
 
 	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/service"
 	"github.com/brettinternet/noon/internal/store"
 	urfave "github.com/urfave/cli/v3"
@@ -49,7 +50,9 @@ func diagnosticCommand(t *testing.T, doctor bool, jsonMode bool) (int, string) {
 	if doctor {
 		for _, cmd := range root.Commands {
 			if cmd.Name == "doctor" {
-				cmd.Action = func(ctx context.Context, cmd *urfave.Command) error { return doctorAt(ctx, cmd, diagnosticNow) }
+				cmd.Action = func(ctx context.Context, cmd *urfave.Command) error {
+					return doctorAt(ctx, cmd, diagnosticNow, config.BuildOpts{})
+				}
 			}
 		}
 		args = append(args, "doctor")
@@ -98,6 +101,64 @@ func diagnosticState(t *testing.T, cfg config.Config, fresh bool) *store.Store {
 		}
 	}
 	return state
+}
+
+// Build mismatch must be visible alongside genuine config errors, without changing state.
+func TestDoctorSchedulerBuild(t *testing.T) {
+	root := diagnosticSandbox(t)
+	cfg := diagnosticConfig(t, root, "version: 1\njobs: {}\n")
+	state := diagnosticState(t, cfg, false)
+	identity, err := runner.ProcessStartIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := store.SchedulerRecord{PID: os.Getpid(), StartIdentity: identity, Version: "1.0.0", Commit: "oldcommit", StartedAt: store.FormatTime(diagnosticNow), HeartbeatAt: store.FormatTime(diagnosticNow)}
+	if err := state.SetScheduler(record); err != nil {
+		t.Fatal(err)
+	}
+	projects, err := state.ProjectRecords()
+	if err != nil || len(projects) != 1 {
+		t.Fatalf("projects=%v err=%v", projects, err)
+	}
+	if err := state.SetProjectConfigError(projects[0].ID, "old scheduler rejected config"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(cfg.StateDir, "noon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, jsonMode := range []bool{false, true} {
+		var out, stderr bytes.Buffer
+		command := NewRootCommand(config.BuildOpts{}, &out, &stderr)
+		for _, cmd := range command.Commands {
+			if cmd.Name == "doctor" {
+				cmd.Action = func(ctx context.Context, cmd *urfave.Command) error {
+					return doctorAt(ctx, cmd, diagnosticNow, config.BuildOpts{Version: "1.1.0", Commit: "newcommit"})
+				}
+			}
+		}
+		args := []string{"noon", "doctor"}
+		if jsonMode {
+			args = append(args, "--json")
+		}
+		_ = command.Run(t.Context(), args)
+		for _, want := range []string{"scheduler_version_mismatch", "scheduler_config", "oldcommit", "newcommit", "service install"} {
+			if !strings.Contains(out.String(), want) {
+				t.Fatalf("missing %q: %s %s", want, &out, &stderr)
+			}
+		}
+		_, dashboard := diagnosticCommand(t, false, jsonMode)
+		if !strings.Contains(dashboard, "oldcommit") || !strings.Contains(dashboard, "1.0.0") {
+			t.Fatalf("dashboard missing build: %s", dashboard)
+		}
+	}
+	after, err := os.ReadFile(filepath.Join(cfg.StateDir, "noon.db"))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("read-only diagnostics changed state: %v", err)
+	}
 }
 
 func TestDashboard(t *testing.T) {

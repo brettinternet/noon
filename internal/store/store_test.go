@@ -807,7 +807,7 @@ VALUES(?, ?, ?, 'manual', 'old-definition', ?, ?)`, projectID, job, status, Form
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 11 {
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) {
 			t.Fatalf("user_version=%d err=%v", version, err)
 		}
 		for _, statement := range []string{
@@ -931,8 +931,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 0)
 			t.Fatal(err)
 		}
 		defer writer.Close()
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 11 {
-			t.Fatalf("writer user_version=%d err=%v, want migration to 11", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) {
+			t.Fatalf("writer user_version=%d err=%v, want latest schema", version, err)
 		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.LogOverflow || migrated.AgentSessionID.Valid {
@@ -1004,6 +1004,9 @@ VALUES(1, 'previous', 'succeeded', 'manual', 'digest', ?, ?, 'logs/1/1.log', 3, 
 VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?)`, created, created); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := db.Exec("INSERT INTO scheduler VALUES(1, 123, 'legacy-start', '1.0.0', ?, ?)", created, created); err != nil {
+			t.Fatal(err)
+		}
 		if err := db.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -1011,6 +1014,10 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?)`, created, created); 
 		reader, err := OpenExisting(dir)
 		if err != nil {
 			t.Fatal(err)
+		}
+		record, exists, err := reader.SchedulerInfo()
+		if err != nil || !exists || record.Version != "1.0.0" || record.Commit != "" {
+			t.Fatalf("legacy scheduler=%+v exists=%v err=%v", record, exists, err)
 		}
 		legacy, err := reader.RunByID(1)
 		if err != nil || legacy.AgentSessionID.Valid {
@@ -1029,12 +1036,20 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?)`, created, created); 
 			t.Fatal(err)
 		}
 		defer writer.Close()
+		record.Commit = "newcommit"
+		if err := writer.SetScheduler(record); err != nil {
+			t.Fatal(err)
+		}
+		saved, exists, err := writer.SchedulerInfo()
+		if err != nil || !exists || saved != record {
+			t.Fatalf("migrated scheduler=%+v exists=%v err=%v", saved, exists, err)
+		}
 		migrated, err := writer.RunByID(1)
 		if err != nil || migrated.AgentSessionID.Valid {
 			t.Fatalf("migrated v10 run = %+v err=%v, want null session ID", migrated, err)
 		}
-		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 11 {
-			t.Fatalf("migrated user_version=%d err=%v, want 11", version, err)
+		if err := writer.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) {
+			t.Fatalf("migrated user_version=%d err=%v, want latest schema", version, err)
 		}
 	})
 
@@ -1045,7 +1060,7 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?)`, created, created); 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec("PRAGMA user_version=12"); err != nil {
+		if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version=%d", len(migrations)+1)); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Close(); err != nil {
@@ -1057,8 +1072,8 @@ VALUES(1, 'legacy', 'succeeded', 'manual', 'digest', ?, ?)`, created, created); 
 		}
 		_, err = Open(dir)
 		var newer *StateTooNewError
-		if !errors.As(err, &newer) || newer.Version != 12 {
-			t.Fatalf("Open error = %v, want StateTooNewError(12)", err)
+		if !errors.As(err, &newer) || newer.Version != len(migrations)+1 {
+			t.Fatalf("Open error = %v, want StateTooNewError for next schema", err)
 		}
 		after, err := os.ReadFile(path)
 		if err != nil {

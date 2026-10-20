@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/cli"
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/service"
 	"github.com/brettinternet/noon/internal/store"
 )
@@ -172,7 +174,7 @@ func TestServiceCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	if err := database.SetScheduler(store.SchedulerRecord{PID: 123, StartIdentity: "test", Version: "test", StartedAt: store.FormatTime(now), HeartbeatAt: store.FormatTime(now)}); err != nil {
+	if err := database.SetScheduler(store.SchedulerRecord{PID: 123, StartIdentity: "test", Version: "test", Commit: "testcommit", StartedAt: store.FormatTime(now), HeartbeatAt: store.FormatTime(now)}); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.Close(); err != nil {
@@ -181,7 +183,7 @@ func TestServiceCommands(t *testing.T) {
 	out.Reset()
 	stderr.Reset()
 	code = cli.Run(context.Background(), []string{"noon", "--state-dir", "relative-state", "service"}, config.BuildOpts{Version: "test"}, &out, &stderr)
-	if code != 0 || !strings.Contains(out.String(), "Installed:  yes") || !strings.Contains(out.String(), "Scheduler:  running") || !strings.Contains(out.String(), "Heartbeat:") {
+	if code != 0 || !strings.Contains(out.String(), "Installed:  yes") || !strings.Contains(out.String(), "Scheduler:  running") || !strings.Contains(out.String(), "Heartbeat:") || !strings.Contains(out.String(), `version="test" commit="testcommit"`) {
 		t.Fatalf("service status: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
 	}
 	// Captured PATH differs between shells; only executable and state directory drift.
@@ -199,7 +201,7 @@ func TestServiceCommands(t *testing.T) {
 	out.Reset()
 	stderr.Reset()
 	code = cli.Run(context.Background(), []string{"noon", "--state-dir", "relative-state", "service", "--json"}, config.BuildOpts{Version: "test"}, &out, &stderr)
-	if code != 0 || !strings.Contains(out.String(), "\"drift\":true") || !strings.Contains(out.String(), "noon service install") {
+	if code != 0 || !strings.Contains(out.String(), "\"drift\":true") || !strings.Contains(out.String(), "noon service install") || !strings.Contains(out.String(), `"scheduler_version":"test","scheduler_commit":"testcommit"`) {
 		t.Fatalf("drift status: exit=%d stdout=%s stderr=%s", code, &out, &stderr)
 	}
 	// A failed update must retain the previous unit so retry replaces the old
@@ -312,9 +314,129 @@ func TestServiceCommands(t *testing.T) {
 	}
 }
 
+// Same-path upgrades must restart once, without interrupting matching or unrelated processes.
+func TestInstallReconcilesSchedulerBuild(t *testing.T) {
+	root := sandbox(t)
+	binDir := filepath.Join(root, "fake-bin")
+	if err := os.Mkdir(binDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"launchctl", "systemctl", "loginctl"} {
+		writeFakeManager(t, binDir, name)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	managerLog := filepath.Join(root, "manager.log")
+	t.Setenv("NOON_SERVICE_LOG", managerLog)
+	t.Setenv("NOON_SERVICE_PID", strconv.Itoa(os.Getpid()))
+	options, err := service.CurrentConfig(filepath.Join(root, "state-build"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit, err := service.CurrentUnit(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	build := config.BuildOpts{Version: "1.2.0", Commit: "abcdef123"}
+	if _, err := app.InstallService(t.Context(), options, service.ExecRunner{}, build, now); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.Open(options.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	identity, err := runner.ProcessStartIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, version, commit                                                     string
+		stale, stopped, unrelated, wrongIdentity, changed, fail, restart, warning bool
+	}{
+		{name: "matching", version: build.Version, commit: build.Commit},
+		{name: "version mismatch", version: "1.1.0", commit: build.Commit, restart: true},
+		{name: "commit mismatch", version: build.Version, commit: "oldcommit", restart: true},
+		{name: "legacy version mismatch", version: "1.1.0", restart: true},
+		{name: "unknown", version: "dev", commit: "unknown", warning: true},
+		{name: "legacy missing commit", version: build.Version, warning: true},
+		{name: "stale", version: "1.1.0", stale: true, warning: true},
+		{name: "stopped service", version: "1.1.0", stale: true, stopped: true, warning: true},
+		{name: "foreground", version: "1.1.0", unrelated: true, warning: true},
+		{name: "reused PID", version: "1.1.0", wrongIdentity: true, warning: true},
+		{name: "changed unit", version: "1.1.0", changed: true},
+		{name: "restart failure", version: "1.1.0", fail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			record := store.SchedulerRecord{PID: os.Getpid(), StartIdentity: identity, Version: tc.version, Commit: tc.commit, StartedAt: store.FormatTime(now), HeartbeatAt: store.FormatTime(now)}
+			if tc.stale {
+				record.HeartbeatAt = store.FormatTime(now.Add(-time.Minute))
+			}
+			if tc.wrongIdentity {
+				record.StartIdentity = "unrelated-start"
+			}
+			if err := state.SetScheduler(record); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("NOON_SERVICE_PID", strconv.Itoa(record.PID))
+			t.Setenv("NOON_SERVICE_STOPPED", "")
+			if tc.stopped {
+				t.Setenv("NOON_SERVICE_STOPPED", "yes")
+			}
+			if tc.unrelated {
+				t.Setenv("NOON_SERVICE_PID", "1")
+			}
+			operation := "restart"
+			if unit.Platform == service.Launchd {
+				operation = "bootout"
+			}
+			t.Setenv("NOON_FAIL_OPERATION", "")
+			if tc.fail {
+				t.Setenv("NOON_FAIL_OPERATION", operation)
+			}
+			if tc.changed {
+				if err := os.WriteFile(unit.Path, []byte("old unit"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := len(readManagerLog(t, managerLog))
+			result, err := app.InstallService(t.Context(), options, service.ExecRunner{}, build, now)
+			if (err != nil) != tc.fail {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			if result.Restarted != tc.restart || (result.Warning != "") != tc.warning {
+				t.Fatalf("result=%+v", result)
+			}
+			calls := readManagerLog(t, managerLog)[before:]
+			count := 0
+			for _, call := range calls {
+				if strings.Contains(call, "\t"+operation+"\t") {
+					count++
+				}
+			}
+			want := 0
+			if tc.restart || tc.changed || tc.fail {
+				want = 1
+			}
+			if count != want {
+				t.Fatalf("restart count=%d want=%d: %v", count, want, calls)
+			}
+			if tc.stopped {
+				start := "\tbootstrap\t"
+				if unit.Platform == service.Systemd {
+					start = "\tenable\t--now\t"
+				}
+				if strings.Count(strings.Join(calls, "\n"), start) != 1 {
+					t.Fatalf("stopped service not started once: %v", calls)
+				}
+			}
+		})
+	}
+}
+
 func writeFakeManager(t *testing.T, binDir, name string) {
 	t.Helper()
-	script := "#!/bin/sh\nprintf '%s' \"${0##*/}\" >> \"$NOON_SERVICE_LOG\"\nfor argument do printf '\\t%s' \"$argument\" >> \"$NOON_SERVICE_LOG\"; done\nprintf '\\n' >> \"$NOON_SERVICE_LOG\"\nif [ \"$1\" = --user ]; then shift; fi\nif [ -n \"$NOON_FAIL_OPERATION\" ] && [ \"$1\" = \"$NOON_FAIL_OPERATION\" ]; then printf 'manager update failed\\n' >&2; exit 1; fi\ncase \"$1\" in\n  print) printf 'state = running\\n' ;;\n  show-environment) if [ \"$NOON_NO_MANAGER\" = yes ]; then printf 'systemd user manager unavailable\\n' >&2; exit 1; fi; printf 'PATH=%s\\n' \"$PATH\" ;;\n  is-active) printf 'active\\n' ;;\n  show-user) printf 'no\\n' ;;\nesac\n"
+	script := "#!/bin/sh\nprintf '%s' \"${0##*/}\" >> \"$NOON_SERVICE_LOG\"\nfor argument do printf '\\t%s' \"$argument\" >> \"$NOON_SERVICE_LOG\"; done\nprintf '\\n' >> \"$NOON_SERVICE_LOG\"\nif [ \"$1\" = --user ]; then shift; fi\nif [ -n \"$NOON_FAIL_OPERATION\" ] && [ \"$1\" = \"$NOON_FAIL_OPERATION\" ]; then printf 'manager update failed\\n' >&2; exit 1; fi\ncase \"$1\" in\n  print) if [ \"$NOON_SERVICE_STOPPED\" = yes ]; then printf 'Could not find service\\n' >&2; exit 1; fi; printf 'state = running\\n\\tpid = %s\\n' \"$NOON_SERVICE_PID\" ;;\n  show) printf '%s\\n' \"$NOON_SERVICE_PID\" ;;\n  show-environment) if [ \"$NOON_NO_MANAGER\" = yes ]; then printf 'systemd user manager unavailable\\n' >&2; exit 1; fi; printf 'PATH=%s\\n' \"$PATH\" ;;\n  is-active) printf 'active\\n' ;;\n  show-user) printf 'no\\n' ;;\nesac\n"
 	if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}

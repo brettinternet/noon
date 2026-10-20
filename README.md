@@ -55,9 +55,9 @@ Installing a binary never installs or starts a scheduler service. Set up backgro
 explicitly with `noon service install` after installation; use `noon serve` to run it in the
 foreground instead.
 
-After a same-path binary upgrade, run `noon service restart` explicitly: it interrupts active
-jobs rather than draining them. Changed executable paths or captured environment settings need
-`noon service install`. When switching installation methods, invoke the new executable's
+After an upgrade, run `noon service install` explicitly: it reconciles changed units and known
+running-build mismatches. Restarts interrupt active jobs rather than draining them. Unknown build
+metadata needs explicit `noon service restart`; matching known builds remain running. When switching installation methods, invoke the new executable's
 `service install` with the same state directory and config location to retain history and settings.
 Job config reloads automatically and `env_file` is read at run start; neither needs restart.
 Changed shared jobs still need `noon enable`. See [upgrades and migration](docs/service.md#upgrades).

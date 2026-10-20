@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/brettinternet/noon/internal/app"
+	"github.com/brettinternet/noon/internal/config"
 	"github.com/charmbracelet/x/term"
 	urfave "github.com/urfave/cli/v3"
 )
@@ -50,6 +51,9 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 	}
 	style := styleFor(cmd, cmd.Writer)
 	style.printBoundedRows(cmd.Writer, [][]tableCell{{{view.Project.Name, "heading"}, {view.Project.Path, ""}, {"scheduler " + view.Scheduler.State, view.Scheduler.State}, {view.Project.Timezone, ""}}}, " · ", outputWidth(cmd.Writer))
+	if view.Scheduler.HeartbeatAt != nil {
+		fmt.Fprintf(cmd.Writer, "Scheduler build: version=%q commit=%q\n", view.Scheduler.Version, view.Scheduler.Commit)
+	}
 	rows := [][]tableCell{{{"JOB", "heading"}, {"SCHEDULE", "heading"}, {"NEXT", "heading"}, {"LAST", "heading"}}}
 	for _, job := range view.Jobs {
 		schedule, next := "manual", "-"
@@ -169,8 +173,7 @@ func (s humanStyle) printBoundedRows(out io.Writer, rows [][]tableCell, separato
 	}
 }
 
-func doctor(ctx context.Context, cmd *urfave.Command) error { return doctorAt(ctx, cmd, time.Now()) }
-func doctorAt(ctx context.Context, cmd *urfave.Command, now time.Time) error {
+func doctorAt(ctx context.Context, cmd *urfave.Command, now time.Time, build config.BuildOpts) error {
 	if err := noArgs(cmd); err != nil {
 		return err
 	}
@@ -178,7 +181,7 @@ func doctorAt(ctx context.Context, cmd *urfave.Command, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	result := app.Doctor(ctx, values, now)
+	result := app.Doctor(ctx, values, now, build)
 	for i := range result.Checks {
 		result.Checks[i].Hint = guidance(cmd, result.Checks[i].Hint)
 	}

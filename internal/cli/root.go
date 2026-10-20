@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/brettinternet/noon/internal/config"
 	urfave "github.com/urfave/cli/v3"
@@ -87,19 +88,19 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks and an authenticated API with --listen", Description: "Runs in the foreground until stopped. Uses each enabled project's recorded configuration, including the user project. Accepts --state-dir, --listen, and --api-token-file; rejects --user, --project, --config, --timezone, and --json. No HTTP listener starts by default. --api-token-file requires --listen.\n\nExamples:\n  noon serve\n  noon serve --listen 127.0.0.1:8080\n  noon serve --listen 127.0.0.1:8080 --api-token-file /run/secrets/noon-api-token", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "listen", Usage: "Listen for signed webhooks at `ADDR`; no listener starts without this flag"},
 				&urfave.StringFlag{Name: "api-token-file", Usage: "Read a bearer token from `FILE` and enable the authenticated API and MCP over HTTP; requires --listen"},
-			}, Action: serveAction(build.Version)},
+			}, Action: serveAction(build)},
 			{Name: "mcp", Usage: "Serve MCP tools over stdio", Action: mcpCommand(build.Version)},
 			{Name: "tui", Usage: "Open the keyboard-driven jobs, runs, and logs view", Description: "Requires terminal stdin and stdout; --json is not supported. Inspect the current project and safely queue, pause, or cancel work. Log views show local receipt timestamps by default; t toggles them. Keys: j/k or arrows move, enter opens runs, l opens logs, / searches, s changes log sections, f filters runs, r queues, p pauses, c cancels after confirmation, g/G jump through logs, ? shows help, q quits. Never adds, edits, enables, or approves jobs.", Action: tuiAction},
 			{Name: "skill", Usage: "Print the shell-only agent skill", Action: showSkill},
 			{Name: "service", Usage: "Inspect or manage the per-user scheduler service", Action: serviceStatus, Commands: []*urfave.Command{
-				{Name: "install", Usage: "Install and start the per-user scheduler service", Flags: []urfave.Flag{
+				{Name: "install", Usage: "Install or reconcile the scheduler unit and running build", Description: "Changed units and known running-build mismatches restart the service, interrupting active jobs. Matching builds are left running. Unknown build metadata needs explicit service restart. --print is read-only.", Flags: []urfave.Flag{
 					&urfave.BoolFlag{Name: "print", Usage: "Print the service unit without installing or starting it"},
-				}, Action: installService},
+				}, Action: func(ctx context.Context, cmd *urfave.Command) error { return installService(ctx, cmd, build) }},
 				{Name: "restart", Usage: "Explicitly restart the installed scheduler, interrupting active jobs", Description: "Restart using the installed service definition without rewriting its environment. Active jobs are interrupted, not drained. After a same-path binary upgrade, restart explicitly; use service install for changed executable paths or environment settings. A missing service must be installed first.", Action: restartService},
 				{Name: "uninstall", Usage: "Stop and remove the per-user scheduler service", Action: uninstallService},
 			}},
 			{Name: "status", Usage: "Show the project dashboard without running anything", Action: status},
-			{Name: "doctor", Usage: "Diagnose setup with read-only checks; exit 1 if a check fails", Action: doctor},
+			{Name: "doctor", Usage: "Diagnose setup with read-only checks; exit 1 if a check fails", Action: func(ctx context.Context, cmd *urfave.Command) error { return doctorAt(ctx, cmd, time.Now(), build) }},
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "wide", Usage: "Show complete names, schedules, and commands without truncation"},
 			}, Action: listJobs},

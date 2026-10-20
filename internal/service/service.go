@@ -45,6 +45,8 @@ type InstallResult struct {
 	UnitPath       string
 	Changed        bool
 	LingerDisabled bool
+	Restarted      bool
+	Warning        string
 }
 
 type Status struct {
@@ -411,6 +413,38 @@ func Restart(ctx context.Context, unit Unit, runner Runner) error {
 	}
 	_, err = runner.Run(ctx, "systemctl", "--user", "restart", SystemdUnit)
 	return err
+}
+
+// RunningPID identifies the process owned by this manager unit, not any foreground scheduler.
+// Unknown or stopped units return zero; unexpected manager failures propagate.
+func RunningPID(ctx context.Context, unit Unit, runner Runner) (int, error) {
+	if unit.Platform == Systemd {
+		output, err := runner.Run(ctx, "systemctl", "--user", "show", "--property=MainPID", "--value", SystemdUnit)
+		if err != nil {
+			return 0, err
+		}
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(output)))
+		return pid, nil
+	}
+	if unit.Platform != Launchd {
+		return 0, &UnsupportedError{Message: "unsupported service platform"}
+	}
+	output, err := runner.Run(ctx, "launchctl", "print", launchDomain()+"/"+LaunchdLabel)
+	if err != nil {
+		if notLoaded(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	// launchctl's service fields have one tab of indentation. Ignore nested
+	// dictionaries, which can contain unrelated process IDs.
+	for _, line := range strings.Split(string(output), "\n") {
+		if strings.HasPrefix(line, "\tpid = ") {
+			pid, _ := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "\tpid = ")))
+			return pid, nil
+		}
+	}
+	return 0, nil
 }
 
 func IsInstalled(config Config) (string, bool, error) {

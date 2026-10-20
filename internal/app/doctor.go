@@ -29,7 +29,7 @@ type DoctorView struct {
 }
 
 // Doctor checks setup without executing jobs, creating state, or fixing anything.
-func Doctor(ctx context.Context, input config.Input, now time.Time) DoctorView {
+func Doctor(ctx context.Context, input config.Input, now time.Time, build config.BuildOpts) DoctorView {
 	result := DoctorView{OK: true, Checks: []Check{}}
 	add := func(name, status, message, hint string) {
 		result.Checks = append(result.Checks, Check{name, status, message, hint})
@@ -104,6 +104,15 @@ func Doctor(ctx context.Context, input config.Input, now time.Time) DoctorView {
 				} else {
 					add("scheduler", "ok", "Scheduler running or project not enabled", "")
 				}
+			}
+		}
+		if record, exists, err := schedulerRecord(view.StateDir); err == nil && exists && schedulerLive(record, now) {
+			mismatch, known := compareSchedulerBuild(record, build)
+			hint := "Run noon service install to reconcile a service-owned scheduler, or restart its foreground supervisor; restarts interrupt active jobs"
+			if mismatch {
+				add("scheduler_version_mismatch", "warn", schedulerBuildMessage(record, build), hint)
+			} else if !known {
+				add("scheduler_build_unknown", "warn", schedulerBuildMessage(record, build), "Build metadata is unknown; run noon service restart explicitly for an installed service, or restart its foreground supervisor")
 			}
 		}
 		options, err := service.CurrentConfig(view.StateDir)

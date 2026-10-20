@@ -33,6 +33,7 @@ type ServeOptions struct {
 	StateDirDefault string
 	UserConfigDir   string
 	Version         string
+	Commit          string
 	Environment     []string
 	Now             func() time.Time
 	Ticks           <-chan time.Time
@@ -151,7 +152,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 	if err := lock.writeOwner(pid, identity, startedAt); err != nil {
 		return err
 	}
-	record := store.SchedulerRecord{PID: pid, StartIdentity: identity, Version: options.Version, StartedAt: startedAt, HeartbeatAt: startedAt}
+	record := store.SchedulerRecord{PID: pid, StartIdentity: identity, Version: options.Version, Commit: options.Commit, StartedAt: startedAt, HeartbeatAt: startedAt}
 	if err := state.SetScheduler(record); err != nil {
 		return fmt.Errorf("record scheduler owner: %w", err)
 	}

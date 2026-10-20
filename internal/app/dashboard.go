@@ -23,6 +23,8 @@ type DashboardProject struct {
 type SchedulerView struct {
 	State       string     `json:"state"`
 	PID         int        `json:"pid"`
+	Version     string     `json:"version"`
+	Commit      string     `json:"commit"`
 	HeartbeatAt *time.Time `json:"heartbeat_at"`
 }
 type DashboardService struct {
@@ -124,6 +126,8 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 		}
 		if exists {
 			result.Scheduler.PID = record.PID
+			result.Scheduler.Version = record.Version
+			result.Scheduler.Commit = record.Commit
 			if at, err := time.Parse(store.TimestampLayout, record.HeartbeatAt); err == nil {
 				result.Scheduler.HeartbeatAt = &at
 			}

@@ -78,20 +78,23 @@ ALTER TABLE runs ADD COLUMN hook_log_offset INTEGER;
 SELECT 1;
 `, `
 ALTER TABLE runs ADD COLUMN agent_session_id TEXT;
+`, `
+ALTER TABLE scheduler ADD COLUMN build_commit TEXT NOT NULL DEFAULT '';
 `}
 
 type Store struct {
-	dir               string
-	db                *sql.DB
-	hasLogOverflow    bool
-	hasApprovals      bool
-	hasScheduler      bool
-	hasQueue          bool
-	hasPauses         bool
-	hasHooks          bool
-	hasTriggers       bool
-	hasHookLogOffset  bool
-	hasAgentSessionID bool
+	dir                string
+	db                 *sql.DB
+	hasLogOverflow     bool
+	hasApprovals       bool
+	hasScheduler       bool
+	hasQueue           bool
+	hasPauses          bool
+	hasHooks           bool
+	hasTriggers        bool
+	hasHookLogOffset   bool
+	hasSchedulerCommit bool
+	hasAgentSessionID  bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -331,6 +334,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasTriggers = version >= 8
 		state.hasHookLogOffset = version >= 9
 		state.hasAgentSessionID = version >= 11
+		state.hasSchedulerCommit = version >= 12
 		return state, nil
 	}
 	for {
@@ -373,6 +377,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasTriggers = true
 	state.hasHookLogOffset = true
 	state.hasAgentSessionID = true
+	state.hasSchedulerCommit = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}

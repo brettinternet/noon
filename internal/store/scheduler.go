@@ -84,6 +84,7 @@ type SchedulerRecord struct {
 	PID           int
 	StartIdentity string
 	Version       string
+	Commit        string
 	StartedAt     string
 	HeartbeatAt   string
 }
@@ -130,7 +131,11 @@ func (s *Store) SchedulerInfo() (SchedulerRecord, bool, error) {
 		return SchedulerRecord{}, false, nil
 	}
 	var record SchedulerRecord
-	err := s.db.QueryRow(`SELECT pid, start_identity, version, started_at, heartbeat_at FROM scheduler WHERE id=1`).Scan(&record.PID, &record.StartIdentity, &record.Version, &record.StartedAt, &record.HeartbeatAt)
+	commit := `''`
+	if s.hasSchedulerCommit {
+		commit = `build_commit`
+	}
+	err := s.db.QueryRow(`SELECT pid, start_identity, version, started_at, heartbeat_at, `+commit+` FROM scheduler WHERE id=1`).Scan(&record.PID, &record.StartIdentity, &record.Version, &record.StartedAt, &record.HeartbeatAt, &record.Commit)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SchedulerRecord{}, false, nil
 	}
@@ -176,8 +181,8 @@ func (s *Store) SetScheduler(record SchedulerRecord) error {
 	if !s.hasScheduler {
 		return errors.New("scheduler state is unavailable")
 	}
-	_, err := s.db.Exec(`INSERT INTO scheduler(id, pid, start_identity, version, started_at, heartbeat_at) VALUES(1, ?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET pid=excluded.pid, start_identity=excluded.start_identity, version=excluded.version, started_at=excluded.started_at, heartbeat_at=excluded.heartbeat_at`, record.PID, record.StartIdentity, record.Version, record.StartedAt, record.HeartbeatAt)
+	_, err := s.db.Exec(`INSERT INTO scheduler(id, pid, start_identity, version, started_at, heartbeat_at, build_commit) VALUES(1, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET pid=excluded.pid, start_identity=excluded.start_identity, version=excluded.version, started_at=excluded.started_at, heartbeat_at=excluded.heartbeat_at, build_commit=excluded.build_commit`, record.PID, record.StartIdentity, record.Version, record.StartedAt, record.HeartbeatAt, record.Commit)
 	return err
 }
 

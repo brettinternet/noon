@@ -33,7 +33,7 @@ func TestWebhookSecretSnapshotAndDiagnostics(t *testing.T) {
 	if err != nil || !strings.Contains(dashboard.Project.ConfigError, "HOOK_SECRET") {
 		t.Fatalf("dashboard webhook diagnostic = %+v err=%v", dashboard.Project, err)
 	}
-	doctor := app.Doctor(context.Background(), input, serveTestStart)
+	doctor := app.Doctor(context.Background(), input, serveTestStart, config.BuildOpts{})
 	found := false
 	for _, check := range doctor.Checks {
 		if check.Name == "scheduler_config" && check.Status == "fail" && strings.Contains(check.Message, "HOOK_SECRET") {

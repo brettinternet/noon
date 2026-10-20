@@ -44,7 +44,7 @@ func serviceOptions(cmd *urfave.Command) (service.Config, error) {
 	return options, nil
 }
 
-func installService(ctx context.Context, cmd *urfave.Command) error {
+func installService(ctx context.Context, cmd *urfave.Command, build config.BuildOpts) error {
 	options, err := serviceOptions(cmd)
 	if err != nil {
 		return err
@@ -57,14 +57,20 @@ func installService(ctx context.Context, cmd *urfave.Command) error {
 		_, err = cmd.Writer.Write(unit.Contents)
 		return err
 	}
-	result, err := app.InstallService(ctx, options, service.ExecRunner{})
+	result, err := app.InstallService(ctx, options, service.ExecRunner{}, build, time.Now())
 	if err != nil {
 		return serviceError(err)
 	}
 	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"installed": true, "unit_path": result.UnitPath, "changed": result.Changed, "linger_disabled": result.LingerDisabled})
+		return emit(cmd, map[string]any{"installed": true, "unit_path": result.UnitPath, "changed": result.Changed, "linger_disabled": result.LingerDisabled, "restarted": result.Restarted, "warning": guidance(cmd, result.Warning)})
 	}
 	fmt.Fprintf(cmd.Writer, "Installed service · %s\n", result.UnitPath)
+	if result.Restarted {
+		fmt.Fprintln(cmd.Writer, "Restarted outdated scheduler; active jobs were interrupted.")
+	}
+	if result.Warning != "" {
+		fmt.Fprintln(cmd.Writer, guidance(cmd, result.Warning))
+	}
 	if result.LingerDisabled {
 		fmt.Fprintln(cmd.Writer, "Hint: run loginctl enable-linger to keep schedules alive without an interactive login.")
 	}
@@ -129,6 +135,7 @@ func serviceStatus(ctx context.Context, cmd *urfave.Command) error {
 		installed = "yes"
 	}
 	fmt.Fprintf(cmd.Writer, "Installed:  %s\nUnit:       %s\nManager:    %s\nScheduler:  %s\n", installed, view.UnitPath, view.ManagerState, view.SchedulerState)
+	fmt.Fprintf(cmd.Writer, "Build:      version=%q commit=%q\n", view.SchedulerVersion, view.SchedulerCommit)
 	if view.SchedulerHeartbeat != nil {
 		fmt.Fprintf(cmd.Writer, "Heartbeat:  %s\n", view.SchedulerHeartbeat.Format(time.RFC3339))
 	}
