@@ -1,10 +1,10 @@
 ---
 id: NOON-66
 title: Restart the scheduler explicitly after upgrades and document install migration
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-20 22:54'
-updated_date: '2026-10-20 23:13'
+updated_date: '2026-10-20 23:16'
 labels: []
 dependencies:
   - NOON-11
@@ -47,11 +47,11 @@ Modified-file contract: listed paths plus this Backlog record; justify any expan
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
 
 ## Implementation Notes
@@ -66,4 +66,12 @@ AC#2: same TestService command -> exit 0 with unchanged install, changed install
 AC#3: task cli:build -> exit 0; env -i PATH="$PATH" HOME=<fresh mktemp directory> bin/noon service restart --help -> exit 0, explicit restart and active-job interruption documented. Shell safety guard required creating the temporary directory in a separate command rather than inline substitution.
 AC#4: git diff --check -> exit 0; README.md, docs/service.md, docs/cli.md, docs/design.md and help document explicit upgrades, changed-unit install, same-state/config migration, config/env-file reload and shared approval, with no drain or version detection promises.
 Validation: task ci -> exit 0 (security, formatting, vet, staticcheck, all tests, race tests, smoke); all modified Go LSP diagnostics clean. First CI invocation hit tool timeout during race tests; rerun completed successfully. No tests deleted, skipped, or weakened. Independent scoped review pending; next commit/integrate and run CI on final commit.
+
+Delivery: implementation b689623c50d6aa69b2a250358c0c7435b1e5a02a merged into main as 7deeb14853fd3ed161d4ed83a53f285d45ce095e. task check:staged passed before commits; task ci passed on merged commit 7deeb14. Independent reviewer completed one scoped review: no validated findings. All acceptance criteria and DoD satisfied; no remaining blocker or resumable implementation step. Final bookkeeping commit receives another task ci run before releasing Worklease. Owned worktree .worktrees/noon-66-service-restart and its branch removed via Worktrunk after verifying this session creation receipt and merged status; matching Herdr workspace wJD disappeared. No owned checkout/workspace retained. Unrelated NOON-67 planning commit preserved. No push performed.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added explicit service restart for launchd/systemd using the installed definition without rewriting environment or installing a missing service. Preserved idempotent install, propagated failures, documented interruption and installation migration, and clarified decision-1 with user approval. Fake-manager regressions and full CI passed; merged to main and cleaned up owned worktree.
+<!-- SECTION:FINAL_SUMMARY:END -->
