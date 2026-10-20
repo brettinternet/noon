@@ -4,6 +4,16 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ## Unreleased
 
+### Added
+
+- **service:** Reconcile running scheduler builds
+- **service:** Add explicit scheduler restart
+
+### Fixed
+
+- **service:** Structure restart missing-unit guidance
+- **cli:** Distinguish action suggestions from scheduled runs
+
 ### Documentation
 
 - Show splay, jitter, and env files by example
