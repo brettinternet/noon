@@ -4,7 +4,7 @@ title: Interpolate vars_file values into selected job fields
 status: Done
 assignee: []
 created_date: '2026-10-20 21:04'
-updated_date: '2026-10-20 22:07'
+updated_date: '2026-10-20 22:27'
 labels:
   - config
 dependencies: []
@@ -104,6 +104,8 @@ Refinement: rename config_env_file to vars_file, because Compose uses "env file"
 Implementation in .worktrees/feat-noon-65-vars (branch feat/noon-65-vars), owned receipt .git/worktrees/feat-noon-65-vars/agent-creation.json. Executor timed out after successful task ci; parent took over validation and delivery. Contract expansion: internal/scheduler/serve_test.go adds a critical regression for stale reload stamps after failed loads; this directly validates the mandated broken/missing vars-file reload behavior. examples/README.md adds discoverability for the required self-contained example (examples already included in modified files). AC#1: task cli:test PKG=./internal/config -- -count=1 -> exit 0. AC#2: same uncached config suite -> exit 0. AC#3: task cli:test PKG=./internal/cli -- -count=1 -> exit 0. AC#4: task cli:test PKG=./integration -- -count=1 -> exit 0. AC#5 (partial evidence): task cli:test PKG=./integration -- -run TestExamplesValidate -count=1 -> exit 0; schema assertions pass in config suite. Independent review in progress; final-commit CI and delivery pending.
 
 AC#5: task ci on final implementation commit 435ff311289d929b98f71cd7331f6a156e6f8567 -> exit 0 (security, formatting/vet/Staticcheck, full tests, race tests, build and isolated smoke). Schema, examples, and docs completed. One independent review found two concrete reload defects: dangling-to-absent symlinks shared an absent stamp, and manifest discovery bypassed the size bound. Both fixed; task cli:test PKG=./internal/scheduler -- -run TestServeVarsFileDanglingToAbsent -count=1 and task cli:test PKG=./internal/config -- -count=1 -> exit 0; full CI rerun passed. LSP diagnostics clean. No tests deleted, skipped, or weakened. Implementation committed as 435ff31 and fast-forward merged into main. Worktrunk removed the verified session-owned worktree and branch; Herdr workspace wJC disappearance verified. No retained task worktrees or workspaces; no push. All acceptance and delivery obligations satisfied; no blockers or next implementation step.
+
+Post-merge review: probed built binary (check/list/doctor, shared and private add with expressions, approval on effective vs unused/rewrite changes, user project, remove). No defects found. Made JobFromSource project root required (f3aaec7), corrected docs on noon add resolution against the target file's vars_file and refreshed CHANGELOG (1f3e197). task ci -> exit 0.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
