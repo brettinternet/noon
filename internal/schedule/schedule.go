@@ -22,6 +22,41 @@ func (s Schedule) String() string { return s.text }
 // Interval returns the elapsed duration, only for interval schedules.
 func (s Schedule) Interval() (time.Duration, bool) { return s.duration, s.duration > 0 }
 
+// ShortestGap returns the shortest gap between schedule occurrences, ignoring
+// day fields for clock schedules. The zero Schedule has no gap.
+func (s Schedule) ShortestGap() time.Duration {
+	if s.duration > 0 {
+		return s.duration
+	}
+	if s.text == "" {
+		return 0
+	}
+	first, previous := -1, -1
+	shortest := 24 * time.Hour
+	for hour := 0; hour < 24; hour++ {
+		if !s.has(1, hour) {
+			continue
+		}
+		for minute := 0; minute < 60; minute++ {
+			if !s.has(0, minute) {
+				continue
+			}
+			current := hour*60 + minute
+			if first < 0 {
+				first = current
+			}
+			if previous >= 0 {
+				shortest = min(shortest, time.Duration(current-previous)*time.Minute)
+			}
+			previous = current
+		}
+	}
+	if first < 0 {
+		return 0
+	}
+	return min(shortest, time.Duration(first+24*60-previous)*time.Minute)
+}
+
 // Parse accepts five-field cron, macros, calendar phrases, or elapsed intervals.
 func Parse(text string) (Schedule, error) {
 	text = strings.ToLower(strings.Join(strings.Fields(text), " "))

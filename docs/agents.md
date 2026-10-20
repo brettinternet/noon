@@ -167,10 +167,11 @@ Approval is not a sandbox: arguments can widen permissions, and they are visible
 a secret channel. See [agent profiles](configuration.md#agent-profiles) for argv ordering and the
 `prompt_args` custom-profile migration rule.
 
-Use `splay: 10m` on a cron or calendar prompt job to spread scheduled starts with a stable
-per-job forward offset. `NOON_SCHEDULED_AT` remains the nominal occurrence, not the shifted
-start; lateness checks must allow for the configured splay. JSON/MCP `list_jobs` reports the
-effective `next_at`, plus `splay` and `splay_offset` when set.
+Use `splay: 10m` on a cron or calendar prompt job to spread starts with a stable per-job forward
+offset. Use `jitter: 20m` on a scheduled job to vary the forward offset for each occurrence; jitter
+cannot exceed half the shortest schedule gap. `NOON_SCHEDULED_AT` remains the nominal occurrence,
+not the effective start. Lateness checks must allow for both configured splay and jitter. JSON/MCP
+`list_jobs` reports the effective `next_at`, plus `splay`, `splay_offset`, and `jitter` when set.
 
 With the default `missed: run_once`, a run missed during sleep or downtime starts once when the
 scheduler next notices it, possibly hours late. It runs with `NOON_TRIGGER=catch_up` and

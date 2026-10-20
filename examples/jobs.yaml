@@ -8,6 +8,7 @@ jobs:
       Before reporting verification complete, wait for success and inspect failures.
     schedule: weekdays at 9am
     splay: 10m
+    jitter: 5m
     run: [go, test, ./...]
     cwd: .
     env:

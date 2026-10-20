@@ -3,6 +3,7 @@ package scheduler
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,6 +179,159 @@ func TestSplayedDue(t *testing.T) {
 	unchanged, _, _ := Due(nominal, []JobInput{plain}, nil, nil)
 	if len(unchanged) != 1 || unchanged[0].ScheduleKey != "every day at 09:00|UTC" {
 		t.Fatalf("legacy key changed: %+v", unchanged)
+	}
+}
+
+func TestJitteredDue(t *testing.T) {
+	nominal := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	daily, err := schedule.Parse("every day at 9am")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := JobInput{Key: JobKey{Project: 1, Job: "digest"}, ProjectPath: "/repo", Schedule: &daily, Splay: 10 * time.Minute, Jitter: 20 * time.Minute, Location: time.UTC, Active: true, Missed: "run_once"}
+	jobs := []JobInput{job}
+	states, _, runs := Due(nominal.Add(-time.Hour), jobs, nil, nil)
+	if len(states) != 1 || !states[0].NextAt.Equal(nominal) || !strings.HasSuffix(states[0].ScheduleKey, "~20m") || len(runs) != 0 {
+		t.Fatalf("initial jittered state = %+v, runs = %+v", states, runs)
+	}
+	changed := job
+	changed.Jitter = 10 * time.Minute
+	reset, _, resetRuns := Due(nominal.Add(-time.Second), []JobInput{changed}, states, nil)
+	if len(reset) != 1 || reset[0].ScheduleKey == states[0].ScheduleKey || !reset[0].NextAt.Equal(nominal) || len(resetRuns) != 0 {
+		t.Fatalf("changing jitter did not reset from now: state=%+v runs=%+v", reset, resetRuns)
+	}
+	firstOffset := schedule.JitterOffset(job.ProjectPath, job.Key.Job, nominal, job.Jitter)
+	firstEffective := schedule.EffectiveStart(job.ProjectPath, job.Key.Job, nominal, job.Splay, job.Jitter)
+	if updated, _, created := Due(firstEffective.Add(-time.Second), jobs, states, nil); len(updated) != 0 || len(created) != 0 {
+		t.Fatalf("run became due before effective start: state=%+v runs=%+v", updated, created)
+	}
+	updated, _, created := Due(firstEffective, jobs, states, nil)
+	if len(created) != 1 || created[0].Status != "queued" || created[0].Trigger != "schedule" || !created[0].ScheduledAt.Equal(nominal) || !created[0].DueAt.Equal(firstEffective) {
+		t.Fatalf("first jittered occurrence = %+v", created)
+	}
+	secondNominal := nominal.Add(24 * time.Hour)
+	secondOffset := schedule.JitterOffset(job.ProjectPath, job.Key.Job, secondNominal, job.Jitter)
+	if firstOffset == secondOffset {
+		t.Fatalf("test occurrences have the same jitter offset %s", firstOffset)
+	}
+	if len(updated) != 1 || !updated[0].NextAt.Equal(secondNominal) {
+		t.Fatalf("on-time run advanced to %+v; want nominal %s", updated, secondNominal)
+	}
+	if _, _, again := Due(firstEffective, jobs, updated, nil); len(again) != 0 {
+		t.Fatalf("first occurrence was created twice: %+v", again)
+	}
+	secondEffective := schedule.EffectiveStart(job.ProjectPath, job.Key.Job, secondNominal, job.Splay, job.Jitter)
+	updated, _, created = Due(secondEffective, jobs, updated, nil)
+	if len(created) != 1 || !created[0].ScheduledAt.Equal(secondNominal) || !created[0].DueAt.Equal(secondEffective) || len(updated) != 1 || !updated[0].NextAt.Equal(secondNominal.Add(24*time.Hour)) {
+		t.Fatalf("second jittered occurrence = %+v; next=%+v", created, updated)
+	}
+}
+
+func TestJitteredIntervalKeepsPhase(t *testing.T) {
+	interval, err := schedule.Parse("every 1h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	phase := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	job := JobInput{Key: JobKey{Project: 1, Job: "interval"}, ProjectPath: "/repo", Schedule: &interval, Jitter: 20 * time.Minute, Location: time.UTC, Active: true, Missed: "run_once"}
+	jobs := []JobInput{job}
+	states, _, _ := Due(phase.Add(-time.Hour), jobs, nil, nil)
+	firstNominal := phase.Add(-20 * time.Minute)
+	if len(states) != 1 || !states[0].NextAt.Equal(firstNominal) {
+		t.Fatalf("initial interval phase = %+v; want %s", states, firstNominal)
+	}
+	seenOffsets := map[time.Duration]bool{}
+	for occurrence := 0; occurrence < 3; occurrence++ {
+		nominal := firstNominal.Add(time.Duration(occurrence) * time.Hour)
+		if !states[0].NextAt.Equal(nominal) {
+			t.Fatalf("occurrence %d nominal = %s, want %s", occurrence, states[0].NextAt, nominal)
+		}
+		offset := schedule.JitterOffset(job.ProjectPath, job.Key.Job, nominal, job.Jitter)
+		seenOffsets[offset] = true
+		effective := nominal.Add(offset)
+		if _, _, created := Due(effective.Add(-time.Second), jobs, states, nil); len(created) != 0 {
+			t.Fatalf("interval occurrence %d became due early: %+v", occurrence, created)
+		}
+		updated, _, created := Due(effective, jobs, states, nil)
+		if len(created) != 1 || !created[0].ScheduledAt.Equal(nominal) || !created[0].DueAt.Equal(effective) {
+			t.Fatalf("interval occurrence %d = %+v", occurrence, created)
+		}
+		states = updated
+		if !states[0].NextAt.Equal(firstNominal.Add(time.Duration(occurrence+1) * time.Hour)) {
+			t.Fatalf("interval phase drift after occurrence %d: %+v", occurrence, states)
+		}
+		if _, _, again := Due(effective, jobs, states, nil); len(again) != 0 {
+			t.Fatalf("interval occurrence %d was created twice: %+v", occurrence, again)
+		}
+	}
+	if len(seenOffsets) < 2 {
+		t.Fatalf("interval jitter did not vary: %v", seenOffsets)
+	}
+}
+
+func TestJitteredCatchUp(t *testing.T) {
+	nominal := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	daily, err := schedule.Parse("every day at 9am")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := JobInput{Key: JobKey{Project: 1, Job: "digest"}, ProjectPath: "/repo", Schedule: &daily, Jitter: 20 * time.Minute, Location: time.UTC, Active: true, Missed: "run_once"}
+	jobs := []JobInput{job}
+	states, _, _ := Due(nominal.Add(-time.Hour), jobs, nil, nil)
+	effective := schedule.EffectiveStart(job.ProjectPath, job.Key.Job, nominal, 0, job.Jitter)
+	now := effective.Add(61 * time.Second)
+	updated, _, created := Due(now, jobs, states, nil)
+	if len(created) != 1 || created[0].Status != "queued" || created[0].Trigger != "catch_up" || !created[0].ScheduledAt.Equal(nominal) || !created[0].DueAt.Equal(now) {
+		t.Fatalf("catch-up = %+v", created)
+	}
+	if len(updated) != 1 || !schedule.EffectiveStart(job.ProjectPath, job.Key.Job, updated[0].NextAt, 0, job.Jitter).After(now) {
+		t.Fatalf("catch-up did not advance beyond now: %+v", updated)
+	}
+	if _, _, again := Due(now, jobs, updated, nil); len(again) != 0 {
+		t.Fatalf("catch-up was created twice: %+v", again)
+	}
+}
+
+func TestJitteredSpringForwardReorderingUsesMissedPolicy(t *testing.T) {
+	location, err := time.LoadLocation("America/Denver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expression, err := schedule.Parse("59 1,2 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstNominal := time.Date(2026, 3, 8, 1, 59, 0, 0, location)
+	secondNominal := expression.Next(firstNominal, location)
+	if secondNominal.In(location).Format(time.RFC3339) != "2026-03-08T03:00:00-06:00" {
+		t.Fatalf("spring-gap nominal = %s", secondNominal.In(location))
+	}
+	job := JobInput{Key: JobKey{Project: 1, Job: "j2"}, ProjectPath: "/repo", Schedule: &expression, Jitter: 30 * time.Minute, Location: location, Active: true, Missed: "skip"}
+	jobs := []JobInput{job}
+	firstOffset := schedule.JitterOffset(job.ProjectPath, job.Key.Job, firstNominal, job.Jitter)
+	secondOffset := schedule.JitterOffset(job.ProjectPath, job.Key.Job, secondNominal, job.Jitter)
+	firstEffective := firstNominal.Add(firstOffset)
+	secondEffective := secondNominal.Add(secondOffset)
+	if !secondEffective.Before(firstEffective.Add(-time.Minute)) {
+		t.Fatalf("fixture did not reorder with a late second occurrence: first=%s second=%s", firstEffective, secondEffective)
+	}
+	states, _, _ := Due(firstNominal.Add(-2*time.Hour), jobs, nil, nil)
+	if len(states) != 1 || !states[0].NextAt.Equal(firstNominal) {
+		t.Fatalf("initial spring state = %+v", states)
+	}
+	if _, _, premature := Due(secondEffective, jobs, states, nil); len(premature) != 0 {
+		t.Fatalf("later nominal occurrence bypassed the persisted first occurrence: %+v", premature)
+	}
+	updated, _, firstRun := Due(firstEffective, jobs, states, nil)
+	if len(firstRun) != 1 || firstRun[0].Status != "queued" || !firstRun[0].ScheduledAt.Equal(firstNominal) || len(updated) != 1 || !updated[0].NextAt.Equal(secondNominal) {
+		t.Fatalf("first spring occurrence = %+v; next=%+v", firstRun, updated)
+	}
+	updated, _, lateRun := Due(firstEffective, jobs, updated, nil)
+	if len(lateRun) != 1 || lateRun[0].Status != "missed" || !lateRun[0].ScheduledAt.Equal(secondNominal) || !lateRun[0].DueAt.Equal(firstEffective) {
+		t.Fatalf("reordered second occurrence was not recorded by missed policy: %+v", lateRun)
+	}
+	if _, _, again := Due(firstEffective, jobs, updated, nil); len(again) != 0 {
+		t.Fatalf("spring occurrence was dropped or recorded more than once: %+v", again)
 	}
 }
 

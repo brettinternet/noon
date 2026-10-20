@@ -261,7 +261,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		var nextAt *time.Time
 		if job.Schedule != nil {
 			location, _ := time.LoadLocation(updated.Timezone)
-			next := job.Schedule.NextWithOffset(now, location, schedule.SplayOffset(updated.Project, name, job.Splay))
+			_, next := job.Schedule.NextEffective(now, location, updated.Project, name, job.Splay, job.Jitter, time.Time{})
 			nextAt = &next
 		} else if queued {
 			nextAt = &queueDue
@@ -289,7 +289,8 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	fmt.Fprintf(cmd.Writer, "Added %s to %s (%s) · %s", name, displayPath(cfg.Project, file), kind, scheduleText)
 	if job.Schedule != nil {
 		location, _ := time.LoadLocation(updated.Timezone)
-		fmt.Fprintf(cmd.Writer, " · next %s", job.Schedule.NextWithOffset(now, location, schedule.SplayOffset(updated.Project, name, job.Splay)).Format("Mon 15:04"))
+		_, next := job.Schedule.NextEffective(now, location, updated.Project, name, job.Splay, job.Jitter, time.Time{})
+		fmt.Fprintf(cmd.Writer, " · next %s", next.Format("Mon 15:04"))
 	} else if queued {
 		location, _ := time.LoadLocation(updated.Timezone)
 		fmt.Fprintf(cmd.Writer, " · next %s", queueDue.In(location).Format("Mon 15:04"))

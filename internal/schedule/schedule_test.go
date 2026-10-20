@@ -48,6 +48,105 @@ func TestSplay(t *testing.T) {
 	}
 }
 
+func TestJitterOffset(t *testing.T) {
+	nominal := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	if nominal.Unix() != 1790845200 {
+		t.Fatalf("fixture Unix time = %d", nominal.Unix())
+	}
+	if got := schedule.JitterOffset("/repo", "triage", nominal, 20*time.Minute); got != 28*time.Second {
+		t.Fatalf("fixed jitter vector = %s, want 28s", got)
+	}
+	seen := map[time.Duration]bool{}
+	for day := 0; day < 30; day++ {
+		occurrence := nominal.AddDate(0, 0, day)
+		got := schedule.JitterOffset("/repo", "triage", occurrence, 20*time.Minute)
+		if got < 0 || got >= 20*time.Minute || got%time.Second != 0 {
+			t.Fatalf("offset for %s = %s, outside [0, jitter)", occurrence, got)
+		}
+		if got != schedule.JitterOffset("/repo", "triage", occurrence, 20*time.Minute) {
+			t.Fatalf("offset for %s changed between calls", occurrence)
+		}
+		seen[got] = true
+	}
+	if len(seen) < 2 {
+		t.Fatalf("offsets did not vary across occurrences: %v", seen)
+	}
+	if got := schedule.JitterOffset("/repo", "triage", nominal, 0); got != 0 {
+		t.Fatalf("unset jitter offset = %s, want zero", got)
+	}
+}
+
+func TestShortestGap(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want time.Duration
+	}{
+		{"*/15 * * * *", 15 * time.Minute},
+		{"0 0,23 * * *", time.Hour},
+		{"59 1,2 * * *", time.Hour},
+		{"@hourly", time.Hour},
+		{"weekdays at 9am", 24 * time.Hour},
+		{"every 1d12h", 36 * time.Hour},
+	} {
+		t.Run(tc.text, func(t *testing.T) {
+			s, err := schedule.Parse(tc.text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := s.ShortestGap(); got != tc.want {
+				t.Fatalf("ShortestGap = %s; want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNextEffective(t *testing.T) {
+	daily, err := schedule.Parse("every day at 9am")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nominal := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	jitter := schedule.JitterOffset("/repo", "triage", nominal, 20*time.Minute)
+	after := nominal.Add(jitter - time.Second)
+	gotNominal, gotEffective := daily.NextEffective(after, time.UTC, "/repo", "triage", 0, 20*time.Minute, time.Time{})
+	if !gotNominal.Equal(nominal) || !gotEffective.Equal(nominal.Add(jitter)) {
+		t.Fatalf("NextEffective = (%s, %s), want (%s, %s)", gotNominal, gotEffective, nominal, nominal.Add(jitter))
+	}
+	gotNominal, gotEffective = daily.NextEffective(nominal.Add(jitter), time.UTC, "/repo", "triage", 0, 20*time.Minute, time.Time{})
+	if !gotNominal.Equal(nominal.AddDate(0, 0, 1)) || !gotEffective.After(nominal.Add(jitter)) {
+		t.Fatalf("strict next effective = (%s, %s)", gotNominal, gotEffective)
+	}
+
+	interval, err := schedule.Parse("every 1h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	phase := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	gotNominal, gotEffective = interval.NextEffective(phase.Add(-time.Hour), time.UTC, "/repo", "interval", 0, 5*time.Minute, time.Time{})
+	if !gotNominal.Equal(phase.Add(-5*time.Minute)) || !gotEffective.After(phase.Add(-time.Hour)) {
+		t.Fatalf("first interval jitter window = (%s, %s)", gotNominal, gotEffective)
+	}
+	gotNominal, gotEffective = interval.NextEffective(phase.Add(70*time.Minute), time.UTC, "/repo", "interval", 0, 5*time.Minute, phase)
+	if !gotNominal.Equal(phase.Add(2*time.Hour)) || !gotEffective.After(phase.Add(70*time.Minute)) {
+		t.Fatalf("interval phase shifted: (%s, %s)", gotNominal, gotEffective)
+	}
+}
+
+func TestStateKeyJitterCompatibility(t *testing.T) {
+	plain := schedule.StateKey("daily", "UTC", "/repo", "job", 0, 0)
+	if plain != "daily|UTC" {
+		t.Fatalf("plain key = %q", plain)
+	}
+	splayed := schedule.StateKey("daily", "UTC", "/repo", "job", 10*time.Minute, 0)
+	if !strings.HasPrefix(splayed, plain+"|splay=") || strings.Contains(splayed, "~") {
+		t.Fatalf("splay-only key changed: %q", splayed)
+	}
+	jittered := schedule.StateKey("daily", "UTC", "/repo", "job", 0, 20*time.Minute)
+	if jittered != plain+"~20m" {
+		t.Fatalf("jittered key = %q", jittered)
+	}
+}
+
 func TestScheduleParse(t *testing.T) {
 	for _, tt := range []struct{ input, want, err string }{
 		{"  0  9 * JAN-MAR MON-FRI  ", "0 9 * jan-mar mon-fri", ""},

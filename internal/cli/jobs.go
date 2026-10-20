@@ -73,6 +73,9 @@ func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide
 			if job.SplayOffset != "" {
 				scheduled += " +" + job.SplayOffset
 			}
+			if job.Jitter != "" {
+				scheduled += " ~" + job.Jitter
+			}
 		}
 		if !job.PlatformSupported {
 			next = "other platform"

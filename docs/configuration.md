@@ -158,6 +158,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `description` | — | Shown by `list`, the TUI, and MCP |
 | `schedule` | manual only | Cron, macro, calendar phrase, or interval ([grammar](design.md#schedules)) |
 | `splay` | — | Stable forward offset window, `1s`–`1h`; cron, macro, or calendar schedules only |
+| `jitter` | — | Duration of at least `1s`; per-occurrence forward window requiring a schedule and bounded by half its shortest gap |
 | `run` | — | String runs with `/bin/sh -c`; list is exact argv |
 | `noop_exit_code` | — | Integer 1–124: record a normally exited run with this code as `noop` |
 | `prompt` | — | Inline agent prompt, ≤ 64 KiB |
@@ -177,16 +178,28 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `on_success`, `on_failure` | user default | Hook command; `[]` disables the default ([Hooks](hooks.md)) |
 | `webhook` | — | `{secret_env: NAME}` ([Webhooks](webhooks.md)) |
 
-Set `splay: 10m` to spread scheduled starts over ten minutes. Noon derives one whole-second
+Set `splay: 10m` to spread jobs over a stable per-job window. Noon derives one whole-second
 offset in [0, splay) from the canonical project path and job name. It stays the same across
 restarts; moving the checkout, renaming the job, or changing splay may change it. Durations use
 the same integer `s`, `m`, `h`, `d` components as timeout, between 1s and 1h.
-Manual jobs and intervals reject splay. It affects only schedule occurrences, not foreground
-runs, queued requests, triggers, hooks, or webhooks. Changing splay on a shared job needs approval.
+Manual jobs and intervals reject splay.
 
-`noon list` appends `+<offset>` to SCHEDULE, including `+0s`. All next-run displays include
-the offset; JSON and MCP `list_jobs` also expose normalized `splay` and `splay_offset`
-duration strings only when configured.
+Set `jitter: 20m` to vary the forward offset on every occurrence. Each occurrence gets a
+whole-second offset in [0, jitter), derived deterministically from the canonical project path,
+job name, and nominal occurrence time. Restarts and inspection produce the same offset; no random
+or stored state is used. Jitter requires a schedule and cannot exceed half its shortest gap: for
+intervals, half the interval; for clock schedules, half the smallest time-of-day gap, including the
+wrap across midnight and ignoring day fields. For example, `*/15 * * * *` allows at most `7m30s`.
+The effective start is nominal time plus any splay offset plus that occurrence's jitter. To center
+a 20-minute jitter window around 9am, use `schedule: weekdays at 8:50am`; it starts from 08:50:00
+through 09:09:59. Intervals retain their nominal phase and jitter never accumulates into it.
+
+Both fields affect only scheduled occurrences, not foreground runs, queued requests, triggers,
+hooks, or webhooks. Changing either on a shared job needs approval. `noon list` appends
+`+<splay offset>` and then `~<jitter>` to SCHEDULE when set. All next-run displays include both
+offsets; JSON and MCP `list_jobs` expose normalized `splay`, `splay_offset`, and `jitter`
+duration strings only when configured. `NOON_SCHEDULED_AT` remains nominal; lateness checks
+should allow for configured splay and jitter.
 
 A job's optional `os` and `arch` lists must be non-empty, duplicate-free, and use the exact supported Go `GOOS`/`GOARCH` values shown above. Aliases such as `macos`, `x86_64`, and `aarch64` are rejected with a suggestion. Every declared field must match the running binary; an omitted field matches any value. A nonmatching job stays visible as `other platform`, but isn't scheduled, caught up, dispatched, or runnable by `noon run` or any queueing interface. `list --json` includes the declared lists and `platform_supported`; `doctor` skips command and working-directory checks for nonmatching jobs.
 
@@ -411,7 +424,7 @@ the one `noon enable` approved. Private jobs need no approval. A local `enabled:
 the shared job's approval requirement.
 
 The digest is a SHA-256 of the job's execution fields: schedule, action, agent name, cwd, env,
-timeout, `noop_exit_code`, splay, overlap, missed, cooldown, hooks, webhook, and platform constraints
+timeout, `noop_exit_code`, splay, jitter, overlap, missed, cooldown, hooks, webhook, and platform constraints
 (`os` and `arch`). `requests` joins the digest only when
 explicitly present, so jobs that omit it keep their existing digest and approval. Changing the
 description doesn't require re-approval. A prompt job whose agent profile is defined in the same

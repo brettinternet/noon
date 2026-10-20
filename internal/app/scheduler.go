@@ -53,14 +53,14 @@ func WithScheduler(view Inspection, now time.Time) (Inspection, error) {
 			continue
 		}
 		splay, _ := schedule.ParseDuration(job.Splay)
-		offset := schedule.SplayOffset(view.Project.Path, job.Name, splay)
+		jitter, _ := schedule.ParseDuration(job.Jitter)
 		persisted, ok := byJob[job.Name]
-		if !ok || persisted.ScheduleKey != schedule.StateKey(*job.Schedule, view.Project.Timezone, view.Project.Path, job.Name, splay) {
+		if !ok || persisted.ScheduleKey != schedule.StateKey(*job.Schedule, view.Project.Timezone, view.Project.Path, job.Name, splay, jitter) {
 			continue
 		}
 		next, err := time.Parse(store.TimestampLayout, persisted.NextAt)
 		if err == nil {
-			value := next.Add(offset).In(location)
+			value := schedule.EffectiveStart(view.Project.Path, job.Name, next, splay, jitter).In(location)
 			job.NextAt = &value
 		}
 	}

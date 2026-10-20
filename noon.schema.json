@@ -99,6 +99,11 @@
           "description": "Stable forward offset window, 1s to 1h; requires a cron, macro, or calendar schedule. Validated by noon config check.",
           "examples": ["10m"]
         },
+        "jitter": {
+          "$ref": "#/definitions/nonBlankString",
+          "description": "Per-occurrence forward jitter duration; requires a schedule and cannot exceed half its shortest occurrence gap. Validated by noon config check.",
+          "examples": ["20m"]
+        },
         "run": { "$ref": "#/definitions/command" },
         "noop_exit_code": {
           "type": "integer",

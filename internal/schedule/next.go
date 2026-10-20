@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,7 +20,48 @@ func SplayOffset(project, name string, splay time.Duration) time.Duration {
 	return time.Duration(binary.BigEndian.Uint64(sum[:8])%uint64(seconds)) * time.Second
 }
 
-// NextWithOffset shifts resolved occurrences by elapsed time, including across DST.
+// JitterOffset is a stable whole-second offset in [0, jitter) for one nominal
+// occurrence. The nominal Unix second makes each occurrence vary independently.
+func JitterOffset(project, name string, nominal time.Time, jitter time.Duration) time.Duration {
+	seconds := jitter / time.Second
+	if seconds <= 0 {
+		return 0
+	}
+	seed := project + "\x00" + name + "\x00" + strconv.FormatInt(nominal.Unix(), 10)
+	sum := sha256.Sum256([]byte(seed))
+	return time.Duration(binary.BigEndian.Uint64(sum[:8])%uint64(seconds)) * time.Second
+}
+
+// FormatDuration renders nonnegative whole-second durations in the accepted
+// s, m, h, d form, with zero-valued trailing units omitted.
+func FormatDuration(value time.Duration) string {
+	if value < 0 || value%time.Second != 0 {
+		return value.String()
+	}
+	if value == 0 {
+		return "0s"
+	}
+	var out strings.Builder
+	remaining := value
+	for _, unit := range []struct {
+		duration time.Duration
+		name     string
+	}{{24 * time.Hour, "d"}, {time.Hour, "h"}, {time.Minute, "m"}, {time.Second, "s"}} {
+		if count := remaining / unit.duration; count > 0 {
+			fmt.Fprintf(&out, "%d%s", count, unit.name)
+			remaining %= unit.duration
+		}
+	}
+	return out.String()
+}
+
+// EffectiveStart returns the nominal occurrence shifted forward by its stable
+// per-job splay and per-occurrence jitter.
+func EffectiveStart(project, name string, nominal time.Time, splay, jitter time.Duration) time.Time {
+	return nominal.Add(SplayOffset(project, name, splay) + JitterOffset(project, name, nominal, jitter))
+}
+
+// NextWithOffset applies a fixed forward offset to a resolved occurrence.
 func (s Schedule) NextWithOffset(after time.Time, loc *time.Location, offset time.Duration) time.Time {
 	next := s.Next(after.Add(-offset), loc)
 	if next.IsZero() {
@@ -27,12 +70,55 @@ func (s Schedule) NextWithOffset(after time.Time, loc *time.Location, offset tim
 	return next.Add(offset)
 }
 
-// StateKey preserves pre-splay keys for jobs that omit splay. Include the full
-// identity as well as the window so even offset collisions reset changed jobs.
-func StateKey(text, timezone, project, name string, splay time.Duration) string {
+// NextEffective returns the next nominal occurrence and its effective start.
+// For intervals, intervalPhase preserves an existing nominal phase; a zero
+// phase previews the first interval from after, without persisted state.
+func (s Schedule) NextEffective(after time.Time, loc *time.Location, project, name string, splay, jitter time.Duration, intervalPhase time.Time) (nominal, effective time.Time) {
+	splayOffset := SplayOffset(project, name, splay)
+	searchFrom := after.Add(-splayOffset - jitter)
+	if s.duration > 0 {
+		if intervalPhase.IsZero() {
+			nominal = s.Next(searchFrom, loc)
+		} else {
+			if searchFrom.Before(intervalPhase) {
+				searchFrom = intervalPhase
+			}
+			delta := searchFrom.Sub(intervalPhase)
+			if delta < 0 {
+				nominal = intervalPhase
+			} else {
+				nominal = intervalPhase.Add((delta / s.duration) * s.duration)
+				if nominal.Before(searchFrom) {
+					nominal = nominal.Add(s.duration)
+				}
+			}
+		}
+	} else {
+		nominal = s.Next(searchFrom, loc)
+	}
+	for !nominal.IsZero() {
+		effective = EffectiveStart(project, name, nominal, splay, jitter)
+		if effective.After(after) {
+			return nominal, effective
+		}
+		if s.duration > 0 {
+			nominal = nominal.Add(s.duration)
+		} else {
+			nominal = s.Next(nominal, loc)
+		}
+	}
+	return time.Time{}, time.Time{}
+}
+
+// StateKey preserves pre-splay keys for jobs that omit splay and preserves
+// existing splay keys when jitter is unset. Jitter changes reset schedule state.
+func StateKey(text, timezone, project, name string, splay, jitter time.Duration) string {
 	key := text + "|" + timezone
 	if splay > 0 {
 		key += fmt.Sprintf("|splay=%s|offset=%s|project=%q|job=%q", splay, SplayOffset(project, name, splay), project, name)
+	}
+	if jitter > 0 {
+		key += "~" + FormatDuration(jitter)
 	}
 	return key
 }

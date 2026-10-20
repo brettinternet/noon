@@ -2,7 +2,6 @@
 package app
 
 import (
-	"fmt"
 	"slices"
 	"time"
 
@@ -26,6 +25,7 @@ type Job struct {
 	Schedule          *string    `json:"schedule"`
 	Splay             string     `json:"splay,omitempty"`
 	SplayOffset       string     `json:"splay_offset,omitempty"`
+	Jitter            string     `json:"jitter,omitempty"`
 	NextAt            *time.Time `json:"next_at"`
 	Run               any        `json:"run"`
 	Prompt            *string    `json:"prompt"`
@@ -88,21 +88,19 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 			view.EnvKeys = append(view.EnvKeys, key)
 		}
 		slices.Sort(view.EnvKeys)
-		offset := schedule.SplayOffset(cfg.Project, name, job.Splay)
 		if job.Splay > 0 {
-			view.Splay = job.Splay.String()
-			if job.Splay%time.Hour == 0 {
-				view.Splay = fmt.Sprintf("%dh", job.Splay/time.Hour)
-			} else if job.Splay%time.Minute == 0 {
-				view.Splay = fmt.Sprintf("%dm", job.Splay/time.Minute)
-			}
-			view.SplayOffset = offset.String()
+			view.Splay = schedule.FormatDuration(job.Splay)
+			view.SplayOffset = schedule.SplayOffset(cfg.Project, name, job.Splay).String()
+		}
+		if job.Jitter > 0 {
+			view.Jitter = schedule.FormatDuration(job.Jitter)
 		}
 		if job.Schedule != nil {
 			text := job.Schedule.String()
 			view.Schedule = &text
 			if job.Enabled && view.PlatformSupported {
-				next := job.Schedule.NextWithOffset(now, loc, offset).In(loc)
+				_, next := job.Schedule.NextEffective(now, loc, cfg.Project, name, job.Splay, job.Jitter, time.Time{})
+				next = next.In(loc)
 				if !next.IsZero() {
 					view.NextAt = &next
 				}

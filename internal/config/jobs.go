@@ -38,6 +38,7 @@ type Job struct {
 	Description        string
 	Schedule           *schedule.Schedule
 	Splay              time.Duration
+	Jitter             time.Duration
 	Run                any
 	OnSuccess          any
 	OnFailure          any
@@ -575,7 +576,7 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				job.Env[key] = text
 			}
 			execution[key] = job.Env
-		case "description", "schedule", "splay", "cwd", "timeout", "cooldown", "overlap", "missed":
+		case "description", "schedule", "splay", "jitter", "cwd", "timeout", "cooldown", "overlap", "missed":
 			text, err := jobString(file, field, value)
 			if err != nil {
 				return Job{}, err
@@ -617,6 +618,16 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				}
 				job.Splay = duration
 				text = duration.String()
+			case "jitter":
+				duration, err := schedule.ParseDuration(text)
+				if err != nil {
+					return Job{}, jobError(file, value, field, err.Error())
+				}
+				if duration < time.Second {
+					return Job{}, jobError(file, value, field, "must be at least 1s")
+				}
+				job.Jitter = duration
+				text = schedule.FormatDuration(duration)
 			case "cooldown":
 				duration, err := schedule.ParseDuration(text)
 				if err != nil {
@@ -665,6 +676,15 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 		}
 		if _, interval := job.Schedule.Interval(); interval {
 			return Job{}, jobError(file, value, path+".splay", "cannot be used with an interval schedule")
+		}
+	}
+	if value := fields["jitter"]; value != nil {
+		if job.Schedule == nil {
+			return Job{}, jobError(file, value, path+".jitter", "requires a schedule")
+		}
+		maximum := job.Schedule.ShortestGap() / 2
+		if job.Jitter > maximum {
+			return Job{}, jobError(file, value, path+".jitter", fmt.Sprintf("must not exceed half the schedule's shortest gap (maximum allowed %s)", schedule.FormatDuration(maximum)))
 		}
 	}
 	if job.Requests == "each" && fields["cooldown"] != nil {

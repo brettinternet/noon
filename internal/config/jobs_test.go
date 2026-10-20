@@ -47,6 +47,32 @@ func TestNoopExitCodeSchemaRange(t *testing.T) {
 	}
 }
 
+func TestJitterSchema(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "noon.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := func(jitter any) map[string]any {
+		return map[string]any{"jobs": map[string]any{"digest": map[string]any{"schedule": "every day at 9am", "run": "true", "jitter": jitter}}}
+	}
+	if err := resolved.Validate(instance("20m")); err != nil {
+		t.Fatalf("schema rejected valid jitter string: %v", err)
+	}
+	for _, value := range []any{float64(20), []any{"20m"}} {
+		if err := resolved.Validate(instance(value)); err == nil {
+			t.Errorf("schema accepted non-string jitter %v", value)
+		}
+	}
+}
+
 func TestAgentArgsSchema(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "noon.schema.json"))
 	if err != nil {
@@ -137,6 +163,28 @@ func TestLoadJobs(t *testing.T) {
 				t.Fatalf("splay round trip: %s, %v", digest, err)
 			}
 		}},
+		{name: "jitter", shared: "jobs: {tests: {run: 'true', schedule: every 1h, jitter: 30m}}", check: func(t *testing.T, c config.Config) {
+			job := c.Jobs["tests"]
+			if job.Jitter != 30*time.Minute {
+				t.Fatalf("jitter = %s", job.Jitter)
+			}
+			digest, err := config.DigestJobDefinition(job, c.Agents, c.DefaultAgent)
+			if err != nil || digest != job.Digest {
+				t.Fatalf("jitter round trip: %s, %v", digest, err)
+			}
+		}},
+		{name: "jitter cron maximum", shared: "jobs: {tests: {run: hi, schedule: '*/15 * * * *', jitter: 7m30s}}"},
+		{name: "jitter exact interval maximum", shared: "jobs: {tests: {run: hi, schedule: every 1h, jitter: 30m}}"},
+		{name: "jitter exact midnight wrap maximum", shared: "jobs: {tests: {run: hi, schedule: '0 0,23 * * *', jitter: 30m}}"},
+		{name: "jitter exact multi-time maximum", shared: "jobs: {tests: {run: hi, schedule: '59 1,2 * * *', jitter: 30m}}"},
+		{name: "jitter manual", shared: "jobs: {tests: {run: hi, jitter: 20m}}", want: "noon.yaml:1: jobs.tests.jitter: requires a schedule"},
+		{name: "jitter cron too large", shared: "jobs: {tests: {run: hi, schedule: '*/15 * * * *', jitter: 10m}}", want: "noon.yaml:1: jobs.tests.jitter: must not exceed half the schedule's shortest gap (maximum allowed 7m30s)"},
+		{name: "jitter interval too large", shared: "jobs: {tests: {run: hi, schedule: every 1h, jitter: 31m}}", want: "maximum allowed 30m"},
+		{name: "jitter midnight wrap too large", shared: "jobs: {tests: {run: hi, schedule: '0 0,23 * * *', jitter: 31m}}", want: "maximum allowed 30m"},
+		{name: "jitter zero", shared: "jobs: {tests: {run: hi, schedule: '@daily', jitter: 0s}}", want: "noon.yaml:1: jobs.tests.jitter: must be at least 1s"},
+		{name: "jitter number", shared: "jobs: {tests: {run: hi, schedule: '@daily', jitter: 20}}", want: "noon.yaml:1: jobs.tests.jitter: must be a string"},
+		{name: "jitter missing unit", shared: "jobs: {tests: {run: hi, schedule: '@daily', jitter: '20'}}", want: "noon.yaml:1: jobs.tests.jitter: invalid duration"},
+		{name: "jitter list", shared: "jobs: {tests: {run: hi, schedule: '@daily', jitter: [20m]}}", want: "noon.yaml:1: jobs.tests.jitter: must be a string"},
 		{name: "splay manual", shared: "jobs: {tests: {run: hi, splay: 10m}}", want: "noon.yaml:1: jobs.tests.splay: requires a cron, macro, or calendar schedule"},
 		{name: "splay interval", shared: "jobs: {tests: {run: hi, schedule: every 6h, splay: 10m}}", want: "noon.yaml:1: jobs.tests.splay: cannot be used with an interval schedule"},
 		{name: "splay zero", shared: "jobs: {tests: {run: hi, schedule: '@daily', splay: 0s}}", want: "noon.yaml:1: jobs.tests.splay: must be between 1s and 1h"},
@@ -433,6 +481,13 @@ func TestJobDigest(t *testing.T) {
 	}
 	if splayed != load(base+"    splay: 600s\n", "{}") {
 		t.Fatal("equivalent splay changed digest")
+	}
+	jittered := load(base+"    jitter: 20m\n", "{}")
+	if jittered == digest || jittered == load(base+"    jitter: 21m\n", "{}") {
+		t.Fatal("jitter did not change digest")
+	}
+	if jittered != load(base+"    jitter: 1200s\n", "{}") {
+		t.Fatal("equivalent jitter changed digest")
 	}
 	hookDefinition := "    run: echo hi\n    on_success: [notify, done]\n"
 	hookDigest := load(hookDefinition, "{}")

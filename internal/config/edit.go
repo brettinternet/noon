@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/brettinternet/noon/internal/schedule"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -264,6 +265,9 @@ func jobFields(job Job) map[string]any {
 		}
 		if job.Splay > 0 {
 			fields["splay"] = job.Splay.String()
+		}
+		if job.Jitter > 0 {
+			fields["jitter"] = schedule.FormatDuration(job.Jitter)
 		}
 		if job.Run != nil {
 			fields["run"] = job.Run
