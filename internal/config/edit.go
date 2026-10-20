@@ -187,16 +187,13 @@ func JobNames(src []byte) ([]string, error) {
 }
 
 // JobFromSource validates one raw definition, even when another file shadows it.
-func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool, projectRoot ...string) (Job, error) {
+// A relative vars_file in src resolves from project, matching Load.
+func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool, project string) (Job, error) {
 	values, err := parse(src)
 	if err != nil {
 		return Job{}, err
 	}
-	root := "."
-	if len(projectRoot) > 0 && projectRoot[0] != "" {
-		root = projectRoot[0]
-	}
-	varsFile, vars, err := resolveDocumentVars("<edited>", root, values)
+	varsFile, vars, err := resolveDocumentVars("<edited>", project, values)
 	if err != nil {
 		return Job{}, err
 	}
