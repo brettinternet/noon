@@ -268,8 +268,9 @@ put secrets in a vars file.** Vars-file values are not exported to jobs or hooks
 run time, list the same file in the job's `env_file` too; it is then separately read under the
 runtime env-file rules. `vars_file` contents are not part of a job's approval digest. Digests use
 resolved values, so changing an effective schedule or path requires approval again, while rewriting
-an expression with the same result or changing an unused variable does not. `noon add` stores flag
-values verbatim; expressions in supported flag values are resolved on the next config load.
+an expression with the same result or changing an unused variable does not. `noon add` stores
+`SCHEDULE`, `--timeout`, and `--prompt-file` values verbatim and validates them against the target
+file's own `vars_file`; a new `.git/noon.yaml` has none, so use `:-` defaults or `--shared` there.
 Because `$$` and `${` now have meaning in allowlisted fields, existing values there that contain
 those sequences may resolve differently.
 

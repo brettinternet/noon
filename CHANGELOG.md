@@ -6,7 +6,13 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- **config:** Interpolate vars files in job fields
 - **config:** Load per-job env files
+
+### Documentation
+
+- Clarify noon add vars_file resolution and refresh changelog
+- List env_file in inspection JSON and refresh changelog
 
 ## [v0.9.0](https://github.com/brettinternet/noon/compare/v0.8.0...v0.9.0) - 2026-10-20
 
