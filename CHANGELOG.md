@@ -6,11 +6,27 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- **schedule:** Add deterministic per-occurrence jitter
+- **scheduler:** Add stable per-job schedule splay
+
+### Documentation
+
+- Describe the scheduled job environment
+- Show multiline lifecycle hooks
+
+## [v0.8.0](https://github.com/brettinternet/noon/compare/v0.7.0...v0.8.0) - 2026-10-19
+
+### Added
+
 - Capture log receipt timestamps
 
 ### Fixed
 
 - **store:** Keep log timing honest after failures and stale sidecars
+
+### Documentation
+
+- Refresh changelog
 
 ## [v0.7.0](https://github.com/brettinternet/noon/compare/v0.6.0...v0.7.0) - 2026-10-19
 

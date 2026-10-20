@@ -279,7 +279,8 @@ jobs:
     run: ./scripts/triage
 ```
 
-An hour range covers whole hours, so `8-16` ends at 16:45. Splay shifts both window edges forward too: a five-minute offset makes this 08:05–16:50. Interval schedules (`every 15m`) count
+An hour range covers whole hours, so `8-16` ends at 16:45. Splay shifts both window edges forward too: a five-minute offset makes this 08:05–16:50. Jitter can delay each start further, up to its
+duration past the shifted time. Interval schedules (`every 15m`) count
 elapsed time and can't be limited to a window.
 
 The schedule doesn't limit queued runs from `noon run --detach`, MCP, webhooks, or hooks. To keep
