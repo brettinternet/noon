@@ -1,10 +1,10 @@
 ---
 id: NOON-63
 title: Vary each scheduled start with per-run forward jitter
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-20 19:15'
-updated_date: '2026-10-20 19:18'
+updated_date: '2026-10-20 20:01'
 labels:
   - scheduler
   - schedule
@@ -89,18 +89,34 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose noon.yaml defines `jittered` (schedule `every day at 9am`, jitter `20m`, run [true]) and `both` (same schedule, splay `10m`, jitter `20m`, run [true]): two consecutive `bin/noon list --json` calls report identical `next_at` values; `jittered` reports `jitter` "20m" and a `next_at` local clock time in [09:00:00, 09:20:00); `both` reports a `next_at` at or after 09:00:00 plus its `splay_offset` and before 09:00:00 plus `splay_offset` plus 20m; `bin/noon list` shows the `jittered` SCHEDULE cell ending in `~20m` and the `both` cell ending in `+<splay_offset> ~20m`.
-- [ ] #2 In the same environment, `bin/noon config check` exits 1 with file, line, and YAML path for each of: `jitter: 20m` on a job without `schedule`; `schedule: "*/15 * * * *"` with `jitter: 10m` (error names the 7m30s maximum); `schedule: every 1h` with `jitter: 31m`; `schedule: "0 0,23 * * *"` with `jitter: 31m` (midnight wrap gap is 1h); `jitter: 0s`; `jitter: 20` (no unit); `jitter: [20m]`. It exits 0 for `schedule: every 1h` with `jitter: 30m` and `schedule: "59 1,2 * * *"` with `jitter: 30m`. After `bin/noon enable`, changing only `jittered`'s jitter makes `bin/noon list --json` report it `needs_approval`, while editing its description does not.
-- [ ] #3 `task cli:test PKG=./internal/scheduler -- -count=1` exits 0 and covers, with injected time: a jittered daily job is not due before nominal plus its offset and fires once then with nominal `scheduled_at`; consecutive occurrences fire once each at differing offsets; a jittered interval job keeps its nominal phase across several runs; after a missed window it records one `catch_up` with the first missed nominal `scheduled_at`; in a spring-forward fixture where `59 1,2 * * *` with `jitter: 30m` reorders two occurrences, each occurrence either runs once or is recorded under the `missed` policy, with none dropped or run twice; persisted state keys of jobs without jitter are unchanged.
-- [ ] #4 `task cli:test PKG=./internal/schedule -- -count=1` and `task cli:test PKG=./internal/config -- -count=1` exit 0 and cover per-occurrence offset determinism, range [0, jitter), and variation across occurrences; shortest-gap computation for cron (including midnight wrap), macros, calendar phrases, and intervals; jitter validation; and digest coverage of jitter.
-- [ ] #5 noon.schema.json accepts a valid `jitter` duration string and rejects a non-string; examples/jobs.yaml uses `jitter` and `task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1` exits 0. Docs in scope describe only implemented behavior. `task ci` exits 0.
+- [x] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose noon.yaml defines `jittered` (schedule `every day at 9am`, jitter `20m`, run [true]) and `both` (same schedule, splay `10m`, jitter `20m`, run [true]): two consecutive `bin/noon list --json` calls report identical `next_at` values; `jittered` reports `jitter` "20m" and a `next_at` local clock time in [09:00:00, 09:20:00); `both` reports a `next_at` at or after 09:00:00 plus its `splay_offset` and before 09:00:00 plus `splay_offset` plus 20m; `bin/noon list` shows the `jittered` SCHEDULE cell ending in `~20m` and the `both` cell ending in `+<splay_offset> ~20m`.
+- [x] #2 In the same environment, `bin/noon config check` exits 1 with file, line, and YAML path for each of: `jitter: 20m` on a job without `schedule`; `schedule: "*/15 * * * *"` with `jitter: 10m` (error names the 7m30s maximum); `schedule: every 1h` with `jitter: 31m`; `schedule: "0 0,23 * * *"` with `jitter: 31m` (midnight wrap gap is 1h); `jitter: 0s`; `jitter: 20` (no unit); `jitter: [20m]`. It exits 0 for `schedule: every 1h` with `jitter: 30m` and `schedule: "59 1,2 * * *"` with `jitter: 30m`. After `bin/noon enable`, changing only `jittered`'s jitter makes `bin/noon list --json` report it `needs_approval`, while editing its description does not.
+- [x] #3 `task cli:test PKG=./internal/scheduler -- -count=1` exits 0 and covers, with injected time: a jittered daily job is not due before nominal plus its offset and fires once then with nominal `scheduled_at`; consecutive occurrences fire once each at differing offsets; a jittered interval job keeps its nominal phase across several runs; after a missed window it records one `catch_up` with the first missed nominal `scheduled_at`; in a spring-forward fixture where `59 1,2 * * *` with `jitter: 30m` reorders two occurrences, each occurrence either runs once or is recorded under the `missed` policy, with none dropped or run twice; persisted state keys of jobs without jitter are unchanged.
+- [x] #4 `task cli:test PKG=./internal/schedule -- -count=1` and `task cli:test PKG=./internal/config -- -count=1` exit 0 and cover per-occurrence offset determinism, range [0, jitter), and variation across occurrences; shortest-gap computation for cron (including midnight wrap), macros, calendar phrases, and intervals; jitter validation; and digest coverage of jitter.
+- [x] #5 noon.schema.json accepts a valid `jitter` duration string and rejects a non-string; examples/jobs.yaml uses `jitter` and `task cli:test PKG=./integration -- -run '^TestExamplesValidate$' -count=1` exits 0. Docs in scope describe only implemented behavior. `task ci` exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Claimed with Worklease claim 98f9a58f4670adf913fbdbc3b576a434, session 01a15ad5-75f4-73da-8873-02e1f0977057. Implementation worktree: /Users/brett/dev/me/noon/.worktrees/noon-63-jitter, branch noon-63-jitter, base 975e015. Plan: implement contract and critical regressions, execute AC1–5 plus full CI, one independent scoped review, commit and merge locally, mark Done and remove owned worktree/release claim. No push requested.
+
+Acceptance fixture correction: run: [true] is rejected by the existing strict argv parser because YAML true is boolean. AC1/2 execution uses run: ["true"] to invoke the intended executable; all jitter assertions and required commands are unchanged. AC#1: task cli:build; bun /tmp/noon-63-ac.AhwGTB/acceptance.ts -> PASS, isolated HOME/XDG_CONFIG_HOME/XDG_STATE_HOME/NOON_STATE_DIR and Git repo; identical repeated next_at, both bounds and list suffixes verified. AC#2: same acceptance script -> PASS, all seven invalid cases exit 1 with file/line/jobs.test.jitter, required maximum messages; both boundary-valid cases exit 0; description preserves approval and jitter change requires approval. AC#3: task cli:test PKG=./internal/scheduler -- -count=1 -> PASS, deterministic firing, interval phase, catch-up, DST reorder and state-key regressions. AC#4: task cli:test PKG=./internal/schedule -- -count=1 and task cli:test PKG=./internal/config -- -count=1 -> PASS, offsets, shortest gaps, validation and digest coverage. AC#5: mise exec go -- go run /tmp/noon-63-ac.AhwGTB/schema.go -> PASS, schema accepts 20m string and rejects numeric/sequence jitter; task cli:test PKG=./integration -- -run ^TestExamplesValidate$ -count=1 -> PASS; task ci -> PASS (security, vet/staticcheck, all tests, race, smoke). All 18 modified source/docs/test paths are in contract. No tests removed, skipped, or weakened. Independent review and final-commit CI remain before completion.
+
+Final delivery: independent reviewer found no validated defects after tracing nominal/effective times, interval phase, DST reordering, persistence, validation and approval digest coverage. Implementation commit 0a924107b2228b5aa1b6b028f2b696948f51ad64 was fast-forward merged into main. task check:staged passed before commit; task ci passed again on that final implementation commit in main. Worktrunk removed the verified session-owned noon-63-jitter worktree and branch; Herdr workspace wJ8 is confirmed absent. No retained task worktree/workspace, no remaining blocker or resumable implementation step. Temporary acceptance evidence remains at /tmp/noon-63-ac.AhwGTB. No push performed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented deterministic per-occurrence forward jitter with shortest-gap validation, nominal scheduling and effective due times, digest approval protection, inspection/schema/docs, and critical regression coverage. All acceptance checks and full CI pass; independent review found no defects. Merged locally as 0a92410; owned worktree, branch and workspace removed.
+<!-- SECTION:FINAL_SUMMARY:END -->
