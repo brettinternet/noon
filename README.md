@@ -3,6 +3,15 @@
 Cron for repositories and coding agents. Jobs live in the repo, run on your machine or in a
 container, leave history you can inspect, and never run unattended until you say so.
 
+[![Demo of adding a noon job, running it, and checking the dashboard](docs/demo.gif)](docs/demo.tape)
+
+<table>
+<tr>
+<td width="50%"><a href="docs/demo-tui.tape"><img src="docs/demo-tui.gif" alt="Demo of the noon TUI opening a failed run's log, searching it, and queuing a job"></a><br>Browse jobs, runs, and logs in the TUI</td>
+<td width="50%"><a href="docs/demo-logs.tape"><img src="docs/demo-logs.gif" alt="Demo of queuing a noon job, following its log, and finding the failing line"></a><br>Queue a job, follow its log, find the failure</td>
+</tr>
+</table>
+
 ```yaml
 # noon.yaml
 version: 1
