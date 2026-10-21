@@ -1,8 +1,7 @@
 # Docker
 
-The image runs the same binary as a non-root user (UID 10001). It has CA roots and a shell, and
-timezone data is built in. A bare container prints the dashboard and exits; nothing starts on its
-own.
+The image runs the same binary as UID 10001, with CA roots and a shell. A bare container prints the
+dashboard and exits.
 
 ```sh
 task docker:build
@@ -32,15 +31,13 @@ docker compose --project-directory /abs/path/to/project \
   -f /abs/path/to/noon/examples/compose.yaml -p noon up -d
 ```
 
-The service runs `noon enable && exec noon serve` under Docker's init process, which forwards
-signals and reaps orphaned processes. It restarts unless stopped. The root filesystem and the
-`/workspace` project mount are read-only, and `/tmp` is tmpfs; give jobs a separate volume for
-output. On stop, active runs are terminated and recorded as `interrupted` within the 15-second grace
-period. Set `NOON_IMAGE` to use your own image.
+The service runs `noon enable && exec noon serve` under Docker's init (signal forwarding, orphan
+reaping) and restarts unless stopped. The root filesystem and `/workspace` are read-only and `/tmp`
+is tmpfs; give jobs a separate volume for output. On stop, active runs are recorded `interrupted`
+within the 15-second grace period. `NOON_IMAGE` overrides the image.
 
 **Every container start approves the deployed job definitions.** Review the repository before
-deploying or restarting. Edits made while running still need approval. A read-only mount stops the
-container from writing; it doesn't stop changes on the host.
+deploying or restarting. Host edits made while it runs still need approval.
 
 ## State
 
@@ -56,9 +53,7 @@ container from writing; it doesn't stop changes on the host.
 
 ## Remote API and MCP
 
-Mount a high-entropy bearer token as a secret file, then pass only its path to `serve`. The token
-is not put in the container environment inherited by jobs and hooks. Add these settings to the
-`noon` service from the Compose example:
+Mount the token as a secret file so jobs never inherit it. Add to the Compose `noon` service:
 
 ```yaml
 services:
@@ -77,10 +72,8 @@ secrets:
     file: ./secrets/noon-api-token
 ```
 
-Keep the host secret file private and ensure the mounted file is readable by the container's
-`noon` user (UID 10001). The published listener is bound to host loopback; use a TLS reverse proxy
-for remote clients. `noon service install` does not support these listener flags: run `noon serve`
-directly or under Docker.
+The mounted file must be readable by UID 10001. Put a TLS proxy in front for remote clients.
+`noon service install` doesn't take listener flags; run `noon serve` directly or under Docker.
 
 ## Tools and credentials
 
@@ -94,18 +87,17 @@ RUN apk add --no-cache git \
 USER noon
 ```
 
-The mounted checkout belongs to a host user, so Git needs `/workspace` marked safe. The home
-directory is read-only at runtime, so set this in the image.
+The checkout belongs to a host user, so Git needs `/workspace` marked safe, in the image because
+home is read-only at runtime.
 
-Keep agent credentials and the Docker socket out unless a job needs them. Socket access is control
-of the host, and a container is not a sandbox for untrusted code.
+Keep agent credentials and the Docker socket out unless a job needs them. Socket access is host
+control, and a container is not a sandbox for untrusted code.
 [examples/integrations/docker-agent](../examples/integrations/docker-agent/) runs agent jobs with
 mounted config and secrets.
 
 ## Verification
 
 `task docker:smoke` builds the image and checks it with a read-only root filesystem.
-`task docker:integration` needs Go, Docker Compose, and a Linux engine (a VM on macOS). It runs the
-Compose example against a throwaway project and checks queueing, orphan reaping, shutdown,
-restarts, history persistence, and offline timezones. It removes everything prefixed
-`noon-integration-`, even on failure. CI runs both on Linux.
+`task docker:integration` needs Go, Docker Compose, and a Linux engine (a VM on macOS). It checks
+queueing, orphan reaping, shutdown, restarts, persistence, and offline timezones against a
+throwaway project, then removes everything prefixed `noon-integration-`. CI runs both on Linux.

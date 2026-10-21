@@ -48,22 +48,22 @@ The CLI is the product.
 - Finishing commands accept `--json` and print exactly one object with `schema_version: 1`.
   Long-running commands (`serve`, `mcp`, `tui`, `logs --follow`) reject it. Errors are
   `{"schema_version":1,"error":{"code":"…","message":"…","hint":"…"}}`. Job output never enters
-  JSON stdout; a JSON foreground run streams job output to stderr. Explicit help, version,
-  and shell-completion requests remain text exceptions, even with `--json`. Bare group actions
-  (including `shell`) honor JSON mode; unknown or extra group arguments are usage errors.
-  Usage hints include the full command help path. Unique single-typo command/flag matches
-  may be suggested, never autocorrected or executed.
+  JSON stdout. Help, version, and completion stay text. Unknown or extra group arguments are
+  usage errors; a unique single-typo match may be suggested, never executed.
 - Exit 0 for success (including empty results), 1 for operational errors, 2 for usage errors. A
   foreground `noon run` exits with the job's code (see [Execution](#execution)).
 - No prompts. Noninteractive use never hangs; `noon mcp` on a TTY prints setup help and exits.
 - No inference: one job is not "the" job, and a schedule string is never guessed.
 
-Dashboard notices are prioritized: config errors, scheduled projects not enabled, pending
-approvals, enabled projects with an offline scheduler, orphaned runs, then queued work. An
-orphaned notice names every orphaned running run and job with its copyable `noon cancel ID`
-command and says they block background runs in the project; it fits 80 columns and shows at most three notices. The `Suggested action:` step follows the same
-order: `noon config check`, `noon enable`, `noon service install` (or `noon serve` if installed),
-`noon cancel ID` for the lowest orphaned run ID, then an unpaused runnable job or `noon add`.
+Dashboard notices (at most three, 80 columns) and the `Suggested action:` share one priority:
+
+| Notice | Suggested action |
+| --- | --- |
+| Config error | `noon config check` |
+| Scheduled project not enabled; pending approvals | `noon enable` |
+| Enabled project, scheduler offline | `noon service install` (`noon serve` if installed) |
+| Orphaned runs, each with `noon cancel ID`; they block the project | `noon cancel` lowest orphaned ID |
+| Queued work | An unpaused runnable job, or `noon add` |
 
 `noon doctor` never executes jobs, repairs, migrates, or creates absent state. SQLite WAL/SHM
 sidecars for an existing database are allowed; application data stays read-only.
@@ -245,22 +245,15 @@ self-daemonizes and is not one process per repo.
 - `noon service install` registers a launchd agent or systemd user unit. It records `PATH`,
   optional `XDG_CONFIG_HOME`, and the absolute state directory, because service managers otherwise
   run with a minimal `PATH` and a different working directory. Nothing else installs services.
-- `noon service restart` explicitly restarts an already installed service using its existing
-  definition, without rewriting the unit or capturing shell settings. Missing services require
-  `service install`. Restart interrupts active jobs, not drains them. Same-path binary upgrades
-  require explicit install or restart; changed unit settings require install. Unchanged install
-  restarts only a live, process-identity-verified, manager-owned scheduler with a known differing
-  version or commit. Matching builds remain undisturbed; unknown build metadata needs explicit
-  restart guidance. Scheduler commit metadata is persisted with backward-compatible reads.
-  Doctor reports build mismatches independently of config diagnostics. Config reloads never
-  trigger a service restart. Switching installations preserves
-  state and history by installing with the new executable and the same state/config locations.
+- `noon service restart` restarts an installed service from its existing definition; a missing
+  service needs `service install`. Restarts interrupt active jobs, never drain. An unchanged
+  `install` restarts only a live, identity-verified, manager-owned scheduler whose known version or
+  commit differs; unknown metadata yields restart guidance instead. Config reloads never restart.
+  See [service upgrades](service.md#upgrades).
 - Docker runs the same process in the foreground. `noon run NAME` needs no scheduler, like `task NAME`.
 - There is no local IPC socket. Local clients read SQLite for scheduler status and next times; the optional HTTP API is an adapter over shared app operations, not a second scheduler. The scheduler polls SQLite every second and config files every two seconds. Revisit polling only if latency or cost becomes a measured problem.
-- Queueing (`--detach`, `--in`, `--at`, MCP `run_job`) is one immediate SQLite transaction that
-  checks retained idempotency keys, enablement and approval, cooldown, and due-run merging or the
-  `requests: each` cap before inserting. The each-mode cap is 20 queued runs per job and is checked
-  before event-file creation.
+- Queueing (`--detach`, `--in`, `--at`, MCP, API, webhooks) is one immediate SQLite transaction:
+  idempotency key, enablement and approval, cooldown, then due-run merging or the `each` cap.
 
 ### Enable and approve
 
@@ -415,24 +408,11 @@ No plugin system; commands are the integration boundary (decision-4).
 
 - **Hooks** ([doc](hooks.md)): `on_success`/`on_failure` get a versioned JSON summary on stdin and
   `NOON_*` variables; 30s timeout; 64 KiB output appended after a marker; no hooks for hooks.
-  `NOON_PREVIOUS_STATUS` / `previous_status` come from one snapshot taken before the terminal
-  transition releases the running slot: the same project and job's latest retained `succeeded`,
-  `failed`, or `timed_out` result by `finished_at` then ID, excluding the current run and noops.
-  Noops never run `on_success` or `on_failure` and don't replace the previous result. Digest changes
-  don't reset it. On lookup error Noon still records the job result and skips the hook.
-  `NOON_CONSECUTIVE_FAILURES` / top-level integer `consecutive_failures` use that same
-  pre-FinishRun snapshot (stdin schema_version stays 1): current failure/timeout plus preceding
-  retained failures/timeouts in completion order, stopping at the latest success; current success
-  gives 0. Noop, skipped, missed, expired, cancelled, and interrupted neither count nor reset.
-  All triggers count, including foreground runs; digest changes, pause, and resume do not reset.
-  This is not a lifetime counter: 50 retained failures plus the current result can yield 51 before
-  pruning. Missed, expired, cancelled, and interrupted consume regular retention despite not
-  counting, so thresholds above available history are unreliable.
-  Pause/notification policy belongs in wrappers, not the core. A dispatched run can start before
-  a pausing hook finishes. Resume permits background work without resetting the streak; a
-  foreground success while paused resets it. Wrappers using a non-default store must explicitly
-  set `NOON_STATE_DIR` to the owning invocation's absolute state path: service `--state-dir`
-  is not inherited by hooks, and neither project nor log paths identify the store.
+  `previous_status` and `consecutive_failures` come from one snapshot taken before the run's
+  terminal transition, over retained `succeeded`/`failed`/`timed_out` results of the same project
+  and job ordered by `finished_at` then ID. Other statuses neither count nor reset; digest changes,
+  pause, and resume don't reset. Noops run no hooks. On lookup error Noon records the job result
+  and skips the hook. Pause and notification policy belong in wrappers, not the core.
 - **Triggers** ([doc](triggers.md)): `noon run NAME --detach --key ID [--data JSON]`. The event file
   is written before the queued run is committed, so dispatch can't race it. Payloads are files,
   never interpolated. Cooldown is checked after key deduplication and requirements, before due-run
@@ -451,7 +431,7 @@ No plugin system; commands are the integration boundary (decision-4).
   `list_projects`, `list_jobs`, `run_job`, `list_runs`, `get_run`, `cancel_run`. HTTP MCP has no
   default project and only reaches enabled projects. Agents can't approve, add, or edit unattended
   commands. `noon skill` prints the shell-only fallback unchanged; it's never auto-installed.
-- **Remote JSON API** ([reference](cli.md#remote-api-and-mcp-http)): with
+- **Remote JSON API** ([reference](cli.md#remote-api-and-mcp-over-http)): with
   `serve --listen --api-token-file`, routes under `/v1/` expose only the inspect, queue, read, and
   cancel operations shared with MCP. The shared bearer token is read once from a file, checked
   before routing, and never inherited by jobs or hooks. Only enabled projects and their runs are

@@ -7,68 +7,52 @@ Noon never backgrounds itself.
 ```sh
 noon service install          # install or update, then start
 noon service restart          # explicitly restart; interrupts active jobs
-noon service                  # unit, manager state, scheduler heartbeat
+noon service                  # unit, manager state, scheduler heartbeat and build
 noon service install --print  # show the unit; writes and starts nothing
 noon service uninstall        # stop and remove the unit; keep state and history
 ```
 
 ## What the unit contains
 
-- The `noon` found on `PATH` if it's the running binary (keeping a stable Homebrew symlink),
-  otherwise the running binary's path.
-- An absolute `--state-dir`, resolved at install time from `--state-dir`, `NOON_STATE_DIR`, user
-  `state_dir`, or the default. The directory is created with mode 0700.
-- Your current `PATH`, and `XDG_CONFIG_HOME` if set. No other environment, so secrets aren't copied.
+| Captured | From |
+| --- | --- |
+| Executable | `noon` on `PATH` if it's the running binary (keeps Homebrew's stable symlink), else the running binary |
+| `--state-dir` | `--state-dir`, `NOON_STATE_DIR`, user `state_dir`, or the default; made absolute and created 0700 |
+| `PATH`, `XDG_CONFIG_HOME` | Your current shell; nothing else, so secrets aren't copied |
 
-Jobs run with that `PATH`. Re-run `noon service install` after changing any of these; an unchanged
-unit is not rewritten. Install also reconciles a known running-build mismatch (see below).
-`noon service` shows the scheduler version and commit and says when the installed unit is out of date.
-
-`${...}` in schedules and paths resolves only from a manifest's
-[`vars_file`](configuration.md#config-time-variables), never the process environment, so the
-service and your shell see the same jobs. Edits to it need no restart.
+Re-run `noon service install` after changing any of these. An unchanged unit isn't rewritten.
 
 ## Job environment
 
-Scheduled runs inherit the scheduler's environment, not your shell's. Under the service that's the
-`PATH` and `XDG_CONFIG_HOME` above plus whatever launchd or systemd adds; in a container it's the
-container's environment. Noon never sources shell rc files, so `TERM`, `SHELL`, and your shell's
-exports are usually unset. Stdin is `/dev/null` and output goes to the run log, not a terminal.
-Set what a job needs in `env`, or in an [`env_file`](configuration.md#env-files) read at each run
-start (rotation needs no restart):
+Scheduled runs inherit the scheduler's environment, not your shell's: the captured `PATH` and
+`XDG_CONFIG_HOME` plus whatever launchd or systemd adds. Noon never sources shell rc files, so
+`TERM`, `SHELL`, and your exports are usually unset. Stdin is `/dev/null`. Set what a job needs:
 
 ```yaml
 jobs:
   report:
     run: ./report.sh
-    env_file: .env          # gitignored secrets
+    env_file: .env          # gitignored secrets, read at each run
     env:
       TERM: xterm-256color  # beats .env
 ```
 
-When a job works in your shell but fails on schedule, run it inside the scheduler to get the exact
-environment:
+When a job works in your shell but fails on schedule, run it inside the scheduler:
 
 ```sh
 noon run report --detach
 noon logs <run-id> --follow
+env -i PATH="$PATH" HOME="$HOME" noon run report   # rough local approximation
 ```
-
-For a rough local check without a scheduler, strip your shell's environment:
-`env -i PATH="$PATH" HOME="$HOME" noon run report`.
 
 ## Logs
 
-macOS writes scheduler output to `scheduler.log` in the state directory:
-
 ```sh
+# macOS
 tail -f ~/.local/state/noon/scheduler.log
 launchctl print "gui/$(id -u)/io.github.brettinternet.noon"
-```
 
-Linux uses the user journal:
-
-```sh
+# Linux
 systemctl --user status noon.service
 journalctl --user -u noon.service -f
 ```
@@ -83,64 +67,49 @@ journalctl --user -u noon.service -f
 
 ## Upgrades
 
-Replacing the binary does not restart the running scheduler. After upgrading at the same path
-(for example, behind Homebrew's stable symlink), explicitly reconcile the service:
+Replacing the binary doesn't restart the scheduler. Reconcile explicitly:
 
 ```sh
 brew upgrade noon
 noon service install
 ```
 
-Alternatively, `noon service restart` uses the installed definition, without rewriting its executable, state directory, or
-captured environment. It refuses a missing service with `noon service install` guidance.
-**Restart interrupts active jobs; it does not wait for them to finish.** Choose a quiet time.
-Noon never restarts automatically on upgrade.
+**Restarts interrupt active jobs; they don't drain.** Pick a quiet time.
 
-For a changed executable path, `PATH`, `XDG_CONFIG_HOME`, or other unit settings, run
-`noon service install`. It reconciles and restarts changed units once. For an unchanged unit,
-it restarts only when a fresh scheduler record has a verified process identity, the service
-manager owns that PID, and a known version or commit differs from the invoking binary.
-Matching known builds remain running. Missing metadata or unknown development identifiers
-are not proof of a match; install reports explicit `noon service restart` guidance instead of
-guessing. A known differing field is sufficient even when the other is unavailable.
-Stale records and unrelated foreground schedulers cannot authorize a mismatch restart.
-First installs and stopped-service startup retain their normal behavior.
+| Situation | `service install` does |
+| --- | --- |
+| Unit settings changed (executable path, `PATH`, `XDG_CONFIG_HOME`) | Rewrites the unit and restarts |
+| Same unit, running scheduler reports a different version or commit | Restarts it |
+| Same unit, same build | Nothing |
+| Same unit, build metadata unknown (e.g. dev builds) | Tells you to run `noon service restart` |
 
-**Install-triggered upgrade restarts also interrupt active jobs; they do not drain them.**
-No background upgrade watcher runs. `noon doctor` reports `scheduler_version_mismatch`
-with both builds and guidance, independently of genuine `scheduler_config` errors.
-`noon status` and `noon service` expose scheduler version and commit in human and JSON output;
-these inspections, doctor, and `install --print` never restart services or rewrite state.
-Older databases remain readable; an absent commit is shown as empty, not inferred.
-Rebuilt binaries with identical version and commit cannot be distinguished.
+Install only restarts a scheduler the service manager owns, with a verified process identity and a
+fresh heartbeat. `noon doctor` reports `scheduler_version_mismatch`; `noon status` and
+`noon service` show the running build. Rebuilt binaries with the same version and commit look
+identical.
+
+Config edits (including `vars_file`) reload every two seconds, and `env_file` is read at each run.
+Neither needs a restart. Restarting never approves changed shared jobs; run `noon enable`.
+
+An older binary facing a newer database exits 75, and the manager keeps retrying until you install
+the newer binary.
 
 ### Switching installation methods
 
-Install the new binary, then invoke that executable's `service install` (use its full path if
-both installations remain on `PATH`). Keep the same absolute state directory and config location:
+Run the new executable's `service install` with the same state directory, `HOME`, and
+`XDG_CONFIG_HOME`:
 
 ```sh
 /path/to/new/noon --state-dir /existing/noon-state service install
 ```
 
-Use the same `HOME` and `XDG_CONFIG_HOME` as before and preserve the existing configuration.
-The state directory retains registered projects, approvals, queued work, and run history; no
-copying or relocation is needed. A changed unit restarts the scheduler and interrupts active jobs.
-If its contents are unchanged, install reconciles known build differences as above; use
-`service restart` explicitly when build metadata is unknown. Remove the old installation only
-after the installed unit points to the new executable.
-
-Job configuration reloads every two seconds; `vars_file` edits reload too. `env_file` is read at
-each run start. These edits need no service restart. Changed shared job definitions still need
-`noon enable` approval; restarting does not approve them.
-
-If an older binary meets a database from a newer Noon, `noon serve` exits 75 and the manager keeps
-retrying; install the newer binary.
+Projects, approvals, queued work, and history stay in the state directory; nothing is copied.
+Remove the old installation only after the installed unit points to the new executable.
 
 ## Linux lingering
 
 A systemd user service runs only while your user manager is active. If `loginctl` reports
-`Linger=no`, install prints a hint. To run schedules without a login session:
+`Linger=no`, install prints a hint. To run without a login session:
 
 ```sh
 loginctl enable-linger

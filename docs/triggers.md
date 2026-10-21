@@ -9,20 +9,19 @@ noon run tests --detach --data @event.json
 printf '%s\n' '{"sha":"abc123"}' | noon run tests --detach --data -
 ```
 
-The project must be enabled, and `noon serve` (or the service) dispatches the run. Noon never
-installs hooks for you.
+The project must be enabled and a scheduler running. Noon never installs hooks for you.
 
 ## Event data
 
-`--data` takes a JSON value, `@FILE`, or `-` for stdin, up to 256 KiB. Noon writes it to a private
-file before the run is queued, and the job reads it from `$NOON_EVENT_FILE`:
+`--data` (JSON, `@FILE`, or `-` for stdin; ≤ 256 KiB) is written to a private file before the run
+is queued. The job reads `$NOON_EVENT_FILE`:
 
 ```json
 {"schema_version":1,"source":"cli","received_at":"2026-10-16T22:54:31.711Z","data":{"commit":"abc123"}}
 ```
 
-`source` is `cli`, `mcp` (`run_job` with `data`), or `webhook`. Data never becomes part of a
-command. Event files are kept with the newest 10 logs per job.
+`source` is `cli`, `mcp`, `api`, or `webhook`. Data never becomes part of a command. Event files
+are kept with the newest 10 logs per job.
 
 ## Cooldown
 
@@ -33,26 +32,24 @@ jobs:
     cooldown: 5m
 ```
 
-If any run of the job was created within the `cooldown` (at least `1s`), a queued request returns
-that run instead of adding one:
+A queued request within `cooldown` (≥ `1s`) of the job's last run returns that run:
 
 ```console
 $ noon run tests --detach
 tests is cooling down until Fri 16:59:12 (run 4)
 ```
 
-Foreground and scheduled runs ignore cooldown. It's part of the approval digest and cannot be
-combined with `requests: each`. Checks run in this order: idempotency key, enablement and approval,
-cooldown, then merging into an already-due run or checking the per-job `each` queue cap.
+Foreground and scheduled runs ignore cooldown. It's in the approval digest and can't be combined
+with `requests: each`. Checks run in order: idempotency key, enablement and approval, cooldown,
+then due-run merging or the `each` cap.
 
 ## Merge vs each event requests
 
-`requests: merge` is the default. For any due-now source (CLI, MCP, webhook, Git or agent hook,
-shell entry, or TUI), if the job already has a due queued run, Noon returns that run and discards
-the new request's payload and event file. This is useful when requests are wake-ups and the job
-reconciles current state.
-
-Set `requests: each` when every due-now request needs its own payload and run:
+| | `requests: merge` (default) | `requests: each` |
+| --- | --- | --- |
+| Due-now request while a run is already due | Returns that run; new payload dropped | New run with its own payload |
+| Use when | Requests are wake-ups and the job reconciles state | Every event matters |
+| Limit | — | 20 queued runs per job, including `--in`/`--at` |
 
 ```yaml
 jobs:
@@ -61,16 +58,12 @@ jobs:
     requests: each
 ```
 
-Each request creates a separate queued run and event file. Idempotency keys still return the
-original run as `duplicate` while it is retained, so webhook redelivery remains safe. Due-now
-requests have a fixed cap of 20 queued runs per job; the count includes all queued runs, including
-future `--in`/`--at` one-shots. At the cap, a due-now request fails with `queue_full` before creating
-a run or event file. CLI errors suggest `noon cancel NAME`; MCP returns a tool error and webhooks
-respond with 429 `{"error":"job queue is full"}`. `--in` and `--at` one-shots stay independent and
-are not merged; their runs still count toward the due-now cap.
+At the `each` cap, a due-now request fails with `queue_full` (webhooks get 429) and creates nothing.
+Idempotency keys still dedupe, so webhook redelivery stays safe. `--in`/`--at` one-shots never
+merge.
 
-Queued runs more than one hour overdue expire and appear as `expired`. If an event must never be
-missed, reconcile outstanding work in the job rather than relying only on queued event files.
+Queued runs more than an hour overdue become `expired`. If an event must never be missed, have the
+job reconcile outstanding work rather than rely on event files.
 
 ## Git hooks
 

@@ -45,15 +45,13 @@ jobs:
     on_failure: []
 ```
 
-Defaults are allowed only in user config or a `--config` file. A shared job's own hooks are part of
-its approval digest; user-config defaults aren't, so changing them never revokes approval.
+Defaults live only in user config or a `--config` file. A shared job's own hooks are in its
+approval digest; user-config defaults aren't.
 
 ## What a hook gets
 
-The hook runs in the job's directory with the job's environment, including `env_file` values
-loaded for that run; it never rereads those files. If startup failed before the environment was
-built (including an env-file failure), hooks receive the environment without file values.
-Hooks also receive:
+The hook runs in the job's directory with that run's environment, including `env_file` values
+(without them if the env file itself failed), plus:
 
 | Variable | Value |
 | --- | --- |
@@ -99,48 +97,42 @@ Stdin is one JSON object. `run` has the same shape as `noon history --json`:
 
 ## Rules
 
-- The hook starts after the job's final status is saved. A hook failure never changes the job's
-  status or `noon run`'s exit code, and hooks never trigger other hooks.
+- The hook starts after the job's status is saved. A hook failure never changes the job's status
+  or `noon run`'s exit code, and hooks never trigger hooks.
 - A hook gets 30 seconds, then TERM to its process group, then KILL five seconds later.
-- The first 64 KiB of its output is appended to the raw run log after a marker at `log.hook_offset`.
-  Captured hook bytes receive the same separate timing metadata as job output, rebased to their raw
-  log offsets; the synthetic hook marker itself has no timestamp. Read one part with
-  `noon logs RUN --section job` or `--section hook`, and opt into displayed receipt times with
-  `--timestamps`. Times mean when Noon received hook output, not when the hook produced it.
+- Its first 64 KiB of output is appended to the run log at `log.hook_offset`; read it with
+  `noon logs RUN --section hook`.
 - Hooks run outside the scheduler's concurrency limits.
-- `previous_status` is the latest earlier `succeeded`, `failed`, or `timed_out` result of the same
-  project and job, by finish time, regardless of definition changes; noops are excluded. It may come
-  from a run with a higher ID that finished first. If Noon can't read history, it records the job's
-  result, reports the error, and skips the hook.
+- `previous_status` is the latest earlier result by finish time, ignoring noops and definition
+  changes. If history can't be read, Noon records the job result and skips the hook.
 - Hooks are not a sandbox. They run with your permissions and inherited secrets.
 
 ## Consecutive failures and pausing
 
-`NOON_CONSECUTIVE_FAILURES` and top-level stdin `consecutive_failures` (integer) use the same
-pre-finish snapshot as `previous_status`; stdin `schema_version` remains 1. A failed or timed-out
-current run adds 1 to immediately preceding retained failures/timeouts, ordered by
-`finished_at` then ID, stopping at the latest success. A current success yields 0.
-Only `succeeded`, `failed`, and `timed_out` are results: noop, skipped, missed, expired,
-cancelled, and interrupted neither count nor reset. All triggers count, including foreground
-runs. Definition digest changes, pause, and resume do not reset the count.
+`NOON_CONSECUTIVE_FAILURES` (stdin `consecutive_failures`) counts this run plus the retained
+failures before it, back to the latest success:
 
-This is retained history, not a lifetime counter. The snapshot precedes FinishRun pruning, so
-50 retained failures plus the current failure can yield 51. Missed, expired, cancelled, and
-interrupted rows consume the regular retention budget even though they do not count.
-Thresholds above available history are not reliable.
+| Retained results, oldest first | Current | Count |
+| --- | --- | --- |
+| `succeeded`, `failed`, `timed_out` | `failed` | 3 |
+| `failed`, `cancelled`, `noop` | `timed_out` | 2 |
+| `failed`, `failed` | `succeeded` | 0 |
 
-Use the [pause-after recipe](../examples/integrations/notifications/README.md#pause-after-repeated-failures)
-to pause at a threshold and then notify. A run dispatched before the hook finishes can still
-start. `noon resume NAME` re-enables background runs without resetting the count; one more
-failure can re-pause it. Use a foreground `noon run NAME` while paused to obtain a success.
-With a non-default store, explicitly set `NOON_STATE_DIR` to the same absolute state directory
-as the owning Noon invocation; service installation's `--state-dir` is not automatically
-inherited by hook subprocesses. Never infer the state directory from the project or log path.
+Only `succeeded`, `failed`, and `timed_out` count or reset; other statuses are ignored. Every
+trigger counts, including foreground runs. Pause, resume, and definition changes don't reset it.
+It's bounded by [retention](agents.md#limits-and-safety) (at most 51), so don't set thresholds
+near that.
+
+The [pause-after recipe](../examples/integrations/notifications/README.md#pause-after-repeated-failures)
+pauses at a threshold and notifies. A run dispatched before the hook finishes can still start.
+`noon resume` keeps the count, so one more failure re-pauses; a foreground `noon run NAME`
+success resets it. With a non-default state directory, set `NOON_STATE_DIR` explicitly in the
+hook; it isn't inherited from the service's `--state-dir`.
 
 ## Notify on first failure and recovery
 
-This wrapper notifies when a job goes from healthy to failing or back, and stays quiet otherwise.
-`failed` and `timed_out` both count as failing. Configure it for both hooks.
+Configure this wrapper for both hooks. It notifies only when a job flips between healthy and
+failing (`failed` or `timed_out`).
 
 ```sh
 #!/bin/sh
@@ -151,8 +143,7 @@ case "$NOON_STATUS" in failed|timed_out) current=unhealthy ;; *) current=healthy
 exec notify-send "$NOON_JOB" "$NOON_STATUS"          # Linux
 ```
 
-On macOS, replace the last line with an AppleScript call that receives values as arguments, not
-as source code:
+On macOS, pass values to AppleScript as arguments, never as source:
 
 ```sh
 exec osascript "$HOME/.local/bin/noon-notify.applescript" "$NOON_JOB" "$NOON_STATUS"
@@ -165,12 +156,11 @@ on run argv
 end run
 ```
 
-Missing history counts as healthy, so a first success is quiet, and pruned history can make an
-old outage look new. Failed hooks aren't retried.
+Missing history counts as healthy, so a first success is quiet. Failed hooks aren't retried.
 
 ## Post to chat
 
-Forward the JSON from stdin. Keep the URL in the job's gitignored `env_file` or the scheduler's environment, not in YAML:
+Forward stdin. Keep the URL in a gitignored `env_file`, not YAML:
 
 ```sh
 #!/bin/sh
