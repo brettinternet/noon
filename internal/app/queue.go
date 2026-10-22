@@ -145,6 +145,21 @@ type TemporaryResult struct {
 	Scheduler         string                  `json:"scheduler"`
 }
 
+// ResolveTime resolves a one-shot time: HH:MM as its next occurrence after now,
+// YYYY-MM-DD HH:MM in loc with the schedule DST rules (first repeated instant,
+// first instant after a gap), or RFC 3339. It does not reject past times.
+func ResolveTime(value string, now time.Time, loc *time.Location) (time.Time, error) {
+	if _, err := time.Parse("15:04", value); err != nil {
+		return config.ParseUntil(value, loc)
+	}
+	local := now.In(loc)
+	resolved, err := config.ParseUntil(local.Format("2006-01-02")+" "+value, loc)
+	if err == nil && !resolved.After(now) {
+		resolved, err = config.ParseUntil(local.AddDate(0, 0, 1).Format("2006-01-02")+" "+value, loc)
+	}
+	return resolved, err
+}
+
 // ResolveEnd resolves exactly one of a relative (for) or absolute (until) end
 // once, in loc. A duration is at least 1m and rounds up to a whole minute;
 // HH:MM means its next occurrence. The end must be after now.
@@ -164,15 +179,7 @@ func ResolveEnd(forValue, untilValue string, now time.Time, loc *time.Location) 
 		}
 	} else {
 		var err error
-		if _, clockErr := time.Parse("15:04", untilValue); clockErr == nil {
-			local := now.In(loc)
-			until, err = config.ParseUntil(local.Format("2006-01-02")+" "+untilValue, loc)
-			if err == nil && !until.After(now) {
-				until, err = config.ParseUntil(local.AddDate(0, 0, 1).Format("2006-01-02")+" "+untilValue, loc)
-			}
-		} else {
-			until, err = config.ParseUntil(untilValue, loc)
-		}
+		until, err = ResolveTime(untilValue, now, loc)
 		if err != nil {
 			return time.Time{}, fmt.Errorf("invalid until time %q: use HH:MM, YYYY-MM-DD HH:MM, or RFC 3339", untilValue)
 		}
@@ -273,30 +280,9 @@ func QueueDueAt(mode, inValue, atValue string, now time.Time, location *time.Loc
 		return now.Add(duration), nil
 	case "at":
 		value := atValue
-		var due time.Time
-		switch {
-		case len(value) == len("15:04"):
-			clock, err := time.ParseInLocation("15:04", value, location)
-			if err != nil {
-				return time.Time{}, invalidQueueAt(value)
-			}
-			local := now.In(location)
-			due = time.Date(local.Year(), local.Month(), local.Day(), clock.Hour(), clock.Minute(), 0, 0, location)
-			if !due.After(now) {
-				due = time.Date(local.Year(), local.Month(), local.Day()+1, clock.Hour(), clock.Minute(), 0, 0, location)
-			}
-		case len(value) == len("2006-01-02 15:04"):
-			parsed, err := time.ParseInLocation("2006-01-02 15:04", value, location)
-			if err != nil {
-				return time.Time{}, invalidQueueAt(value)
-			}
-			due = parsed
-		default:
-			parsed, err := time.Parse(time.RFC3339, value)
-			if err != nil {
-				return time.Time{}, invalidQueueAt(value)
-			}
-			due = parsed
+		due, err := ResolveTime(value, now, location)
+		if err != nil {
+			return time.Time{}, invalidQueueAt(value)
 		}
 		if due.Before(now) {
 			return time.Time{}, fmt.Errorf("--at time %s is in the past", value)

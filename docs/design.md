@@ -167,6 +167,8 @@ In the project timezone:
 - A local time skipped when clocks spring forward runs once, at the first instant after the gap.
 - Intervals are elapsed time and ignore DST.
 - `--at` accepts `HH:MM` (next occurrence), `YYYY-MM-DD HH:MM`, or RFC 3339; `--in` takes a duration.
+  Local times resolve like `until` and schedules: a repeated time is its first occurrence, a
+  skipped time the first instant after the gap.
 
 Optional `splay` (1s–1h) shifts each cron, macro, or calendar occurrence forward by a
 stable whole-second offset; manual and interval jobs reject it. The offset is the first eight
