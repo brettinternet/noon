@@ -99,37 +99,150 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 		EventData: options.EventData, EventSource: options.EventSource, EventHeaders: options.EventHeaders,
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, store.ErrProjectNotEnabled):
-			err = &QueueError{Code: "not_enabled", Message: "project is not enabled for background runs", Hint: "Run noon enable"}
-		case errors.Is(err, store.ErrJobNotFound):
-			err = &QueueError{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: "Run noon run to list jobs"}
-		case errors.Is(err, store.ErrJobEnded):
-			tense := "ends"
-			checkNow := now
-			if nowFunc != nil {
-				checkNow = nowFunc()
-			}
-			if job.Ended(checkNow) {
-				tense = "ended"
-			}
-			loc, _ := time.LoadLocation(cfg.Timezone)
-			if loc == nil {
-				loc = time.Local
-			}
-			err = &QueueError{Code: "ended", Message: fmt.Sprintf("job %q %s at %s", name, tense, job.Until.In(loc).Format(time.RFC3339)), Hint: fmt.Sprintf("Edit until in %q", job.Source)}
-		case errors.Is(err, store.ErrJobDisabled):
-			err = &QueueError{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
-		case errors.Is(err, store.ErrJobPaused):
-			err = &QueueError{Code: "paused", Message: fmt.Sprintf("job %q is paused", name)}
-		case errors.Is(err, store.ErrNeedsApproval):
-			err = &QueueError{Code: "needs_approval", Message: fmt.Sprintf("job %q needs approval", name), Hint: "Run noon enable"}
-		case errors.Is(err, store.ErrQueueFull):
-			err = &QueueError{Code: "queue_full", Message: fmt.Sprintf("job %q queue is full", name), Hint: fmt.Sprintf("Run noon cancel %s to clear queued runs", name)}
-		}
+		err = queueRequestError(err, cfg, name, job, now, nowFunc)
 		return QueuedRun{}, err
 	}
 	return QueuedRun{SchemaVersion: 1, Run: RunFromStore(state, result.Run), Created: result.Created, Reason: result.Reason, Scheduler: result.Scheduler, CooldownUntil: result.CooldownUntil}, nil
+}
+
+func queueRequestError(err error, cfg config.Config, name string, job config.Job, now time.Time, nowFunc func() time.Time) error {
+	switch {
+	case errors.Is(err, store.ErrProjectNotEnabled):
+		err = &QueueError{Code: "not_enabled", Message: "project is not enabled for background runs", Hint: "Run noon enable"}
+	case errors.Is(err, store.ErrJobNotFound):
+		err = &QueueError{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: "Run noon run to list jobs"}
+	case errors.Is(err, store.ErrJobEnded):
+		tense := "ends"
+		checkNow := now
+		if nowFunc != nil {
+			checkNow = nowFunc()
+		}
+		if job.Ended(checkNow) {
+			tense = "ended"
+		}
+		loc, _ := time.LoadLocation(cfg.Timezone)
+		if loc == nil {
+			loc = time.Local
+		}
+		err = &QueueError{Code: "ended", Message: fmt.Sprintf("job %q %s at %s", name, tense, job.Until.In(loc).Format(time.RFC3339)), Hint: fmt.Sprintf("Edit until in %q", job.Source)}
+	case errors.Is(err, store.ErrJobDisabled):
+		err = &QueueError{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
+	case errors.Is(err, store.ErrJobPaused):
+		err = &QueueError{Code: "paused", Message: fmt.Sprintf("job %q is paused", name)}
+	case errors.Is(err, store.ErrNeedsApproval):
+		err = &QueueError{Code: "needs_approval", Message: fmt.Sprintf("job %q needs approval", name), Hint: "Run noon enable"}
+	case errors.Is(err, store.ErrQueueFull):
+		err = &QueueError{Code: "queue_full", Message: fmt.Sprintf("job %q queue is full", name), Hint: fmt.Sprintf("Run noon cancel %s to clear queued runs", name)}
+	}
+	return err
+}
+
+type TemporaryResult struct {
+	SchemaVersion     int                     `json:"schema_version"`
+	TemporarySchedule store.TemporarySchedule `json:"temporary_schedule"`
+	Created           bool                    `json:"created"`
+	Reason            string                  `json:"reason,omitempty"`
+	Scheduler         string                  `json:"scheduler"`
+}
+
+// TemporaryTimes validates the common schedule and bounded end syntax.
+func TemporaryTimes(text, forValue, untilValue string, now time.Time, loc *time.Location) (time.Time, time.Time, error) {
+	parsed, err := schedule.Parse(text)
+	if err != nil {
+		return time.Time{}, time.Time{}, UsageError(err.Error(), "Use the same schedule grammar as job config")
+	}
+	fail := func(message string) (time.Time, time.Time, error) {
+		return time.Time{}, time.Time{}, UsageError(message, "Use --schedule 'every 10m' --for 2h")
+	}
+	if (forValue == "") == (untilValue == "") {
+		return fail("a temporary schedule requires exactly one of for or until")
+	}
+	var until time.Time
+	if forValue != "" {
+		duration, err := schedule.ParseDuration(forValue)
+		if err != nil || duration < time.Minute {
+			return fail("for must be a duration of at least 1m")
+		}
+		if duration > 7*24*time.Hour {
+			return fail("temporary schedules must end within 7 days")
+		}
+		until = now.Add(duration)
+		if rounded := until.Truncate(time.Minute); !rounded.Equal(until) {
+			until = rounded.Add(time.Minute)
+		}
+	} else {
+		if len(untilValue) == len("15:04") {
+			local := now.In(loc)
+			until, err = config.ParseUntil(local.Format("2006-01-02")+" "+untilValue, loc)
+			if err == nil && !until.After(now) {
+				until, err = config.ParseUntil(local.AddDate(0, 0, 1).Format("2006-01-02")+" "+untilValue, loc)
+			}
+		} else {
+			until, err = config.ParseUntil(untilValue, loc)
+		}
+		if err != nil {
+			return fail(err.Error())
+		}
+	}
+	if !until.After(now) {
+		return fail("until must be after now")
+	}
+	if until.Sub(now) > 7*24*time.Hour {
+		return fail("temporary schedules must end within 7 days (including minute rounding)")
+	}
+	next := parsed.Next(now, loc)
+	if next.IsZero() || !next.Before(until) {
+		return fail("schedule has no occurrence before its end")
+	}
+	return until, next, nil
+}
+
+// ScheduleTemporary only requeues an existing eligible job; it never edits config.
+func ScheduleTemporary(cfg config.Config, name, text, forValue, untilValue, key, requestedBy, source string, data []byte, now time.Time) (TemporaryResult, error) {
+	if key != "" && !ValidIdempotencyKey(key) {
+		return TemporaryResult{}, UsageError("invalid key", "Use 1–200 characters of [A-Za-z0-9._:-]")
+	}
+	if err := CheckRecursion(cfg.Project, name, os.Environ()); err != nil {
+		return TemporaryResult{}, err
+	}
+	if len(data) > 0 {
+		if err := ValidateEventData(data); err != nil {
+			return TemporaryResult{}, err
+		}
+	}
+	loc, err := time.LoadLocation(cfg.Timezone)
+	if err != nil {
+		return TemporaryResult{}, err
+	}
+	until, next, err := TemporaryTimes(text, forValue, untilValue, now, loc)
+	if err != nil {
+		return TemporaryResult{}, err
+	}
+	job, exists := cfg.Jobs[name]
+	if exists && !job.MatchesPlatform(cfg.Platform) {
+		return TemporaryResult{}, UnsupportedPlatformError(job, cfg.Platform)
+	}
+	state, err := store.Open(cfg.StateDir)
+	if err != nil {
+		return TemporaryResult{}, err
+	}
+	defer state.Close()
+	id, err := state.RegisterProject(cfg.Project, now)
+	if err != nil {
+		return TemporaryResult{}, err
+	}
+	value, created, status, err := state.CreateTemporarySchedule(store.TemporarySchedule{ProjectID: id, Job: name, Schedule: text, Until: until, NextAt: next, RequestedBy: requestedBy, CreatedAt: now, Key: key, Digest: job.Digest, Data: data, EventSource: source}, store.QueueRunInput{ProjectID: id, Job: name, Digest: job.Digest, JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared, JobUntil: job.Until, Now: now})
+	if errors.Is(err, store.ErrAlreadyScheduled) {
+		return TemporaryResult{}, &QueueError{Code: "already_scheduled", Message: fmt.Sprintf("job %q already has a temporary schedule", name), Hint: "noon cancel " + name}
+	}
+	if err != nil {
+		return TemporaryResult{}, queueRequestError(err, cfg, name, job, now, nil)
+	}
+	reason := ""
+	if !created {
+		reason = "duplicate"
+	}
+	return TemporaryResult{SchemaVersion: 1, TemporarySchedule: value, Created: created, Reason: reason, Scheduler: status}, nil
 }
 
 // QueueDueAt applies the same one-shot time syntax as the CLI.
@@ -272,15 +385,19 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 
 // CancellationOutcome retains per-run results when some requests fail.
 type CancellationOutcome struct {
+	Target string
 	ID     int64
 	Result CancelResult
 	Err    error
 }
 
 // CancelRuns records every request before waiting for any live process owner.
-func CancelRuns(stateDir string, ids []int64, now time.Time) ([]CancellationOutcome, error) {
-	outcomes := make([]CancellationOutcome, len(ids))
-	if len(ids) == 0 {
+type CancelJob struct{ Project, Job string }
+
+// CancelRuns records every job and ID stop request before waiting for any owner.
+func CancelRuns(stateDir string, ids []int64, now time.Time, jobs ...CancelJob) ([]CancellationOutcome, error) {
+	outcomes := make([]CancellationOutcome, 0, len(ids)+len(jobs))
+	if len(ids) == 0 && len(jobs) == 0 {
 		return outcomes, nil
 	}
 	state, err := store.Open(stateDir)
@@ -288,25 +405,79 @@ func CancelRuns(stateDir string, ids []int64, now time.Time) ([]CancellationOutc
 		return nil, err
 	}
 	defer state.Close()
-	stored := make([]store.Run, len(ids))
-	finished := make([]bool, len(ids))
-	for i, id := range ids {
-		outcomes[i].ID = id
-		previous, err := state.RunByID(id)
+	type pending struct {
+		index    int
+		runs     []store.Run
+		finished bool
+	}
+	var waiting []pending
+	seen := map[int64]bool{}
+	for _, job := range jobs {
+		runs, err := state.RequestCancelJob(job.Project, job.Job, now)
+		index := len(outcomes)
+		outcomes = append(outcomes, CancellationOutcome{Target: job.Job, Err: err})
 		if err != nil {
-			outcomes[i].Err = err
 			continue
 		}
-		finished[i] = previous.Status != "queued" && previous.Status != "running"
-		stored[i], outcomes[i].Err = state.RequestCancelRun(id, now)
+		unique := []store.Run{}
+		for _, run := range runs {
+			if !seen[run.ID] {
+				seen[run.ID] = true
+				unique = append(unique, run)
+			}
+		}
+		waiting = append(waiting, pending{index: index, runs: unique})
+	}
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		index := len(outcomes)
+		outcomes = append(outcomes, CancellationOutcome{ID: id})
+		previous, err := state.RunByID(id)
+		if err != nil {
+			outcomes[index].Err = err
+			continue
+		}
+		run, err := state.RequestCancelRun(id, now)
+		if err != nil {
+			outcomes[index].Err = err
+			continue
+		}
+		waiting = append(waiting, pending{index: index, runs: []store.Run{run}, finished: previous.Status != "queued" && previous.Status != "running"})
 	}
 	deadline := time.Now().Add(15 * time.Second)
-	for i := range outcomes {
-		if outcomes[i].Err == nil {
-			outcomes[i].Result, outcomes[i].Err = waitForCancellation(state, []store.Run{stored[i]}, finished[i], deadline)
-		}
+	for _, item := range waiting {
+		outcomes[item.index].Result, outcomes[item.index].Err = waitForCancellation(state, item.runs, item.finished, deadline)
 	}
 	return outcomes, nil
+}
+
+// EndTemporarySchedules invalidates durable requests during explicit config removal,
+// even when no scheduler is running. An absent store stays absent.
+func EndTemporarySchedules(stateDir, project string, jobs []string) error {
+	existing, err := store.OpenExisting(stateDir)
+	if errors.Is(err, store.ErrNoDatabase) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	values, err := existing.TemporarySchedules(project)
+	closeErr := existing.Close()
+	if err != nil || closeErr != nil {
+		return errors.Join(err, closeErr)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	state, err := store.Open(stateDir)
+	if err != nil {
+		return err
+	}
+	defer state.Close()
+	return state.DeleteTemporarySchedules(project, jobs)
 }
 
 func waitForCancellation(state *store.Store, stored []store.Run, alreadyFinished bool, deadline time.Time) (CancelResult, error) {

@@ -23,12 +23,15 @@ type projectArgs struct {
 }
 
 type runJobArgs struct {
-	Name    string  `json:"name" jsonschema:"job name from list_jobs"`
-	Project *string `json:"project,omitempty" jsonschema:"absolute path of another checkout; defaults to the server's project"`
-	Key     *string `json:"key,omitempty" jsonschema:"idempotency key; a repeated key returns the existing run"`
-	In      *string `json:"in,omitempty" jsonschema:"queue after this duration, such as 2h; not with at"`
-	At      *string `json:"at,omitempty" jsonschema:"queue at HH:MM, YYYY-MM-DD HH:MM, or an RFC 3339 time; not with in"`
-	Data    any     `json:"data,omitempty" jsonschema:"JSON data passed to the job, up to 256 KiB"`
+	Name     string  `json:"name" jsonschema:"job name from list_jobs"`
+	Project  *string `json:"project,omitempty" jsonschema:"absolute path of another checkout; defaults to the server's project"`
+	Key      *string `json:"key,omitempty" jsonschema:"idempotency key; a repeated key returns the existing run"`
+	In       *string `json:"in,omitempty" jsonschema:"queue after this duration, such as 2h; not with at"`
+	At       *string `json:"at,omitempty" jsonschema:"queue at HH:MM, YYYY-MM-DD HH:MM, or an RFC 3339 time; not with in"`
+	Schedule *string `json:"schedule,omitempty" jsonschema:"temporary schedule using the job schedule grammar; requires for or until; not with in or at"`
+	For      *string `json:"for,omitempty" jsonschema:"temporary schedule duration, at least 1m and at most 7d including minute rounding; not with until"`
+	Until    *string `json:"until,omitempty" jsonschema:"temporary schedule end within 7 days: HH:MM, YYYY-MM-DD HH:MM, or RFC 3339; not with for"`
+	Data     any     `json:"data,omitempty" jsonschema:"JSON data passed to the job, up to 256 KiB"`
 }
 
 type listRunsArgs struct {
@@ -54,7 +57,9 @@ type getRunArgs struct {
 }
 
 type cancelRunArgs struct {
-	RunID int64 `json:"run_id" jsonschema:"run ID"`
+	RunID   *int64  `json:"run_id,omitempty" jsonschema:"run ID; pass this or job"`
+	Job     *string `json:"job,omitempty" jsonschema:"end the temporary schedule and cancel all active runs of this job; pass this or run_id"`
+	Project *string `json:"project,omitempty" jsonschema:"absolute project path; only with job"`
 }
 
 type errorEnvelope struct {
@@ -133,11 +138,17 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "run_job", Description: "Queue a job from list_jobs. It runs only if the project is enabled, shared jobs are approved, and the scheduler is running. Ended jobs and requests due at or after until refuse with ended. Queued is not passed: call get_run with the returned run ID and wait_seconds, and check the final status before reporting success.",
+		Name: "run_job", Description: "Queue a job from list_jobs, or attach a temporary schedule with schedule and for or until (maximum 7 days). This never creates or edits job definitions. Cancel by job to end it.  It runs only if the project is enabled, shared jobs are approved, and the scheduler is running. Ended jobs and requests due at or after until refuse with ended. Queued is not passed: call get_run with the returned run ID and wait_seconds, and check the final status before reporting success.",
 	}, func(_ context.Context, req *protocol.CallToolRequest, args runJobArgs) (*protocol.CallToolResult, any, error) {
 		values, err := projectInput(input, args.Project, requireEnabledProject)
 		if err != nil {
 			return toolFailure(err)
+		}
+		if args.Schedule != nil && (args.In != nil || args.At != nil) {
+			return toolFailure(app.UsageError("schedule cannot be combined with in or at", "Choose one request mode"))
+		}
+		if args.Schedule == nil && (args.For != nil || args.Until != nil) {
+			return toolFailure(app.UsageError("for and until require schedule", "Pass schedule"))
 		}
 		if args.In != nil && args.At != nil {
 			return toolFailure(app.UsageError("in and at cannot be used together", "Pass in or at, not both"))
@@ -166,6 +177,23 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 		location, err := time.LoadLocation(cfg.Timezone)
 		if err != nil {
 			return toolFailure(app.ConfigError(err))
+		}
+		if args.Schedule != nil {
+			forValue, untilValue := "", ""
+			if args.For != nil {
+				forValue = *args.For
+			}
+			if args.Until != nil {
+				untilValue = *args.Until
+			}
+			if args.For != nil && args.Until != nil {
+				return toolFailure(app.UsageError("for and until are mutually exclusive", "Choose one end time"))
+			}
+			result, err := app.ScheduleTemporary(cfg, args.Name, *args.Schedule, forValue, untilValue, key, requestedBy(req), "mcp", eventData, now)
+			if err != nil {
+				return toolFailure(queueError(err))
+			}
+			return toolSuccess(fmt.Sprintf("Temporary schedule for %s until %s; scheduler %s.", args.Name, result.TemporarySchedule.Until.Format(time.RFC3339), result.Scheduler), result)
 		}
 		mode, inValue, atValue := "detach", "", ""
 		if args.In != nil {
@@ -281,21 +309,42 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "cancel_run", Description: "Cancel a queued or running run by ID.",
+		Name: "cancel_run", Description: "Cancel a run by run_id, or end a temporary schedule and cancel all active runs by job (with optional project).",
 		Annotations: &protocol.ToolAnnotations{DestructiveHint: &destructive},
 	}, func(_ context.Context, _ *protocol.CallToolRequest, args cancelRunArgs) (*protocol.CallToolResult, any, error) {
+		if (args.RunID == nil) == (args.Job == nil) || (args.RunID != nil && args.Project != nil) {
+			return toolFailure(app.UsageError("cancel_run requires run_id or job; project only works with job", "Choose one selector"))
+		}
+		if args.Job != nil {
+			values, err := projectInput(input, args.Project, requireEnabledProject)
+			if err != nil {
+				return toolFailure(err)
+			}
+			cfg, err := config.LoadForDisable(values)
+			if err != nil {
+				return toolFailure(app.ConfigError(err))
+			}
+			if *args.Job == "" {
+				return toolFailure(app.UsageError("job must not be empty", "Pass a job name"))
+			}
+			result, err := app.Cancel(cfg.StateDir, cfg.Project, nil, *args.Job, time.Now())
+			if err != nil {
+				return toolFailure(app.StateError(err))
+			}
+			return toolSuccess("Ended temporary schedule and cancelled active runs for "+*args.Job+".", result)
+		}
 		stateDir, err := stateDirectory(input)
 		if err != nil {
 			return toolFailure(err)
 		}
 		if requireEnabledProject {
-			if _, err := app.EnabledRunProject(stateDir, args.RunID); err != nil {
+			if _, err := app.EnabledRunProject(stateDir, *args.RunID); err != nil {
 				return toolFailure(err)
 			}
 		}
-		result, err := app.Cancel(stateDir, "", &args.RunID, "", time.Now())
+		result, err := app.Cancel(stateDir, "", args.RunID, "", time.Now())
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, store.ErrNoDatabase) {
-			return toolFailure(app.RunNotFoundError(args.RunID))
+			return toolFailure(app.RunNotFoundError(*args.RunID))
 		}
 		if err != nil {
 			return toolFailure(app.StateError(err))
@@ -304,7 +353,7 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 		if len(result.Runs) > 0 {
 			status = result.Runs[0].Status
 		}
-		return toolSuccess(fmt.Sprintf("Run %d is %s.", args.RunID, status), result)
+		return toolSuccess(fmt.Sprintf("Run %d is %s.", *args.RunID, status), result)
 	})
 
 	return server

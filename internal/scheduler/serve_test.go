@@ -87,6 +87,164 @@ func TestServeUntil(t *testing.T) {
 	})
 }
 
+// Durable temporary phases must not duplicate after restart or outlive authorization.
+func TestServeTemporarySchedules(t *testing.T) {
+	create := func(t *testing.T, f *serveFixture, duration string) {
+		t.Helper()
+		cfg, err := config.Load(config.Input{CWD: f.project, UserConfigDir: f.userConfig, StateDirDefault: f.stateDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := app.ScheduleTemporary(cfg, "probe", "every 1m", duration, "", "", "mcp:test/1", "mcp", []byte(`{"pr":42}`), serveTestStart); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(t *testing.T, f *serveFixture) []store.TemporarySchedule {
+		t.Helper()
+		state, err := store.OpenExisting(f.stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		values, err := state.TemporarySchedules(f.project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return values
+	}
+	t.Run("occurrences payloads expiry and restart", func(t *testing.T) {
+		f := newServeFixture(t, "timezone: UTC\njobs:\n  probe: {run: ['true']}\n")
+		defer f.stop(t)
+		create(t, f, "3m")
+		f.step(t, serveTestStart.Add(time.Minute))
+		waitFor(t, func() bool { runs := f.runs(t); return len(runs) == 1 && runs[0].Status == "succeeded" })
+		next := read(t, f)[0].NextAt
+		f.stop(t)
+		f.start(t)
+		f.step(t, serveTestStart.Add(time.Minute))
+		if !read(t, f)[0].NextAt.Equal(next) || len(f.runs(t)) != 1 {
+			t.Fatal("restart repeated or reset occurrence")
+		}
+		f.step(t, serveTestStart.Add(2*time.Minute))
+		waitFor(t, func() bool { runs := f.runs(t); return len(runs) == 2 && runs[0].Status == "succeeded" })
+		runs := f.runs(t)
+		for _, run := range runs {
+			if run.RequestedBy.String != "mcp:test/1" || run.Trigger != "schedule" || !run.EventPath.Valid {
+				t.Fatalf("metadata: %+v", run)
+			}
+			data, err := os.ReadFile(filepath.Join(f.stateDir, run.EventPath.String))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var event struct {
+				Data struct {
+					PR int `json:"pr"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(data, &event); err != nil || event.Data.PR != 42 {
+				t.Fatalf("event: %s %v", data, err)
+			}
+		}
+		if runs[0].EventPath == runs[1].EventPath {
+			t.Fatal("runs shared an event file")
+		}
+		f.step(t, serveTestStart.Add(3*time.Minute))
+		f.step(t, serveTestStart.Add(4*time.Minute))
+		if len(read(t, f)) != 0 || len(f.runs(t)) != 2 {
+			t.Fatal("schedule ran at or after end")
+		}
+	})
+	t.Run("coinciding config occurrence skips second", func(t *testing.T) {
+		f := newServeFixture(t, "timezone: UTC\njobs:\n  probe: {schedule: every 1m, overlap: queue, run: ['true']}\n")
+		defer f.stop(t)
+		f.step(t, serveTestStart)
+		create(t, f, "1h")
+		f.step(t, serveTestStart.Add(time.Minute))
+		waitFor(t, func() bool {
+			runs := f.runs(t)
+			return len(runs) == 2 && (runs[0].Status == "succeeded" || runs[1].Status == "succeeded")
+		})
+		skipped := 0
+		for _, run := range f.runs(t) {
+			if run.Status == "skipped" {
+				skipped++
+			}
+		}
+		if skipped != 1 {
+			t.Fatalf("coinciding runs: %+v", f.runs(t))
+		}
+	})
+	for _, missed := range []string{"run_once", "skip"} {
+		t.Run("downtime "+missed, func(t *testing.T) {
+			f := newServeFixture(t, "jobs:\n  probe: {missed: "+missed+", run: ['true']}\n")
+			defer f.stop(t)
+			create(t, f, "1h")
+			f.step(t, serveTestStart.Add(5*time.Minute))
+			f.step(t, serveTestStart.Add(5*time.Minute))
+			runs := f.runs(t)
+			if len(runs) != 1 {
+				t.Fatalf("burst or missing: %+v", runs)
+			}
+			if missed == "skip" && runs[0].Status != "missed" || missed == "run_once" && runs[0].Trigger != "catch_up" {
+				t.Fatalf("missed policy: %+v", runs)
+			}
+			if !read(t, f)[0].NextAt.Equal(serveTestStart.Add(6 * time.Minute)) {
+				t.Fatal("downtime lost interval phase")
+			}
+		})
+	}
+	for _, change := range []string{"pause", "disable", "digest", "remove", "platform", "project", "ended"} {
+		t.Run("permanent removal "+change, func(t *testing.T) {
+			original := "jobs:\n  probe: {run: ['true']}\n"
+			f := newServeFixture(t, original)
+			defer f.stop(t)
+			create(t, f, "1h")
+			state, err := store.Open(f.stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer state.Close()
+			switch change {
+			case "pause":
+				err = state.SetPaused(f.project, "probe", true, serveTestStart)
+			case "project":
+				err = state.DisableProject(f.project, serveTestStart)
+			case "disable":
+				f.writeConfig(t, "jobs:\n  probe: {run: ['true'], enabled: false}\n")
+			case "digest":
+				f.writeConfig(t, "jobs:\n  probe: {run: ['false']}\n")
+			case "remove":
+				f.writeConfig(t, "jobs: {}\n")
+			case "platform":
+				f.writeConfig(t, "jobs:\n  probe: {run: ['true'], os: [linux], arch: [arm64]}\n")
+				f.stop(t)
+				f.platform = &config.Platform{OS: "darwin", Arch: "amd64"}
+				f.start(t)
+			case "ended":
+				f.writeConfig(t, "jobs:\n  probe: {run: ['true'], until: '2000-01-01 00:00'}\n")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.step(t, serveTestStart.Add(2*time.Second))
+			if len(read(t, f)) != 0 {
+				t.Fatal("ineligible schedule retained")
+			}
+			if err := state.SetPaused(f.project, "probe", false, serveTestStart); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.EnableProject(f.project, nil, map[string]string{}, serveTestStart); err != nil {
+				t.Fatal(err)
+			}
+			f.writeConfig(t, original)
+			f.step(t, serveTestStart.Add(2*time.Minute))
+			if len(read(t, f)) != 0 || len(f.runs(t)) != 0 {
+				t.Fatal("reactivation restored removed schedule")
+			}
+		})
+	}
+}
+
 func TestFileStampsDetectPermissionChanges(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vars.env")
 	if err := os.WriteFile(path, []byte("SCHEDULE=every 1h\n"), 0o600); err != nil {

@@ -251,18 +251,56 @@ Suggested action: noon service install
 Keys are remembered for the newest 50 finished runs. The payload is written to a file the job reads
 from `NOON_EVENT_FILE`. `cooldown` applies only to queued requests. See [Triggers](triggers.md).
 
+## Temporary schedules for existing jobs
+
+```sh
+noon run watch-ci --schedule "*/10 * * * *" --for 2h
+noon run standup --schedule "weekdays at 9am" --until "2026-10-23 10:00"
+noon cancel watch-ci
+```
+
+This attaches recurring requests to an existing enabled, unpaused, platform-supported job in an
+enabled project. Shared jobs need approval. It writes state, not config; it grants no authority
+to create or edit jobs. The scheduler must be running to execute occurrences.
+
+Use the same schedule grammar as config, with exactly one end: `--for DURATION` (at least 1m,
+rounded up to a whole minute) or `--until TIME` (same resolution as `noon add`). The end must be
+after now, within 7 days including rounding, and after at least one occurrence. Don't combine
+`--schedule` with `--detach`, `--in`, or `--at`. Several names get the same schedule and end.
+
+Only one temporary schedule per job is allowed. A repeated nonempty `--key` returns it unchanged
+with `created: false` and `reason: "duplicate"`; otherwise a second request fails with
+`already_scheduled` and hint `noon cancel NAME`. Optional `--data` is copied to a fresh event
+file for each queued occurrence. Cooldown and `requests: each` don't apply.
+
+Intervals retain their creation phase across restarts; cron forms align to the project clock.
+The job's missed and overlap policies apply, shared with its config schedule. Coinciding
+occurrences produce one queued run and one skipped record. Temporary schedules have no splay or
+jitter. No occurrence starts at or after the temporary end or the job's own `until`.
+
+Expiry, cancellation by job, pause, project disable, and an observed removal, disablement,
+platform mismatch, digest change, or job end delete the temporary schedule. Resume, re-enable,
+and re-approval never restore it. Already-created runs follow the ordinary queue/running rules.
+
+Creation JSON is `{schema_version:1,temporary_schedule:{schedule,until,next_at,requested_by,created_at,key?},created,scheduler,reason?}`.
+`scheduler` is `running` or `offline`; offline human output prints the same warning as queueing.
+`list --json` includes the optional `temporary_schedule` on each job; job `next_at` and human
+NEXT select the earlier config or temporary occurrence. The dashboard adds a temporary-schedule
+notice. There are no temporary-schedule JSON API `/v1/` routes; MCP over HTTP supports them.
+
 ## Cancel
 
 ```sh
 noon cancel                # list active runs; changes nothing
 noon cancel 12             # cancel run 12, even another terminal's foreground run
-noon cancel tests          # every active run of tests (snapshot)
+noon cancel tests          # end its temporary schedule and cancel every active run
 noon cancel tests lint 42  # jobs and run IDs together
 ```
 
 Queued runs cancel immediately; running ones get TERM then KILL. An `orphaned` run (owner gone) is
 recorded cancelled, and only an identity-matched process group is signaled. `noon disable` also
-cancels queued runs.
+cancels queued runs and ends temporary schedules. Cancelling a run ID alone leaves its temporary
+schedule intact.
 
 ## History
 
@@ -325,8 +363,8 @@ as 29 dashes. Timestamps mark when Noon received output, not when the child wrot
 
 ## Status and doctor
 
-Bare `noon` and `noon status` show jobs, scheduler state, queued work, up to three notices, and
-one `Suggested action:`. Both follow this priority:
+Bare `noon` and `noon status` show jobs, scheduler state, queued work, up to three priority notices
+plus a temporary-schedule summary when present, and one `Suggested action:`. Both follow this priority:
 
 | Notice | Suggested action |
 | --- | --- |

@@ -1,7 +1,7 @@
 # Agents
 
 Coding agents use Noon through MCP, or the CLI when only a shell is available. They can inspect
-jobs, queue approved ones, read logs, and cancel runs. They can't add, edit, enable, approve,
+jobs, queue approved ones, attach bounded temporary schedules to those jobs, read logs, and cancel runs. They can't add, edit, enable, approve,
 pause, or resume jobs.
 
 ## Set up MCP
@@ -29,10 +29,10 @@ worktree is its own project; run IDs are global.
 | `list_projects` | Enabled projects in the shared scheduler state |
 | `status` | Project dashboard, including orphaned-run blockers and the cancel remedy |
 | `list_jobs` | Jobs with descriptions, schedules, approval state |
-| `run_job` | Queue a job; optional `key`, `in` or `at`, and JSON `data` |
+| `run_job` | Queue a job; optional `key`, `in` or `at`, JSON `data`; or repeat with `schedule` and `for` or `until` |
 | `list_runs` | Recent runs; optional `status` array; each run reports `orphaned` |
 | `get_run` | One run and a bounded log read, by `run_id` or `job`; `timestamps: true` adds `line_times` |
-| `cancel_run` | Cancel a run |
+| `cancel_run` | Cancel by `run_id`, or end a temporary schedule and cancel active runs by `job` (optional `project`) |
 
 `run_job` follows the CLI's enablement and approval rules. Jobs whose `until` has passed, or whose requested due time is at or after `until`, refuse with `ended`. `list_jobs` exposes `until` (project-timezone RFC 3339 when set) and `ended`, with no `next_at` beyond the end. Already-running work finishes normally; foreground CLI runs remain available. The client's name and version are
 recorded as `requested_by`: metadata, not authority.
@@ -50,6 +50,38 @@ one-shot that never merges into a due run. Reusing `key` returns the existing ru
 
 Without MCP, `noon skill` prints a shell-only Agent Skills document for you to save into your
 agent's skills directory (`--json` wraps it as `content`).
+
+## Temporary schedules
+
+```json
+{"name":"watch-ci","schedule":"every 10m","for":"2h","key":"watch-ci-pr-42","data":{"pr":42}}
+```
+
+`run_job` can repeatedly queue an existing approved job, not create or edit one. This grants no
+new command authority: the project must be enabled and the job enabled, unpaused, supported on
+this platform, approved when shared, and not ended. Client identity is still metadata only.
+
+Use the config schedule grammar with exactly one of `for` (at least 1m, rounded up to a minute)
+or `until` (`HH:MM`, local date/time, or RFC 3339). The end must be within 7 days including
+rounding, with an occurrence before it. `schedule` cannot combine with `in` or `at`. Intervals
+retain their phase; clock schedules use the project timezone. Missed/overlap policies are shared
+with config schedules, without splay, jitter, cooldown, or `requests: each`.
+
+Creation returns `temporary_schedule`, `created`, and `scheduler`; it is not proof any run passed.
+One temporary schedule is allowed per job. The same nonempty `key` returns it with `created:
+false`, `reason: "duplicate"`; a different/missing key gets `already_scheduled`.
+
+`list_jobs` includes optional `temporary_schedule` (`schedule`, `until`, `next_at`,
+`requested_by`, `created_at`, optional `key`). Job `next_at` is the earlier occurrence; `status`
+adds a notice. Each queued occurrence carries the client identity and its own event file.
+
+End it with `cancel_run {"job":"watch-ci"}`, adding `project` for another checkout. This also
+cancels active runs. Cancelling one `run_id` does not end the schedule. Expiry, pause, project
+disable, and an observed job removal, disablement, platform mismatch, digest change, or job end
+delete it permanently; resume, re-enable, or re-approval never restore it.
+
+Remote MCP uses the same tools and bearer token, still restricted to enabled projects. Pass
+`project` when cancelling by job remotely. The JSON API `/v1/` has no temporary schedule routes.
 
 ## Remote MCP and JSON API
 

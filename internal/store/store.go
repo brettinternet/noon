@@ -80,6 +80,13 @@ SELECT 1;
 ALTER TABLE runs ADD COLUMN agent_session_id TEXT;
 `, `
 ALTER TABLE scheduler ADD COLUMN build_commit TEXT NOT NULL DEFAULT '';
+`, `
+CREATE TABLE temporary_schedules (
+  project_id INTEGER NOT NULL REFERENCES projects(id), job TEXT NOT NULL,
+  schedule TEXT NOT NULL, until_at TEXT NOT NULL, digest TEXT NOT NULL,
+  requested_by TEXT NOT NULL, request_key TEXT NOT NULL DEFAULT '',
+  data BLOB, event_source TEXT NOT NULL, created_at TEXT NOT NULL, next_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, job));
 `}
 
 type Store struct {
@@ -95,6 +102,7 @@ type Store struct {
 	hasHookLogOffset   bool
 	hasSchedulerCommit bool
 	hasAgentSessionID  bool
+	hasTemporary       bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -335,6 +343,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasHookLogOffset = version >= 9
 		state.hasAgentSessionID = version >= 11
 		state.hasSchedulerCommit = version >= 12
+		state.hasTemporary = version >= 13
 		return state, nil
 	}
 	for {
@@ -378,6 +387,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasHookLogOffset = true
 	state.hasAgentSessionID = true
 	state.hasSchedulerCommit = true
+	state.hasTemporary = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}

@@ -120,6 +120,30 @@ func TestMCP(t *testing.T) {
 			t.Errorf("%s missing readOnlyHint", name)
 		}
 	}
+	t.Run("temporary schedules retain client metadata and cancel by job", func(t *testing.T) {
+		result := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved", "schedule": "every 10m", "for": "2h", "key": "temporary", "data": map[string]any{"pr": 42}})
+		value := decodeObject(t, result.StructuredContent)
+		if result.IsError || value["created"] != true || value["temporary_schedule"].(map[string]any)["requested_by"] != "mcp:mcp-test/1.2.3" {
+			t.Fatalf("create: %+v", value)
+		}
+		bad := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved", "schedule": "every 10m", "for": "2h", "in": "1h"})
+		if !bad.IsError || decodeObject(t, bad.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
+			t.Fatal(bad)
+		}
+		cancelled := callTool(t, ctx, clientSession, "cancel_run", map[string]any{"job": "approved"})
+		if cancelled.IsError {
+			t.Fatal(cancelled)
+		}
+		state, err := store.OpenExisting(stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		values, err := state.TemporarySchedules(root)
+		if err != nil || len(values) != 0 {
+			t.Fatalf("cancel retained schedules: %+v %v", values, err)
+		}
+	})
 	projectsResult := callTool(t, ctx, clientSession, "list_projects", map[string]any{})
 	projectsValue := decodeObject(t, projectsResult.StructuredContent)
 	projects := projectsValue["projects"].([]any)

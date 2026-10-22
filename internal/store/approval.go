@@ -94,6 +94,11 @@ func (s *Store) EnableProject(path string, configFile *string, digests map[strin
 			reset = append(reset, name)
 		}
 	}
+	for _, name := range append(reset, obsolete...) {
+		if _, err := tx.Exec("DELETE FROM temporary_schedules WHERE project_id=? AND job=?", id, name); err != nil {
+			return err
+		}
+	}
 	for _, name := range obsolete {
 		if _, err := tx.Exec(`DELETE FROM approvals WHERE project_id=? AND job=?`, id, name); err != nil {
 			return err
@@ -198,6 +203,9 @@ func (s *Store) SetJobsPaused(project string, jobs []string, paused bool, now ti
 		}
 		changed += int(count)
 		if paused {
+			if _, err := tx.Exec(`DELETE FROM temporary_schedules WHERE project_id=? AND job=?`, id, job); err != nil {
+				return 0, err
+			}
 			_, err = tx.Exec(`UPDATE runs SET status='cancelled',finished_at=?,error='job paused' WHERE project_id=? AND job=? AND status='queued'`, FormatTime(now), id, job)
 		}
 		if err != nil {
@@ -258,6 +266,9 @@ func (s *Store) DisableProject(path string, now time.Time) error {
 	}
 	stamp := FormatTime(now)
 	if _, err := tx.Exec(`UPDATE runs SET status='cancelled', finished_at=?, error='project disabled before start' WHERE project_id IN (SELECT id FROM projects WHERE path=?) AND status='queued'`, stamp, path); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM temporary_schedules WHERE project_id IN (SELECT id FROM projects WHERE path=?)`, path); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`UPDATE projects SET enabled=0 WHERE path=?`, path); err != nil {

@@ -54,6 +54,9 @@ func (s *Store) RequestCancelJob(projectPath, job string, now time.Time) ([]Run,
 		return nil, fmt.Errorf("begin job cancellation: %w", err)
 	}
 	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM temporary_schedules WHERE project_id IN (SELECT id FROM projects WHERE path=?) AND job=?`, projectPath, job); err != nil {
+		return nil, err
+	}
 	rows, err := tx.Query(`SELECT `+s.qualifiedRunSelectColumns()+` FROM runs JOIN projects ON projects.id=runs.project_id WHERE projects.path=? AND runs.job=? AND runs.status IN ('queued','running') ORDER BY runs.id`, projectPath, job)
 	if err != nil {
 		return nil, fmt.Errorf("find active job runs: %w", err)

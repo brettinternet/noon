@@ -59,14 +59,17 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				urfave.VersionPrinter(cmd.Root())
 				return nil
 			}},
-			{Name: "run", Usage: "Run one job in the foreground or queue multiple jobs; without names, list runnable jobs", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{
+			{Name: "run", Usage: "Run a job, queue jobs, or attach a bounded temporary schedule; without names, list jobs", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "data", Usage: "Event `JSON`, @FILE, or - for stdin (up to 256 KiB)"},
+				&urfave.StringFlag{Name: "schedule", Usage: "Attach a temporary `SCHEDULE` to approved jobs (requires --for or --until; maximum 7 days)"},
+				&urfave.StringFlag{Name: "for", Usage: "End the temporary schedule after `DURATION` (at least 1m; rounded up to a minute)"},
+				&urfave.StringFlag{Name: "until", Usage: "End the temporary schedule at `TIME`: HH:MM, YYYY-MM-DD HH:MM, or RFC 3339"},
 				&urfave.BoolFlag{Name: "detach", Aliases: []string{"d"}, Usage: "Queue NAME to run as soon as capacity is available"},
 				&urfave.StringFlag{Name: "in", Usage: "Queue NAME after `DURATION` (at least 1s)"},
 				&urfave.StringFlag{Name: "at", Usage: "Queue NAME at `TIME`: HH:MM, YYYY-MM-DD HH:MM, or RFC 3339"},
 				&urfave.StringFlag{Name: "key", Usage: "Idempotency `KEY`; deduplicated while retained (newest 50 terminal runs per job)"},
 			}, Action: runJob},
-			{Name: "cancel", Usage: "Cancel runs or all active runs of named jobs; without arguments, list active runs", ArgsUsage: "[RUN|NAME...]", Action: cancelRuns},
+			{Name: "cancel", Usage: "Cancel runs and end temporary schedules of named jobs; without arguments, list active runs", ArgsUsage: "[RUN|NAME...]", Action: cancelRuns},
 			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{
 				&urfave.IntFlag{Name: "limit", Aliases: []string{"n"}, Value: 20, Usage: "Limit history to `N` runs (1–50)"},
 				&urfave.StringSliceFlag{Name: "status", Aliases: []string{"s"}, Usage: "Filter by `STATUS`; repeat or comma-separate values"},

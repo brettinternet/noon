@@ -81,7 +81,13 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 		rows = append(rows, []tableCell{{job.Name, "heading"}, {schedule, ""}, {next, next}, {lastRunCell(job.LastRun, now), lastRole}})
 	}
 	style.printBoundedRows(cmd.Writer, rows, "  ", outputWidth(cmd.Writer), 0)
-	for _, notice := range view.Notices[:min(3, len(view.Notices))] {
+	notices := slices.Clone(view.Notices[:min(3, len(view.Notices))])
+	for _, notice := range view.Notices[min(3, len(view.Notices)):] {
+		if notice.Code == "temporary_schedule" {
+			notices = append(notices, notice)
+		}
+	}
+	for _, notice := range notices {
 		if notice.Code == "orphaned" {
 			for _, line := range wrapCell(notice.Message, outputWidth(cmd.Writer)) {
 				fmt.Fprintln(cmd.Writer, style.render(line, "orphaned"))

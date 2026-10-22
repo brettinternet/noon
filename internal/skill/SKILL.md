@@ -34,6 +34,23 @@ Track the returned run ID until it finishes. An older successful run is not a
 pass, and neither is a skipped or cancelled one. Do not enable projects, approve
 jobs, or start services to get around a blocker.
 
+## Bounded recurring work
+
+```sh
+noon run watch-ci --schedule "every 10m" --for 2h --key watch-ci-pr-42 --json
+noon cancel watch-ci
+```
+
+Only existing approved, enabled, unpaused jobs in enabled projects can be scheduled.
+Exactly one of `--for` or `--until` is required; the end is within 7 days and after
+at least one occurrence. Don't combine with `--detach`, `--in`, or `--at`.
+One temporary schedule is allowed per job; the same nonempty key returns it,
+otherwise cancel the old one first. Creation is not a passed run. Inspect
+`noon list --json` for `temporary_schedule` and check each run's result.
+Cancelling by job ends it and cancels active runs; cancelling a run ID doesn't.
+Expiry, pause, project disable, or an observed job definition/eligibility change
+deletes it permanently. This never grants permission to create or edit jobs.
+
 ## Diagnose a failure
 
 Find failed runs, then search the latest failure's job output (replace `t` and

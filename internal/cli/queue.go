@@ -28,6 +28,17 @@ func runQueueMode(cmd *urfave.Command) (string, error) {
 		modes++
 		mode = "at"
 	}
+	if cmd.IsSet("schedule") {
+		if modes > 0 {
+			return "", usageError("--schedule cannot be combined with --detach, --in, or --at", "Choose a temporary schedule or a queued run")
+		}
+		mode = "schedule"
+	} else if cmd.IsSet("for") || cmd.IsSet("until") {
+		return "", usageError("--for and --until require --schedule", "Use noon run NAME --schedule 'every 10m' --for 2h")
+	}
+	if cmd.IsSet("for") && cmd.IsSet("until") {
+		return "", usageError("--for and --until are mutually exclusive", "Choose one end time")
+	}
 	if modes > 1 {
 		return "", usageError("--detach, --in, and --at are mutually exclusive", "Choose one queued run time")
 	}
@@ -122,6 +133,54 @@ func queueJobs(cmd *urfave.Command, cfg config.Config, names []string, eventData
 		} else {
 			fmt.Fprintln(cmd.Writer, guidance(cmd, hint))
 		}
+	}
+	return finishBatch(cmd, map[string]any{"results": results}, failures)
+}
+
+func temporaryJobs(cmd *urfave.Command, cfg config.Config, names []string, data []byte, now time.Time, loc *time.Location) error {
+	// Syntax errors must be usage errors even for multi-target requests.
+	if _, _, err := app.TemporaryTimes(cmd.String("schedule"), cmd.String("for"), cmd.String("until"), now, loc); err != nil {
+		return err
+	}
+	for _, name := range names {
+		if _, ok := cfg.Jobs[name]; !ok {
+			return app.MissingJobError(name, "run", cfg.Jobs)
+		}
+	}
+	results := []app.TemporaryResult{}
+	failures := []targetFailure{}
+	for _, name := range names {
+		result, err := app.ScheduleTemporary(cfg, name, cmd.String("schedule"), cmd.String("for"), cmd.String("until"), cmd.String("key"), "cli", "cli", data, now)
+		if err != nil {
+			if len(names) == 1 {
+				return queueError(err)
+			}
+			failures = append(failures, targetFailure{Target: name, Error: queueError(err).Error()})
+			continue
+		}
+		results = append(results, result)
+		if cmd.Bool("json") && len(names) == 1 {
+			output := map[string]any{"temporary_schedule": result.TemporarySchedule, "created": result.Created, "scheduler": result.Scheduler}
+			if result.Reason != "" {
+				output["reason"] = result.Reason
+			}
+			return emit(cmd, output)
+		}
+		if !cmd.Bool("json") {
+			value := result.TemporarySchedule
+			fmt.Fprintf(cmd.Writer, "Scheduled %s %s until %s · next %s\n", name, cell(value.Schedule, -1), value.Until.In(loc).Format("Mon 15:04"), value.NextAt.In(loc).Format("Mon 15:04"))
+		}
+	}
+	if !cmd.Bool("json") && len(results) > 0 && results[0].Scheduler == "offline" {
+		fmt.Fprintln(cmd.Writer, "The scheduler isn't running, so nothing runs until it starts.")
+		hint, err := serviceGuidance(cfg.StateDir)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.Writer, guidance(cmd, hint))
+	}
+	if len(names) == 1 {
+		return nil
 	}
 	return finishBatch(cmd, map[string]any{"results": results}, failures)
 }

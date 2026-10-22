@@ -67,5 +67,25 @@ func WithScheduler(view Inspection, now time.Time) (Inspection, error) {
 			}
 		}
 	}
+	temporary, err := state.TemporarySchedules(view.Project.Path)
+	if err != nil {
+		return Inspection{}, err
+	}
+	for i := range view.Jobs {
+		job := &view.Jobs[i]
+		if !view.Project.Enabled || !job.Enabled || !job.PlatformSupported || job.Paused || job.Ended || job.Approval == "needs_approval" {
+			continue
+		}
+		for _, value := range temporary {
+			if value.Job != job.Name || value.Digest != job.Digest || !now.Before(value.Until) {
+				continue
+			}
+			job.TemporarySchedule = &value
+			if value.NextAt.Before(value.Until) && (job.Until == nil || value.NextAt.Before(*job.Until)) && (job.NextAt == nil || value.NextAt.Before(*job.NextAt)) {
+				next := value.NextAt.In(location)
+				job.NextAt = &next
+			}
+		}
+	}
 	return view, nil
 }

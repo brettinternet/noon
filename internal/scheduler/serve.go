@@ -22,6 +22,7 @@ import (
 	"github.com/brettinternet/noon/internal/httpapi"
 	noonmcp "github.com/brettinternet/noon/internal/mcp"
 	"github.com/brettinternet/noon/internal/runner"
+	"github.com/brettinternet/noon/internal/schedule"
 	"github.com/brettinternet/noon/internal/store"
 	protocol "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sys/unix"
@@ -407,6 +408,9 @@ func Serve(ctx context.Context, options ServeOptions) error {
 					cached := configs[value.Key.Project]
 					job := cached.config.Jobs[value.Key.Job]
 					plan.Create = append(plan.Create, store.ScheduledRunInput{ProjectID: value.Key.Project, Job: value.Key.Job, Status: value.Status, Trigger: value.Trigger, Digest: job.Digest, ScheduledAt: value.ScheduledAt, DueAt: value.DueAt})
+				}
+				if err := planTemporary(now, snapshot, configs, jobs, &plan); err != nil {
+					return store.SchedulerPlan{}, err
 				}
 				return plan, nil
 			},
@@ -814,6 +818,11 @@ func withoutUnloaded(snapshot store.SchedulerSnapshot, configs map[int64]*projec
 			filtered.States = append(filtered.States, state)
 		}
 	}
+	for _, value := range snapshot.Temporary {
+		if !unloaded[value.ProjectID] {
+			filtered.Temporary = append(filtered.Temporary, value)
+		}
+	}
 	for _, run := range snapshot.Runs {
 		if run.Status == "running" || !unloaded[run.ProjectID] {
 			filtered.Runs = append(filtered.Runs, run)
@@ -839,6 +848,53 @@ func makeJobInputs(snapshot store.SchedulerSnapshot, configs map[int64]*projectC
 		}
 	}
 	return jobs, nil
+}
+
+// planTemporary feeds each durable phase through the same planner as config
+// schedules, including the config plan's new queues in overlap suppression.
+func planTemporary(now time.Time, snapshot store.SchedulerSnapshot, configs map[int64]*projectConfig, jobs []JobInput, plan *store.SchedulerPlan) error {
+	byKey := make(map[JobKey]JobInput, len(jobs))
+	for _, job := range jobs {
+		byKey[job.Key] = job
+	}
+	runs, err := plannerRuns(snapshot.Runs)
+	if err != nil {
+		return err
+	}
+	for _, run := range plan.Create {
+		runs = append(runs, Run{Key: JobKey{Project: run.ProjectID, Job: run.Job}, Status: run.Status, DueAt: run.DueAt})
+	}
+	for _, value := range snapshot.Temporary {
+		key := JobKey{Project: value.ProjectID, Job: value.Job}
+		job, ok := byKey[key]
+		valid := ok && job.Active && now.Before(value.Until) && (job.Until == nil || now.Before(*job.Until))
+		if valid {
+			valid = configs[value.ProjectID].config.Jobs[value.Job].Digest == value.Digest
+		}
+		if !valid {
+			plan.TemporaryRemove = append(plan.TemporaryRemove, store.JobStateKey{ProjectID: value.ProjectID, Job: value.Job})
+			continue
+		}
+		parsed, err := schedule.Parse(value.Schedule)
+		if err != nil {
+			return err
+		}
+		job.Schedule, job.Splay, job.Jitter = &parsed, 0, 0
+		if job.Until == nil || value.Until.Before(*job.Until) {
+			job.Until = &value.Until
+		}
+		state := JobState{Key: key, ScheduleKey: schedule.StateKey(parsed.String(), job.Location.String(), job.ProjectPath, job.Key.Job, 0, 0), NextAt: value.NextAt}
+		upsert, _, create := Due(now, []JobInput{job}, []JobState{state}, runs)
+		for _, state := range upsert {
+			value.NextAt = state.NextAt
+			plan.TemporaryUpsert = append(plan.TemporaryUpsert, value)
+		}
+		for _, run := range create {
+			plan.Create = append(plan.Create, store.ScheduledRunInput{ProjectID: key.Project, Job: key.Job, Status: run.Status, Trigger: run.Trigger, Digest: value.Digest, ScheduledAt: run.ScheduledAt, DueAt: run.DueAt, RequestedBy: value.RequestedBy, EventData: value.Data, EventSource: value.EventSource})
+			runs = append(runs, Run{Key: key, Status: run.Status, DueAt: run.DueAt})
+		}
+	}
+	return nil
 }
 
 func plannerStates(states []store.PersistedJobState) ([]JobState, error) {

@@ -131,8 +131,8 @@ and [examples/local-dev/housekeeping](examples/local-dev/housekeeping/).
 | `noon add NAME [SCHEDULE] -- CMD…` | Add a job (`--sh`, `--prompt`, `--prompt-file`, `--shared`) |
 | `noon remove NAME...` | Remove job definitions; history stays |
 | `noon run NAME` | Run now; returns 0 when `noop_exit_code` matches |
-| `noon run NAME... --detach` | Queue jobs for the scheduler (`--in 2h`, `--at 17:00`, `--key`, `--data`) |
-| `noon cancel RUN\|NAME...` | Cancel selected runs or jobs' active work |
+| `noon run NAME... --detach` | Queue jobs for the scheduler (`--in 2h`, `--at 17:00`, `--key`, `--data`); `--schedule S --for 2h` repeats approved jobs |
+| `noon cancel RUN\|NAME...` | Cancel selected runs or jobs' active work and temporary schedules |
 | `noon pause NAME...` / `resume NAME...` | Stop or restart background runs; `-a` for all jobs |
 | `noon history [NAME...]` | Recent runs (`--status failed`) |
 | `noon logs [NAME\|RUN]` | Read, search, page, or `--follow` a run log (`-t` for timestamps) |
@@ -176,7 +176,8 @@ Continue: noon logs 7 --after-cursor 27 --timestamps
 
 ## Agents
 
-With MCP, a coding agent can list jobs, queue approved ones, and read logs. It can't add, edit,
+With MCP, a coding agent can list jobs, queue approved ones, attach a temporary schedule ending
+within 7 days, and read logs. It can't add, edit,
 enable, or approve jobs.
 
 ```sh

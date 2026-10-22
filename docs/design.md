@@ -55,7 +55,8 @@ The CLI is the product.
 - No prompts. Noninteractive use never hangs; `noon mcp` on a TTY prints setup help and exits.
 - No inference: one job is not "the" job, and a schedule string is never guessed.
 
-Dashboard notices (at most three, 80 columns) and the `Suggested action:` share one priority:
+Dashboard priority notices (at most three, 80 columns) and the `Suggested action:` share one
+priority. A temporary-schedule summary is also shown when present:
 
 | Notice | Suggested action |
 | --- | --- |
@@ -263,6 +264,34 @@ self-daemonizes and is not one process per repo.
 - Queueing (`--detach`, `--in`, `--at`, MCP, API, webhooks) is one immediate SQLite transaction:
   idempotency key, enablement and approval, cooldown, then due-run merging or the `each` cap.
 
+### Temporary schedules
+
+CLI `run --schedule S --for D` (or `--until T`) and MCP `run_job` with `schedule` and
+`for`/`until` attach recurring requests to one existing runnable job. They never change job
+definitions or approval authority. Schedule parsing and timezone/DST rules are the config
+grammar. Intervals retain their creation phase. Exactly one end is required, after now and
+within 7 days including whole-minute upward rounding for durations, with an occurrence before it.
+Schedule mode rejects detach/in/at. Several CLI names share the schedule and end.
+
+Creation uses an immediate transaction and the queue eligibility checks, including pause, job end,
+and recursion. `temporary_schedules` has one row per project/job: schedule text, exclusive end,
+creation digest, requested_by, optional key/data (valid JSON up to 256 KiB), event source,
+created_at, and persisted next_at. Same nonempty key returns the existing row as a duplicate;
+otherwise `already_scheduled` hints to cancel by job.
+
+Planning feeds the persisted phase through `Due` with the job's missed/overlap rules, zero splay
+and jitter, and the earlier temporary/job end. Config occurrences are planned first, and their
+queues suppress temporary occurrences in the same tick; coinciding occurrences record one skipped
+row, never double execution. Cooldown and requests-each do not apply. Runs use schedule/catch_up,
+carry requested_by, and receive separate event files from stored data before the transaction commits.
+
+Expiry, cancel by job, pause, project disable, and observed job removal, disablement, platform
+mismatch, digest change, or end delete the row. Resume, re-enable, and re-approval never restore it.
+Already-created runs follow existing dispatch/cancellation rules. Cancel by run ID leaves it intact.
+Inspection omits absent/ineligible schedules, exposes temporary_schedule metadata, and uses the
+earlier next_at. Dashboard and MCP status add a notice. HTTP MCP shares this authority; no JSON
+API /v1/ routes create temporary schedules.
+
 ### Enable and approve
 
 Scheduling unattended commands from repository content is a supply-chain risk, especially when
@@ -382,7 +411,8 @@ worktrees, and lets one scheduler see every enabled project.
 - Migrations are an append-only list keyed by `PRAGMA user_version`, applied in one transaction. A
   newer database is refused with an upgrade hint. Read-only commands never create state. State schema
   version 10 marks the incompatible noop status and retention semantics; version 11 adds the nullable
-  `agent_session_id` run field. Older binaries refuse the newer database.
+  `agent_session_id` run field. Version 12 adds scheduler build_commit; version 13 adds the
+  `temporary_schedules` table and its independent durable phase. Older binaries refuse the newer database.
 - Run `status`: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`,
   `interrupted`, `skipped`, `missed`, `expired`. `noop` is a terminal run status, distinct from
   `skipped`, which means an occurrence never started because of overlap. Noops count as terminal
@@ -462,7 +492,7 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 | In-tree `.noon.yaml` | Repository content: commits can add it | Never loaded |
 | `noon.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
 | Scripts, prompt files, and env files | Not pinned | Approval covers what and when, not file contents |
-| MCP clients and authenticated HTTP API clients | Inspect, queue approved jobs, read logs, cancel runs | Can't add, edit, enable, disable, approve, pause, or resume jobs; identity is metadata |
+| MCP clients and authenticated HTTP API clients | Inspect, queue approved jobs, read logs, cancel runs; MCP also attaches bounded temporary schedules to approved jobs | Can't add, edit, enable, disable, approve, pause, or resume jobs; identity is metadata |
 | HTTP API bearer token | One shared token read from `--api-token-file` | Required before `/v1/` and `/mcp` routing; never logged, persisted, echoed, or passed to jobs/hooks |
 | Webhooks | HMAC-authenticated data | Never select or build commands; payload is a file |
 | Job and hook output | Untrusted bytes | Stored raw and bounded; never interpreted |

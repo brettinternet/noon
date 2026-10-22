@@ -7,6 +7,7 @@ import (
 
 	"github.com/brettinternet/noon/internal/config"
 	"github.com/brettinternet/noon/internal/schedule"
+	"github.com/brettinternet/noon/internal/store"
 )
 
 type Project struct {
@@ -20,40 +21,41 @@ type Project struct {
 
 // Job exposes environment names, never their values.
 type Job struct {
-	Name              string     `json:"name"`
-	Description       string     `json:"description"`
-	Schedule          *string    `json:"schedule"`
-	Splay             string     `json:"splay,omitempty"`
-	SplayOffset       string     `json:"splay_offset,omitempty"`
-	Jitter            string     `json:"jitter,omitempty"`
-	NextAt            *time.Time `json:"next_at,omitempty"`
-	Until             *time.Time `json:"until,omitempty"`
-	Ended             bool       `json:"ended"`
-	Run               any        `json:"run"`
-	Prompt            *string    `json:"prompt"`
-	PromptFile        *string    `json:"prompt_file"`
-	EnvFile           []string   `json:"env_file"`
-	Agent             string     `json:"agent,omitempty"`
-	AgentArgs         []string   `json:"agent_args,omitempty"`
-	CWD               string     `json:"cwd"`
-	EnvKeys           []string   `json:"env_keys"`
-	Timeout           string     `json:"timeout"`
-	NoopExitCode      int        `json:"noop_exit_code,omitempty"`
-	Overlap           string     `json:"overlap"`
-	Missed            string     `json:"missed"`
-	Enabled           bool       `json:"enabled"`
-	OS                []string   `json:"os,omitempty"`
-	Arch              []string   `json:"arch,omitempty"`
-	PlatformSupported bool       `json:"platform_supported"`
-	Paused            bool       `json:"paused"`
-	LastRun           *Run       `json:"last_run"`
-	Source            string     `json:"source"`
-	Shared            bool       `json:"shared"`
-	Overrides         bool       `json:"overrides"`
-	Digest            string     `json:"digest"`
-	Approval          string     `json:"approval"`
-	WebhookPath       string     `json:"webhook_path,omitempty"`
-	HasWebhook        bool       `json:"-"`
+	TemporarySchedule *store.TemporarySchedule `json:"temporary_schedule,omitempty"`
+	Name              string                   `json:"name"`
+	Description       string                   `json:"description"`
+	Schedule          *string                  `json:"schedule"`
+	Splay             string                   `json:"splay,omitempty"`
+	SplayOffset       string                   `json:"splay_offset,omitempty"`
+	Jitter            string                   `json:"jitter,omitempty"`
+	NextAt            *time.Time               `json:"next_at,omitempty"`
+	Until             *time.Time               `json:"until,omitempty"`
+	Ended             bool                     `json:"ended"`
+	Run               any                      `json:"run"`
+	Prompt            *string                  `json:"prompt"`
+	PromptFile        *string                  `json:"prompt_file"`
+	EnvFile           []string                 `json:"env_file"`
+	Agent             string                   `json:"agent,omitempty"`
+	AgentArgs         []string                 `json:"agent_args,omitempty"`
+	CWD               string                   `json:"cwd"`
+	EnvKeys           []string                 `json:"env_keys"`
+	Timeout           string                   `json:"timeout"`
+	NoopExitCode      int                      `json:"noop_exit_code,omitempty"`
+	Overlap           string                   `json:"overlap"`
+	Missed            string                   `json:"missed"`
+	Enabled           bool                     `json:"enabled"`
+	OS                []string                 `json:"os,omitempty"`
+	Arch              []string                 `json:"arch,omitempty"`
+	PlatformSupported bool                     `json:"platform_supported"`
+	Paused            bool                     `json:"paused"`
+	LastRun           *Run                     `json:"last_run"`
+	Source            string                   `json:"source"`
+	Shared            bool                     `json:"shared"`
+	Overrides         bool                     `json:"overrides"`
+	Digest            string                   `json:"digest"`
+	Approval          string                   `json:"approval"`
+	WebhookPath       string                   `json:"webhook_path,omitempty"`
+	HasWebhook        bool                     `json:"-"`
 }
 
 type Inspection struct {

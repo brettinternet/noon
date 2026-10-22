@@ -40,7 +40,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		return usageError("--data requires a job name", "Run noon run NAME --data JSON")
 	}
 	if cmd.IsSet("key") && queueMode == "" {
-		return usageError("--key requires --detach, --in, or --at", "Use --key with a queued run")
+		return usageError("--key requires --detach, --in, --at, or --schedule", "Use --key with a queued run")
 	}
 	if cmd.IsSet("key") && !app.ValidIdempotencyKey(cmd.String("key")) {
 		return usageError("--key must be 1–200 characters of [A-Za-z0-9._:-]", "Choose a key using letters, digits, dot, underscore, colon, or hyphen")
@@ -93,6 +93,9 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		location, err := time.LoadLocation(cfg.Timezone)
 		if err != nil {
 			return configError(err)
+		}
+		if queueMode == "schedule" {
+			return temporaryJobs(cmd, cfg, uniqueTargets(cmd.Args().Slice()), eventData, now, location)
 		}
 		dueAt, err := queueDueAt(queueMode, cmd.String("in"), cmd.String("at"), now, location)
 		if err != nil {

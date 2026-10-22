@@ -59,6 +59,7 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 			ids = append(ids, id)
 		}
 	}
+	jobs := []string{}
 	for _, selector := range uniqueTargets(cmd.Args().Slice()) {
 		if selector == "" {
 			return usageError("cancel targets must not be empty", "Use a run ID or job name")
@@ -73,10 +74,10 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 			add(id)
 			continue
 		}
+		jobs = append(jobs, selector)
 		found := false
 		for _, run := range active {
 			if run.Job == selector {
-				add(run.ID)
 				found = true
 			}
 		}
@@ -98,13 +99,21 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 	}
 	result := app.CancelResult{Runs: []app.Run{}}
 	failures := []targetFailure{}
-	outcomes, err := app.CancelRuns(cfg.StateDir, ids, time.Now())
+	selectors := make([]app.CancelJob, 0, len(jobs))
+	for _, job := range jobs {
+		selectors = append(selectors, app.CancelJob{Project: cfg.Project, Job: job})
+	}
+	outcomes, err := app.CancelRuns(cfg.StateDir, ids, time.Now(), selectors...)
 	if err != nil {
 		return stateError(err)
 	}
 	for _, outcome := range outcomes {
 		if outcome.Err != nil {
-			failures = append(failures, targetFailure{Target: strconv.FormatInt(outcome.ID, 10), Error: outcome.Err.Error()})
+			target := outcome.Target
+			if target == "" {
+				target = strconv.FormatInt(outcome.ID, 10)
+			}
+			failures = append(failures, targetFailure{Target: target, Error: outcome.Err.Error()})
 			continue
 		}
 		result.Runs = append(result.Runs, outcome.Result.Runs...)

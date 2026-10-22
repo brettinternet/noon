@@ -22,6 +22,77 @@ import (
 	"github.com/brettinternet/noon/internal/store"
 )
 
+// Temporary requests cannot bypass approval, lifecycle restrictions, or bounded parsing.
+func TestTemporaryScheduleCLI(t *testing.T) {
+	root := sandbox(t)
+	manifest := "timezone: UTC\njobs:\n  ping: {run: ['true']}\n  disabled: {run: ['true'], enabled: false}\n  ended: {run: ['true'], until: '2000-01-01 00:00'}\n  other: {run: ['true'], os: [linux], arch: [arm64]}\n"
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if code, result := invoke(t, "enable", "--json"); code != 0 {
+		t.Fatal(result)
+	}
+	request := []string{"run", "ping", "--schedule", "*/10 * * * *", "--for", "2h", "--json"}
+	code, first := invoke(t, request...)
+	if code != 0 || first["created"] != true {
+		t.Fatalf("create: %d %+v", code, first)
+	}
+	value := first["temporary_schedule"].(map[string]any)
+	if value["requested_by"] != "cli" || value["schedule"] != "*/10 * * * *" {
+		t.Fatal(value)
+	}
+	_, list := invoke(t, "list", "--json")
+	for _, item := range list["jobs"].([]any) {
+		job := item.(map[string]any)
+		if job["name"] == "ping" && (job["next_at"] != value["next_at"] || job["temporary_schedule"].(map[string]any)["until"] != value["until"]) {
+			t.Fatal(job)
+		}
+	}
+	if code, out, errOut := invokeText(t); code != 0 || !strings.Contains(out, "1 temporary schedule: ping") {
+		t.Fatalf("notice: %d %s %s", code, out, errOut)
+	}
+	if code, result := invoke(t, request...); code != 1 || result["error"].(map[string]any)["code"] != "already_scheduled" {
+		t.Fatalf("conflict: %d %+v", code, result)
+	}
+	if code, out, errOut := invokeText(t, "cancel", "ping"); code != 0 {
+		t.Fatalf("cancel: %d %s %s", code, out, errOut)
+	}
+	keyed := []string{"run", "ping", "--schedule", "every 10m", "--for", "1h", "--key", "k1", "--json"}
+	_, first = invoke(t, keyed...)
+	if code, result := invoke(t, keyed...); code != 0 || result["created"] != false || result["reason"] != "duplicate" || result["temporary_schedule"].(map[string]any)["created_at"] != first["temporary_schedule"].(map[string]any)["created_at"] {
+		t.Fatalf("dedupe: %d %+v", code, result)
+	}
+	for _, flags := range [][]string{
+		{"--schedule", "every 10m"}, {"--schedule", "every 10m", "--for", "8d"},
+		{"--schedule", "every 10m", "--for", "1h", "--until", "17:00"},
+		{"--schedule", "0 9 1 1 *", "--for", "1h"}, {"--schedule", "every 10m", "--for", "1h", "--detach"},
+		{"--schedule", "every day"}, {"--for", "1h"}, {"--schedule", "every 10m", "--for", "1h", "--in", "2h"},
+	} {
+		args := append([]string{"run", "ping"}, flags...)
+		args = append(args, "--json")
+		if code, result := invoke(t, args...); code != 2 || result["error"].(map[string]any)["code"] != "usage" {
+			t.Fatalf("syntax %v: %d %+v", flags, code, result)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest+"  shared: {run: ['true']}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"shared": "needs_approval", "disabled": "disabled", "ended": "ended"} {
+		if code, result := invoke(t, "run", name, "--schedule", "every 10m", "--for", "1h", "--json"); code != 1 || result["error"].(map[string]any)["code"] != want {
+			t.Fatalf("eligibility %s: %d %+v", name, code, result)
+		}
+	}
+	if code, result := invoke(t, "cancel", "ping", "--json"); code != 0 {
+		t.Fatal(result)
+	}
+	if code, result := invoke(t, "pause", "ping", "--json"); code != 0 {
+		t.Fatal(result)
+	}
+	if code, result := invoke(t, keyed...); code != 1 || result["error"].(map[string]any)["code"] != "paused" {
+		t.Fatalf("paused: %d %+v", code, result)
+	}
+}
+
 // Ended jobs and requests due at the exclusive end must not enter the queue;
 // an explicit foreground run remains authorized.
 func TestUntilQueueEligibility(t *testing.T) {
@@ -488,6 +559,130 @@ jobs:
 			t.Fatalf("queued run not cancelled: %+v err=%v", queuedAfter, err)
 		}
 	})
+}
+
+// Removing and re-adding identical config while offline must not revive its old authority.
+func TestTemporaryScheduleOfflineRemoval(t *testing.T) {
+	root := sandbox(t)
+	if code, result := invoke(t, "add", "probe", "--json", "--", "true"); code != 0 {
+		t.Fatal(result)
+	}
+	if code, result := invoke(t, "enable", "--json"); code != 0 {
+		t.Fatal(result)
+	}
+	if code, result := invoke(t, "run", "probe", "--schedule", "every 1m", "--for", "1h", "--json"); code != 0 {
+		t.Fatal(result)
+	}
+	if code, result := invoke(t, "remove", "probe", "--json"); code != 0 {
+		t.Fatal(result)
+	}
+	state, err := store.OpenExisting(filepath.Join(root, "state", "noon"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	project, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := state.TemporarySchedules(project)
+	if err != nil || len(values) != 0 {
+		t.Fatalf("offline removal retained old request: %+v %v", values, err)
+	}
+	if code, result := invoke(t, "add", "probe", "--json", "--", "true"); code != 0 {
+		t.Fatal(result)
+	}
+	if code, result := invoke(t, "list", "--json"); code != 0 || result["jobs"].([]any)[0].(map[string]any)["temporary_schedule"] != nil {
+		t.Fatalf("readd revived schedule: %+v", result)
+	}
+}
+
+// A slow owner must not delay durable cancellation of any later job/ID selector.
+func TestCancelRecordsAllTargetsBeforeWaiting(t *testing.T) {
+	root := sandbox(t)
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte("jobs:\n  slow: {run: ['true']}\n  fast: {run: ['true']}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if code, result := invoke(t, "enable", "--json"); code != 0 {
+		t.Fatal(result)
+	}
+	for _, job := range []string{"slow", "fast"} {
+		if code, result := invoke(t, "run", job, "--schedule", "every 1m", "--for", "1h", "--json"); code != 0 {
+			t.Fatal(result)
+		}
+	}
+	_, queued := invoke(t, "run", "fast", "--in", "1h", "--json")
+	id := int64(queued["run"].(map[string]any)["id"].(float64))
+	state, err := store.Open(filepath.Join(root, "state", "noon"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	project, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID, err := state.RegisterProject(project, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := runner.ProcessStartIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: "slow", Trigger: "manual", Digest: "d", Now: time.Now(), OwnerPID: os.Getpid(), OwnerStart: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- cli.Run(context.Background(), []string{"noon", "cancel", "slow", "fast", fmt.Sprint(id), "--json"}, config.BuildOpts{}, &stdout, &stderr)
+	}()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	requested := false
+poll:
+	for {
+		select {
+		case <-deadline.C:
+			break poll
+		case <-ticker.C:
+			run, err := state.RunByID(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			values, err := state.TemporarySchedules(project)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pending, err := state.CancellationRequested(slow.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pending && run.Status == "cancelled" && len(values) == 0 {
+				requested = true
+				break poll
+			}
+		}
+	}
+	// Release the owner only after observing the other targets, also on failure.
+	if err := state.FinishRun(slow.ID, projectID, "slow", store.Outcome{Status: "cancelled", FinishedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("cancel exit %d stdout=%s stderr=%s", code, &stdout, &stderr)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancel did not finish after owner released")
+	}
+	if !requested {
+		t.Fatal("later targets were not cancelled while first owner was still running")
+	}
 }
 
 func TestCancelQueued(t *testing.T) {

@@ -43,9 +43,10 @@ type ScheduledRun struct {
 }
 
 type SchedulerSnapshot struct {
-	Projects []EnabledProject
-	States   []PersistedJobState
-	Runs     []ScheduledRun
+	Projects  []EnabledProject
+	States    []PersistedJobState
+	Runs      []ScheduledRun
+	Temporary []TemporarySchedule
 }
 
 type JobStateChange struct {
@@ -65,12 +66,17 @@ type ScheduledRunInput struct {
 	Job, Status, Trigger string
 	Digest               string
 	ScheduledAt, DueAt   time.Time
+	RequestedBy          string
+	EventData            []byte
+	EventSource          string
 }
 
 type SchedulerPlan struct {
-	Upsert []JobStateChange
-	Remove []JobStateKey
-	Create []ScheduledRunInput
+	Upsert          []JobStateChange
+	Remove          []JobStateKey
+	Create          []ScheduledRunInput
+	TemporaryUpsert []TemporarySchedule
+	TemporaryRemove []JobStateKey
 }
 
 type DispatchPlan struct {
@@ -121,7 +127,7 @@ func (s *Store) ReadSchedulerSnapshot() (SchedulerSnapshot, error) {
 		return SchedulerSnapshot{}, err
 	}
 	defer tx.Rollback()
-	return schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID)
+	return schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary)
 }
 
 // SchedulerInfo returns the last scheduler heartbeat, or no record for old state
@@ -227,7 +233,7 @@ func (s *Store) ScheduleTick(now time.Time, pid int, identity string,
 	if n, _ := result.RowsAffected(); n != 1 {
 		return nil, errors.New("scheduler ownership was lost")
 	}
-	snapshot, err := schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID)
+	snapshot, err := schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary)
 	if err != nil {
 		return nil, err
 	}
@@ -246,6 +252,25 @@ ON CONFLICT(project_id, job) DO UPDATE SET schedule_key=excluded.schedule_key, n
 			return nil, fmt.Errorf("update schedule state: %w", err)
 		}
 	}
+	for _, key := range changes.TemporaryRemove {
+		if _, err := tx.Exec("DELETE FROM temporary_schedules WHERE project_id=? AND job=?", key.ProjectID, key.Job); err != nil {
+			return nil, err
+		}
+	}
+	for _, value := range changes.TemporaryUpsert {
+		if _, err := tx.Exec("UPDATE temporary_schedules SET next_at=? WHERE project_id=? AND job=?", FormatTime(value.NextAt), value.ProjectID, value.Job); err != nil {
+			return nil, err
+		}
+	}
+	var eventPaths []string
+	committed := false
+	defer func() {
+		if !committed {
+			for _, path := range eventPaths {
+				_ = s.removeEvent(path)
+			}
+		}
+	}()
 	terminalJobs := make(map[JobStateKey]bool)
 	for _, run := range changes.Create {
 		if run.Status != "queued" && run.Status != "missed" && run.Status != "skipped" {
@@ -263,12 +288,31 @@ ON CONFLICT(project_id, job) DO UPDATE SET schedule_key=excluded.schedule_key, n
 		if run.Status == "missed" {
 			message = "missed occurrence skipped by policy"
 		}
-		if _, err := tx.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, scheduled_at, due_at, created_at, finished_at, error)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, run.Trigger, run.Digest, FormatTime(run.ScheduledAt), FormatTime(run.DueAt), stamp, finished, message); err != nil {
+		var requestedBy any
+		if run.RequestedBy != "" {
+			requestedBy = run.RequestedBy
+		}
+		result, err := tx.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, scheduled_at, due_at, created_at, finished_at, error, requested_by)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, run.Trigger, run.Digest, FormatTime(run.ScheduledAt), FormatTime(run.DueAt), stamp, finished, message, requestedBy)
+		if err != nil {
 			return nil, fmt.Errorf("create scheduled run: %w", err)
 		}
+		if len(run.EventData) > 0 && run.Status == "queued" {
+			id, err := result.LastInsertId()
+			if err != nil {
+				return nil, err
+			}
+			path, err := s.writeEvent(id, run.EventSource, now, run.EventData)
+			if err != nil {
+				return nil, err
+			}
+			eventPaths = append(eventPaths, path)
+			if _, err := tx.Exec("UPDATE runs SET event_path=? WHERE id=?", path, id); err != nil {
+				return nil, err
+			}
+		}
 	}
-	snapshot, err = schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID)
+	snapshot, err = schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary)
 	if err != nil {
 		return nil, err
 	}
@@ -316,6 +360,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, run.T
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit scheduler tick: %w", err)
 	}
+	committed = true
 	// Retention follows durable state transitions, just as it does for FinishRun.
 	if len(terminalJobs) > 0 {
 		cleanup, err := s.db.Begin()
@@ -335,7 +380,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, run.T
 	return started, nil
 }
 
-func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID bool) (SchedulerSnapshot, error) {
+func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID, hasTemporary bool) (SchedulerSnapshot, error) {
 	var snapshot SchedulerSnapshot
 	projects, err := tx.Query(`SELECT p.id, p.path, p.config_file, a.job, a.digest FROM projects p LEFT JOIN approvals a ON a.project_id=p.id WHERE p.enabled=1 ORDER BY p.id, a.job`)
 	if err != nil {
@@ -421,6 +466,12 @@ func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID bool) (Scheduler
 	}
 	if err := errors.Join(runs.Err(), runs.Close()); err != nil {
 		return snapshot, err
+	}
+	if hasTemporary {
+		snapshot.Temporary, err = readTemporary(tx, "")
+		if err != nil {
+			return snapshot, err
+		}
 	}
 	return snapshot, nil
 }

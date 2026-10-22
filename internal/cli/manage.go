@@ -503,6 +503,9 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	removed := []map[string]string{}
 	failures := []targetFailure{}
 	for _, file := range files {
+		if err := app.EndTemporarySchedules(cfg.StateDir, cfg.Project, byFile[file]); err != nil {
+			return stateError(err)
+		}
 		if err := atomicWrite(file, prepared[file], 0); err != nil {
 			for _, name := range byFile[file] {
 				failures = append(failures, targetFailure{Target: name, Error: err.Error()})

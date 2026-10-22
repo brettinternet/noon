@@ -727,6 +727,70 @@ func TestCompleteHookRebasesTimingPastSyntheticMarker(t *testing.T) {
 	}
 }
 
+// Competing clients must not create two schedules; schema upgrades preserve history.
+func TestTemporarySchedules(t *testing.T) {
+	dir := t.TempDir()
+	legacy, err := sql.Open("sqlite", filepath.Join(dir, databaseName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, migration := range migrations[:12] {
+		if _, err := legacy.Exec(migration); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := legacy.Exec(fmt.Sprintf("PRAGMA user_version=%d", i+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := legacy.Exec("INSERT INTO projects(path,created_at,enabled) VALUES('/temporary','2026-10-16T00:00:00.000Z',1)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	now := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+	type outcome struct {
+		created bool
+		err     error
+	}
+	results := make(chan outcome, 10)
+	for i := range 10 {
+		go func() {
+			peer, err := Open(dir)
+			if err != nil {
+				results <- outcome{err: err}
+				return
+			}
+			defer peer.Close()
+			_, created, _, err := peer.CreateTemporarySchedule(TemporarySchedule{ProjectID: 1, Job: "probe", Schedule: "every 1m", Until: now.Add(time.Hour), NextAt: now.Add(time.Minute), CreatedAt: now, Key: fmt.Sprint(i), Digest: "d", RequestedBy: "cli", EventSource: "cli"}, QueueRunInput{ProjectID: 1, Job: "probe", JobExists: true, JobEnabled: true, Now: now})
+			results <- outcome{created, err}
+		}()
+	}
+	created := 0
+	for range 10 {
+		result := <-results
+		if result.created {
+			created++
+		} else if !errors.Is(result.err, ErrAlreadyScheduled) {
+			t.Fatalf("competing creation: %+v", result)
+		}
+	}
+	values, err := state.TemporarySchedules("/temporary")
+	if err != nil || created != 1 || len(values) != 1 {
+		t.Fatalf("created=%d values=%+v err=%v", created, values, err)
+	}
+	value := values[0]
+	got, newValue, _, err := state.CreateTemporarySchedule(value, QueueRunInput{ProjectID: 1, Job: "probe", JobExists: true, JobEnabled: true, Now: now})
+	if err != nil || newValue || got.Key != value.Key || !got.NextAt.Equal(value.NextAt) {
+		t.Fatalf("duplicate: %+v %v %v", got, newValue, err)
+	}
+}
+
 func TestStore(t *testing.T) {
 	t.Run("previous result follows completion order and retained eligible identity", func(t *testing.T) {
 		s, project := testStore(t)
