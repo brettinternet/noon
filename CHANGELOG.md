@@ -6,6 +6,29 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- Attach bounded temporary schedules to approved jobs
+- End unattended jobs at configured times
+
+### Fixed
+
+- Resolve --at local times with schedule DST rules
+- Tighten temporary schedule and until follow-ups
+
+### Documentation
+
+- Add VHS demo recordings
+- Tighten README and docs
+
+## [v0.11.1](https://github.com/brettinternet/noon/compare/v0.11.0...v0.11.1) - 2026-10-21
+
+### Fixed
+
+- **build:** Upgrade Go to 1.27.3
+
+## [v0.11.0](https://github.com/brettinternet/noon/compare/v0.10.0...v0.11.0) - 2026-10-20
+
+### Added
+
 - **service:** Reconcile running scheduler builds
 - **service:** Add explicit scheduler restart
 
@@ -16,6 +39,7 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Documentation
 
+- Refresh changelog
 - Show splay, jitter, and env files by example
 
 ## [v0.10.0](https://github.com/brettinternet/noon/compare/v0.9.0...v0.10.0) - 2026-10-20
