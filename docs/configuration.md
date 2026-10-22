@@ -158,6 +158,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | --- | --- | --- |
 | `description` | — | Shown by `list`, the TUI, and MCP |
 | `schedule` | manual only | Cron, macro, calendar phrase, or interval ([grammar](design.md#schedules)) |
+| `until` | — | Exclusive end for unattended runs: local `YYYY-MM-DD HH:MM` or RFC 3339 ([Temporary jobs](#temporary-jobs)) |
 | `splay` | — | Stable forward offset window, `1s`–`1h` ([Splay and jitter](#splay-and-jitter)) |
 | `jitter` | — | Per-occurrence forward offset window ([Splay and jitter](#splay-and-jitter)) |
 | `run` | — | String runs with `/bin/sh -c`; list is exact argv |
@@ -200,6 +201,41 @@ noon: config /home/me/app/noon.yaml:5: jobs.lint.run: must be a string (quote nu
 Unknown fields, duplicate keys, nulls, wrong types, multiple documents, whitespace-only files, and
 files over 1 MiB are errors. A missing file, an empty file, and `{}` are fine. A broken file is an
 error even when a later file overrides it.
+
+### Temporary jobs
+
+Set an absolute `until` on any job, including manual-only jobs:
+
+```yaml
+jobs:
+  watch-ci:
+    schedule: every 10m
+    until: 2026-10-20 17:00
+    agent: claude
+    prompt: Check CI and fix failures.
+```
+
+`YYYY-MM-DD HH:MM` uses the effective project timezone; RFC 3339 includes its own offset.
+A repeated local time resolves to its first occurrence; a skipped time resolves to the first
+instant after the gap. Durations and bare `HH:MM` are not valid in config: they have no anchor.
+Past end times are valid and never make `config check` fail.
+
+For a relative lifetime, use `noon add watch-ci "every 10m" --for 2h --agent claude --prompt "Check CI"`.
+`--for` requires at least 1m and rounds up to the next whole minute. Alternatively, `--until`
+accepts `HH:MM` (its next occurrence), a local date and time, or RFC 3339. These flags are mutually
+exclusive, resolve once when written, must end after now, and store RFC 3339 with the project offset.
+
+At `now >= until`, the job is ended: schedules stop without catch-up and queued runs are cancelled.
+Scheduled starts after splay and jitter must be strictly before the end. Already-running work
+finishes normally, bounded by its timeout. Queued requests are refused if the job has ended or
+their due time is at or after the end. Foreground `noon run NAME` still works.
+Noon keeps the definition and never edits config to expire it; use `noon remove NAME` to clean up.
+
+`list` appends `until YYYY-MM-DD HH:MM` to the schedule and shows `ended` in NEXT after other
+inactive states. If no occurrence starts before the end, NEXT is `-`. JSON and MCP expose
+`until` (RFC 3339 in the project timezone, omitted when unset), `ended`, and omit `next_at`
+when there is no eligible next occurrence. Changing `until` requires shared-job approval again;
+`noon enable` can approve ended jobs too.
 
 ### Splay and jitter
 
@@ -497,7 +533,7 @@ change that.
 
 | In the digest | Not in the digest |
 | --- | --- |
-| schedule, action, agent, `agent_args`, cwd, env, `env_file` paths and order, timeout, `noop_exit_code`, splay, jitter, overlap, missed, cooldown, hooks, webhook, `os`, `arch`, `requests` (only when set) | description; contents of scripts, prompt files, env files, and vars files; built-in and user-config profiles and hook defaults |
+| schedule, action, agent, `agent_args`, cwd, env, `env_file` paths and order, timeout, `noop_exit_code`, splay, jitter, until, overlap, missed, cooldown, hooks, webhook, `os`, `arch`, `requests` (only when set) | description; contents of scripts, prompt files, env files, and vars files; built-in and user-config profiles and hook defaults |
 
 A profile defined in the same `--config` file is digested with its jobs.
 

@@ -147,6 +147,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			switch queueError.Code {
 			case "not_enabled":
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "project is disabled"})
+			case "ended":
+				writeJSON(w, http.StatusConflict, map[string]string{"code": queueError.Code, "error": queueError.Message, "hint": queueError.Hint})
 			case "disabled":
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "job is disabled"})
 			case "paused":

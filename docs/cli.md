@@ -59,7 +59,7 @@ Limits: body 512 KiB, `data` 256 KiB, `wait_seconds` 0–60, `log_bytes` 0–655
 | 401 | Missing or invalid bearer token |
 | 404 | Unknown route, project, or run; disabled projects and their runs are also hidden |
 | 405 | Wrong method; `Allow` names the supported method |
-| 409 | Project/job disabled, paused, needs approval, unsupported platform, or recursion refused |
+| 409 | Project/job disabled, ended, paused, needs approval, unsupported platform, or recursion refused |
 | 413 | Request body exceeds 512 KiB |
 | 429 | Per-job queue is full |
 | 500 | Other operational error |
@@ -83,6 +83,24 @@ project. See [Agents](agents.md#remote-mcp-and-json-api) for client setup.
 Don't bundle short flags. `-p=-j` keeps `-j` as prompt text; everything after `add ... --` is
 literal argv. Options with scope or side effects (`--config`, `--in`, `--at`, `--data`, `--key`,
 `--shared`, `--write`, `--listen`, …) are deliberately long-only.
+
+## Adding temporary jobs
+
+```sh
+noon add watch-ci "every 10m" --for 2h --agent claude --prompt "Check CI and fix failures"
+noon add watch-ci "every 10m" --until "2026-10-20 17:00" --sh './check-ci'
+```
+
+`--for DURATION` (at least 1m) and `--until TIME` are mutually exclusive. Both resolve at write
+time and store an absolute RFC 3339 end in the project timezone. `--for` rounds up to a whole
+minute; `--until` accepts `HH:MM` as its next occurrence, `YYYY-MM-DD HH:MM`, or RFC 3339.
+An end not after now is a usage error (exit 2), with no definition written.
+See [Temporary jobs](configuration.md#temporary-jobs) for expiry and DST behavior.
+
+Queued `run` requests fail with code `ended` (exit 1, HTTP 409) if the job has ended or the
+requested due time is at or after its end. The message names the end time and the hint names the
+config source to edit. This applies to detach, delayed requests, MCP, API, webhooks, and triggers.
+Foreground `noon run NAME` remains available after the end.
 
 ## Pausing jobs
 

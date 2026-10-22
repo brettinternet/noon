@@ -94,7 +94,7 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 	result, err := state.QueueRun(store.QueueRunInput{
 		ProjectID: projectID, Job: name, Digest: job.Digest, IdempotencyKey: key,
 		RequestedBy: requestedBy, Trigger: options.Trigger, DueAt: dueAt, Now: now, NowFunc: nowFunc,
-		JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared,
+		JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared, JobUntil: job.Until,
 		Coalesce: coalesce, Cooldown: job.Cooldown, RequestsEach: job.Requests == "each", Depth: depth, RequireUnpaused: options.RequireUnpaused,
 		EventData: options.EventData, EventSource: options.EventSource, EventHeaders: options.EventHeaders,
 	})
@@ -104,6 +104,20 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 			err = &QueueError{Code: "not_enabled", Message: "project is not enabled for background runs", Hint: "Run noon enable"}
 		case errors.Is(err, store.ErrJobNotFound):
 			err = &QueueError{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: "Run noon run to list jobs"}
+		case errors.Is(err, store.ErrJobEnded):
+			tense := "ends"
+			checkNow := now
+			if nowFunc != nil {
+				checkNow = nowFunc()
+			}
+			if job.Ended(checkNow) {
+				tense = "ended"
+			}
+			loc, _ := time.LoadLocation(cfg.Timezone)
+			if loc == nil {
+				loc = time.Local
+			}
+			err = &QueueError{Code: "ended", Message: fmt.Sprintf("job %q %s at %s", name, tense, job.Until.In(loc).Format(time.RFC3339)), Hint: fmt.Sprintf("Edit until in %q", job.Source)}
 		case errors.Is(err, store.ErrJobDisabled):
 			err = &QueueError{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
 		case errors.Is(err, store.ErrJobPaused):

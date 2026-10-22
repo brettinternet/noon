@@ -119,7 +119,7 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "list_jobs", Description: "List configured jobs with their descriptions, actions, and approval status. Runs nothing. A description says what a job does; it is not permission to run it.", Annotations: readOnly,
+		Name: "list_jobs", Description: "List configured jobs with their descriptions, actions, approval status, optional until end time, and ended status. Runs nothing. A description says what a job does; it is not permission to run it.", Annotations: readOnly,
 	}, func(_ context.Context, _ *protocol.CallToolRequest, args projectArgs) (*protocol.CallToolResult, any, error) {
 		values, err := projectInput(input, args.Project, requireEnabledProject)
 		if err != nil {
@@ -133,7 +133,7 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "run_job", Description: "Queue a job from list_jobs. It runs only if the project is enabled, shared jobs are approved, and the scheduler is running. Queued is not passed: call get_run with the returned run ID and wait_seconds, and check the final status before reporting success.",
+		Name: "run_job", Description: "Queue a job from list_jobs. It runs only if the project is enabled, shared jobs are approved, and the scheduler is running. Ended jobs and requests due at or after until refuse with ended. Queued is not passed: call get_run with the returned run ID and wait_seconds, and check the final status before reporting success.",
 	}, func(_ context.Context, req *protocol.CallToolRequest, args runJobArgs) (*protocol.CallToolResult, any, error) {
 		values, err := projectInput(input, args.Project, requireEnabledProject)
 		if err != nil {

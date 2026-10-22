@@ -21,7 +21,7 @@ type ShellEntry struct {
 // recorded configuration and the normal queue authorization path. It never
 // enables projects or creates state for an ordinary no-op. The token is returned
 // even on a queue failure so a prompt does not retry the same entry indefinitely.
-func EnterProject(input config.Input, entry ShellEntry, now time.Time) (string, error) {
+func EnterProject(input config.Input, entry ShellEntry, now time.Time, nowFunc func() time.Time) (string, error) {
 	input.CWD, input.Project, input.File, input.Timezone = entry.Directory, nil, nil, nil
 	project, err := config.ProjectDir(input)
 	if err != nil {
@@ -73,7 +73,7 @@ func EnterProject(input config.Input, entry ShellEntry, now time.Time) (string, 
 	if err != nil {
 		return token, err
 	}
-	_, err = QueueRun(cfg, entry.Job, "", now, now, nil, true, "shell:"+entry.Shell,
+	_, err = QueueRun(cfg, entry.Job, "", now, now, nowFunc, true, "shell:"+entry.Shell,
 		QueueOptions{EventData: data, EventSource: "cli", RequireUnpaused: true})
 	return token, err
 }

@@ -189,6 +189,14 @@ runs and queued/triggered work are not shifted.
 
 ### Missed runs, overlap, and concurrency
 
+An optional absolute `until` ends unattended execution at `now >= until`. It accepts local
+`YYYY-MM-DD HH:MM` or RFC 3339, using the same DST wall-clock rules as schedules. Relative config
+values are invalid; past values stay valid. Ended jobs drop schedule state without catch-up.
+Effective starts, including splay and jitter, must be strictly before the end. Queued requests
+refuse with `ended` when now or their due time reaches it; queued runs are cancelled after expiry
+by the inactive-job dispatch rule, while running work finishes under its timeout. Foreground
+runs remain explicit and allowed. Definitions stay in config, which the scheduler never writes.
+
 The pure `internal/scheduler.Due` and `Dispatch` planners decide; `noon serve` persists each tick's
 schedule and dispatch changes atomically, then starts runs. Schedule state is keyed by normalized
 schedule text plus timezone, so changing either resets it. For splayed jobs only, the key also
@@ -272,7 +280,7 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
 - Privacy needs a file repository content can't supply. Git refuses paths inside its directory, so
   a branch can't add or replace `.git/noon.yaml`. A filename in the tree is never private: a commit
   can add `.noon.yaml` despite ignore rules, so Noon never loads it.
-- The digest covers what runs and when (resolved schedule, splay, jitter, action, agent, cwd, env, ordered env_file paths, timeout, overlap, missed,
+- The digest covers what runs and when (resolved schedule, splay, jitter, until (canonical absolute instant), action, agent, cwd, env, ordered env_file paths, timeout, overlap, missed,
   cooldown, hooks, webhook, `os`, `arch`, and `requests` when explicitly set), not the description or vars-file contents. A vars-file edit needs approval only when it changes an effective allowlisted value; expression rewrites with the same result and unused variables do not. Omitting `requests` preserves existing job digests. A prompt job's
   digest also covers its agent profile when that profile comes from the same `--config` file;
   built-in and user-config profiles are machine choices and stay out.

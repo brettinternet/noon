@@ -545,7 +545,7 @@ func TestListJSON(t *testing.T) {
 	if len(jobs) != 4 {
 		t.Fatal(jobs)
 	}
-	wantKeys := strings.Fields("name description schedule next_at run prompt prompt_file cwd env_file env_keys timeout overlap missed enabled platform_supported paused last_run source shared overrides digest approval")
+	wantKeys := strings.Fields("name description schedule run prompt prompt_file cwd env_file env_keys timeout overlap missed enabled ended platform_supported paused last_run source shared overrides digest approval")
 	slices.Sort(wantKeys)
 	for i, name := range []string{"adaily", "bdisabled", "cinterval", "zmanual"} {
 		job := jobs[i].(map[string]any)
@@ -554,7 +554,12 @@ func TestListJSON(t *testing.T) {
 			keys = append(keys, key)
 		}
 		slices.Sort(keys)
-		if !reflect.DeepEqual(keys, wantKeys) || job["env_file"] != nil || job["name"] != name || job["cwd"] != canonical || job["source"] != filepath.Join(canonical, "noon.yaml") || job["shared"] != true || job["overrides"] != false || job["timeout"] != "1h" || job["overlap"] != "skip" || job["missed"] != "run_once" || !strings.HasPrefix(job["digest"].(string), "sha256:") {
+		expectedKeys := slices.Clone(wantKeys)
+		if i == 0 || i == 2 {
+			expectedKeys = append(expectedKeys, "next_at")
+			slices.Sort(expectedKeys)
+		}
+		if job["ended"] != false || !reflect.DeepEqual(keys, expectedKeys) || job["env_file"] != nil || job["name"] != name || job["cwd"] != canonical || job["source"] != filepath.Join(canonical, "noon.yaml") || job["shared"] != true || job["overrides"] != false || job["timeout"] != "1h" || job["overlap"] != "skip" || job["missed"] != "run_once" || !strings.HasPrefix(job["digest"].(string), "sha256:") {
 			t.Fatalf("job shape: %+v", job)
 		}
 		if i == 1 || i == 3 {

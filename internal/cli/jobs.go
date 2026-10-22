@@ -77,6 +77,9 @@ func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide
 				scheduled += " ~" + job.Jitter
 			}
 		}
+		if job.Until != nil {
+			scheduled += " until " + job.Until.Format("2006-01-02 15:04")
+		}
 		if !job.PlatformSupported {
 			next = "other platform"
 		} else if job.Paused {
@@ -85,6 +88,8 @@ func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide
 			next = "needs approval"
 		} else if !job.Enabled {
 			next = "disabled"
+		} else if job.Ended {
+			next = "ended"
 		} else if job.NextAt != nil {
 			until := job.NextAt.Sub(now)
 			unit := time.Minute

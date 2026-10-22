@@ -159,7 +159,7 @@ func (s Schedule) Next(after time.Time, loc *time.Location) time.Time {
 			w = w.Add(time.Minute)
 			continue
 		}
-		candidate := resolveWall(w, loc)
+		candidate := ResolveWall(w, loc)
 		if candidate.After(after) {
 			return candidate
 		}
@@ -180,7 +180,9 @@ func wall(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, time.UTC)
 }
 
-func resolveWall(w time.Time, loc *time.Location) time.Time {
+// ResolveWall resolves UTC-encoded wall-clock fields in loc using the first
+// repeated occurrence, or the first instant after a skipped-time gap.
+func ResolveWall(w time.Time, loc *time.Location) time.Time {
 	u := time.Date(w.Year(), w.Month(), w.Day(), w.Hour(), w.Minute(), 0, 0, loc)
 	shown := wall(u)
 	start, end := u.ZoneBounds()

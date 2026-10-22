@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,11 +15,89 @@ import (
 	"testing"
 	"time"
 
+	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/cli"
 	"github.com/brettinternet/noon/internal/config"
 	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/store"
 )
+
+// Ended jobs and requests due at the exclusive end must not enter the queue;
+// an explicit foreground run remains authorized.
+func TestUntilQueueEligibility(t *testing.T) {
+	root := sandbox(t)
+	manifest := "timezone: America/Denver\njobs:\n  future: {schedule: every 1h, until: '2099-01-01 00:00', run: ['true']}\n  past: {schedule: every 1h, until: '2000-01-01 00:00', run: ['true']}\n"
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, result := invoke(t, "enable", "--json"); code != 0 {
+		t.Fatalf("enable: %d %+v", code, result)
+	}
+	for _, args := range [][]string{
+		{"run", "past", "--detach", "--json"},
+		{"run", "future", "--at", "2099-01-01 00:00", "--json"},
+		{"run", "future", "--at", "2099-01-01T00:00:01-07:00", "--json"},
+	} {
+		code, result := invoke(t, args...)
+		if code != 1 || result["error"].(map[string]any)["code"] != "ended" || !strings.Contains(result["error"].(map[string]any)["hint"].(string), "noon.yaml") {
+			t.Fatalf("end refusal: %d %+v", code, result)
+		}
+	}
+	if code, result := invoke(t, "history", "--json"); code != 0 || len(result["runs"].([]any)) != 0 {
+		t.Fatalf("refused request created work: %d %+v", code, result)
+	}
+	if code, result := invoke(t, "run", "future", "--detach", "--json"); code != 0 {
+		t.Fatalf("before end: %d %+v", code, result)
+	}
+	if code, _, stderr := invokeText(t, "run", "past"); code != 0 {
+		t.Fatalf("foreground ended: %d %s", code, stderr)
+	}
+	code, result := invoke(t, "list", "--json")
+	if code != 0 {
+		t.Fatal(result)
+	}
+	jobs := result["jobs"].([]any)
+	future, past := jobs[0].(map[string]any), jobs[1].(map[string]any)
+	if future["until"] != "2099-01-01T00:00:00-07:00" || future["ended"] != false || future["next_at"] == nil || past["ended"] != true {
+		t.Fatalf("end inspection: %+v", jobs)
+	}
+	if _, exists := past["next_at"]; exists {
+		t.Fatal("ended job exposed next_at")
+	}
+	// A shell entry can cross expiry while loading config or waiting on SQLite.
+	end := time.Date(2099, 1, 1, 7, 0, 0, 0, time.UTC)
+	_, err := app.EnterProject(config.Input{CWD: root, UserConfigDir: os.Getenv("XDG_CONFIG_HOME"), StateDirDefault: filepath.Join(root, "state", "noon")},
+		app.ShellEntry{Shell: "bash", Job: "future", Directory: root}, end.Add(-time.Second), func() time.Time { return end })
+	var queueError *app.QueueError
+	if !errors.As(err, &queueError) || queueError.Code != "ended" {
+		t.Fatalf("shell entry did not refresh expiry: %v", err)
+	}
+	// A valid explicit zero-time end must remain distinguishable from unset.
+	zeroManifest := manifest + "  zero: {until: 0001-01-01T00:00:00Z, run: ['true']}\n"
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(zeroManifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, result := invoke(t, "run", "zero", "--detach", "--json"); code != 1 || result["error"].(map[string]any)["code"] != "ended" {
+		t.Fatalf("zero-time end allowed queue: %d %+v", code, result)
+	}
+	// Description is cosmetic; extending the end requires a fresh approval.
+	manifest = strings.Replace(manifest, "schedule: every 1h, until:", "description: changed, schedule: every 1h, until:", 1)
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, result = invoke(t, "list", "--json")
+	if result["jobs"].([]any)[0].(map[string]any)["approval"] != "approved" {
+		t.Fatalf("description revoked approval: %+v", result)
+	}
+	manifest = strings.Replace(manifest, "2099-01-01", "2099-01-02", 1)
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, result = invoke(t, "list", "--json")
+	if result["jobs"].([]any)[0].(map[string]any)["approval"] != "needs_approval" {
+		t.Fatalf("end edit retained approval: %+v", result)
+	}
+}
 
 // Guards duplicate side effects, preflight validation, and mixed cancellation selectors.
 func TestMultipleQueuedRunsAndCancellation(t *testing.T) {

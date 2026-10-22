@@ -464,6 +464,8 @@ func (m *Model) nextCell(job app.Job, now time.Time) []span {
 		return []span{{"not enabled", t.warning}}
 	case job.Approval == "needs_approval":
 		return []span{{"needs approval", t.warning}}
+	case job.Ended:
+		return []span{{"ended", t.faint}}
 	case job.Schedule == nil || job.NextAt == nil:
 		return []span{{"—", t.faint}}
 	case job.NextAt.Before(now.Add(-time.Minute)):

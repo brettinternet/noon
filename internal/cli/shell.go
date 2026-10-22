@@ -90,7 +90,7 @@ func shellEntry(_ context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return err
 	}
-	token, err := app.EnterProject(values, app.ShellEntry{Shell: args[0], Job: args[1], PreviousProject: args[2], PreviousDirectory: args[3], Directory: args[4], RecordOnly: cmd.Bool("record")}, time.Now())
+	token, err := app.EnterProject(values, app.ShellEntry{Shell: args[0], Job: args[1], PreviousProject: args[2], PreviousDirectory: args[3], Directory: args[4], RecordOnly: cmd.Bool("record")}, time.Now(), time.Now)
 	fmt.Fprintln(cmd.Writer, token)
 	if err != nil {
 		return queueError(err)

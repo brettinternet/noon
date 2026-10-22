@@ -49,7 +49,7 @@ func WithScheduler(view Inspection, now time.Time) (Inspection, error) {
 	}
 	for i := range view.Jobs {
 		job := &view.Jobs[i]
-		if job.Schedule == nil {
+		if job.Schedule == nil || job.Ended {
 			continue
 		}
 		splay, _ := schedule.ParseDuration(job.Splay)
@@ -61,7 +61,10 @@ func WithScheduler(view Inspection, now time.Time) (Inspection, error) {
 		next, err := time.Parse(store.TimestampLayout, persisted.NextAt)
 		if err == nil {
 			value := schedule.EffectiveStart(view.Project.Path, job.Name, next, splay, jitter).In(location)
-			job.NextAt = &value
+			job.NextAt = nil
+			if job.Until == nil || value.Before(*job.Until) {
+				job.NextAt = &value
+			}
 		}
 	}
 	return view, nil

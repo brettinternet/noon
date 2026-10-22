@@ -40,6 +40,8 @@ type Job struct {
 	ScheduleExpression string
 	Splay              time.Duration
 	Jitter             time.Duration
+	Until              *time.Time
+	untilNode          *yaml.Node
 	Run                any
 	OnSuccess          any
 	OnFailure          any
@@ -109,6 +111,25 @@ func jobString(file, path string, node *yaml.Node) (string, error) {
 		return "", jobError(file, node, path, "must be a string (quote numbers)")
 	}
 	return node.Value, nil
+}
+
+// Ended reports whether unattended execution has reached its exclusive end.
+func (job Job) Ended(now time.Time) bool {
+	return job.Until != nil && !now.Before(*job.Until)
+}
+
+// ParseUntil parses an absolute end time, never a clock relative to now.
+func ParseUntil(value string, loc *time.Location) (time.Time, error) {
+	if len(value) == len("2006-01-02 15:04") {
+		wall, err := time.Parse("2006-01-02 15:04", value)
+		if err == nil {
+			return schedule.ResolveWall(wall, loc), nil
+		}
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed.In(loc), nil
+	}
+	return time.Time{}, fmt.Errorf("invalid until time %q: use YYYY-MM-DD HH:MM or RFC 3339", value)
 }
 
 func (job Job) MatchesPlatform(platform Platform) bool {
@@ -371,6 +392,31 @@ func validSessionIDFlag(value string) bool {
 }
 
 func (cfg *Config) resolveAgents() error {
+	loc := time.Local
+	if cfg.Timezone != "" {
+		var err error
+		loc, err = time.LoadLocation(cfg.Timezone)
+		if err != nil {
+			return err
+		}
+	}
+	for name, job := range cfg.Jobs {
+		if job.untilNode == nil {
+			continue
+		}
+		until, err := ParseUntil(job.untilNode.Value, loc)
+		if err != nil {
+			return jobError(job.Source, job.untilNode, "jobs."+name+".until", err.Error())
+		}
+		job.Until = &until
+		job.execution["until"] = until.UTC().Format(time.RFC3339Nano)
+		data, err := json.Marshal(job.execution)
+		if err != nil {
+			return err
+		}
+		job.Digest = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+		cfg.Jobs[name] = job
+	}
 	if cfg.DefaultAgent != "" {
 		if _, ok := cfg.Agents[cfg.DefaultAgent]; !ok {
 			return fmt.Errorf("default_agent %q is unknown; known agents: %s", cfg.DefaultAgent, strings.Join(agentNames(cfg.Agents), ", "))
@@ -445,6 +491,16 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				return Job{}, err
 			}
 			job.Run, execution[key] = run, run
+		case "until":
+			if value.Kind != yaml.ScalarNode || (value.Tag != "!!str" && value.Tag != "!!timestamp") {
+				return Job{}, jobError(file, value, field, "must be an absolute time string")
+			}
+			until, err := ParseUntil(value.Value, time.UTC)
+			if err != nil {
+				return Job{}, jobError(file, value, field, err.Error())
+			}
+			job.Until, job.untilNode = &until, value
+			execution[key] = until.UTC().Format(time.RFC3339Nano)
 		case "noop_exit_code":
 			code, err := jobNoopExitCode(file, field, value)
 			if err != nil {

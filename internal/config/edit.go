@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/brettinternet/noon/internal/schedule"
 	"go.yaml.in/yaml/v3"
@@ -188,7 +189,7 @@ func JobNames(src []byte) ([]string, error) {
 
 // JobFromSource validates one raw definition, even when another file shadows it.
 // A relative vars_file in src resolves from project, matching Load.
-func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool, project string) (Job, error) {
+func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool, project string, timezone ...string) (Job, error) {
 	values, err := parse(src)
 	if err != nil {
 		return Job{}, err
@@ -217,7 +218,14 @@ func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defa
 		if err != nil {
 			return Job{}, err
 		}
-		cfg := Config{Jobs: map[string]Job{name: parsed}, Agents: agents, DefaultAgent: defaultAgent}
+		zone := "Local"
+		if value := values["timezone"]; value != nil {
+			zone = value.Value
+		}
+		if len(timezone) > 0 {
+			zone = timezone[0]
+		}
+		cfg := Config{Timezone: zone, Jobs: map[string]Job{name: parsed}, Agents: agents, DefaultAgent: defaultAgent}
 		if err := cfg.resolveAgents(); err != nil {
 			return Job{}, err
 		}
@@ -321,6 +329,9 @@ func jobFields(job Job) map[string]any {
 		if len(job.Arch) > 0 {
 			fields["arch"] = job.Arch
 		}
+	}
+	if job.Until != nil {
+		fields["until"] = job.Until.Format(time.RFC3339Nano)
 	}
 	if !job.Enabled {
 		fields["enabled"] = false

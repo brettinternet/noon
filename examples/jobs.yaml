@@ -8,6 +8,7 @@ jobs:
       Run the full Go test suite on weekdays or after Go code changes.
       Before reporting verification complete, wait for success and inspect failures.
     schedule: ${TESTS_SCHEDULE:-weekdays at 9am}
+    until: 2099-01-01 00:00 # Stop unattended starts at this project-local time.
     splay: 10m
     jitter: 5m
     run: [go, test, ./...]

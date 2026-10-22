@@ -22,6 +22,39 @@ import (
 	"github.com/brettinternet/noon/internal/store"
 )
 
+// Invalid end options must not leave a job definition behind; absolute end
+// times must retain their offset through add's edit verification and approval.
+func TestAddUntil(t *testing.T) {
+	root := sandbox(t)
+	if err := os.WriteFile(filepath.Join(root, "noon.yaml"), []byte("timezone: America/Denver\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, flags := range [][]string{
+		{"--until", "2000-01-01 00:00"},
+		{"--for", "30s"},
+		{"--for", "2h", "--until", "17:00"},
+	} {
+		args := append([]string{"add", "invalid", "every 1h"}, flags...)
+		args = append(args, "--", "true")
+		if code, _, stderr := invokeText(t, args...); code != 2 {
+			t.Fatalf("invalid end: %d %s", code, stderr)
+		}
+		if _, err := os.Stat(filepath.Join(root, ".git", "noon.yaml")); !os.IsNotExist(err) {
+			t.Fatalf("invalid end wrote config: %v", err)
+		}
+	}
+	if code, _, stderr := invokeText(t, "add", "probe", "every 1h", "--until", "2099-01-01 00:00", "--", "true"); code != 0 {
+		t.Fatalf("add until: %d %s", code, stderr)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".git", "noon.yaml"))
+	if err != nil || !strings.Contains(string(data), "2099-01-01T00:00:00-07:00") {
+		t.Fatalf("encoded end: %s %v", data, err)
+	}
+	if code, result := invoke(t, "list", "--json"); code != 0 || result["jobs"].([]any)[0].(map[string]any)["approval"] == "needs_approval" {
+		t.Fatalf("add end approval: %d %+v", code, result)
+	}
+}
+
 func TestAddJobs(t *testing.T) {
 	t.Run("each action form serializes and validates", func(t *testing.T) {
 		for _, tc := range []struct {

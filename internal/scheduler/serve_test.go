@@ -23,6 +23,70 @@ import (
 
 var serveTestStart = time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 
+// Expiry must cancel queued work, not interrupt a process that already started.
+func TestServeUntil(t *testing.T) {
+	t.Run("running finishes and queued cancels", func(t *testing.T) {
+		release := filepath.Join(t.TempDir(), "release")
+		command := "while [ ! -f " + shellQuote(release) + " ]; do sleep 0.01; done"
+		fixture := newServeFixture(t, fmt.Sprintf("jobs:\n  probe:\n    until: %s\n    run: %s\n", serveTestStart.Add(time.Minute).Format(time.RFC3339), strconv.Quote(command)))
+		defer fixture.stop(t)
+		first := createQueuedRun(t, fixture, "probe", serveTestStart, "first")
+		second := createQueuedRun(t, fixture, "probe", serveTestStart.Add(30*time.Second), "second")
+		fixture.step(t, serveTestStart)
+		waitFor(t, func() bool { return fixture.runByID(t, first.ID).Status == "running" })
+		fixture.step(t, serveTestStart.Add(time.Minute))
+		if got := fixture.runByID(t, second.ID); got.Status != "cancelled" || got.StartedAt != "" {
+			t.Fatalf("ended queued run: %+v", got)
+		}
+		if got := fixture.runByID(t, first.ID); got.Status != "running" {
+			t.Fatalf("expiry interrupted started work: %+v", got)
+		}
+		if err := os.WriteFile(release, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, func() bool { return fixture.runByID(t, first.ID).Status == "succeeded" })
+	})
+	t.Run("transaction clock crosses end", func(t *testing.T) {
+		fixture := newServeFixture(t, fmt.Sprintf("jobs:\n  probe:\n    until: %s\n    run: 'touch should-not-run'\n", serveTestStart.Add(time.Minute).Format(time.RFC3339)))
+		defer fixture.stop(t)
+		fixture.step(t, serveTestStart)
+		fixture.stop(t)
+		queued := createQueuedRun(t, fixture, "probe", serveTestStart, "")
+		var calls atomic.Int32
+		fixture.now = func() time.Time {
+			// Startup and the tick begin before expiry; acquiring the transaction
+			// crosses it. The injected clock makes that wait deterministic.
+			if calls.Add(1) <= 2 {
+				return serveTestStart
+			}
+			return serveTestStart.Add(time.Minute)
+		}
+		fixture.start(t)
+		fixture.step(t, serveTestStart)
+		if run := fixture.runByID(t, queued.ID); run.Status != "cancelled" || run.StartedAt != "" {
+			t.Fatalf("stale pre-transaction time dispatched ended work: %+v", run)
+		}
+		if _, err := os.Stat(filepath.Join(fixture.project, "should-not-run")); !os.IsNotExist(err) {
+			t.Fatalf("ended process executed: %v", err)
+		}
+	})
+	t.Run("offline across end drops state without catchup", func(t *testing.T) {
+		fixture := newServeFixture(t, fmt.Sprintf("jobs:\n  probe:\n    schedule: every 1h\n    until: %s\n    run: 'true'\n", serveTestStart.Add(3*time.Hour).Format(time.RFC3339)))
+		defer fixture.stop(t)
+		fixture.step(t, serveTestStart)
+		if len(fixture.states(t)) != 1 {
+			t.Fatal("schedule not initialized")
+		}
+		fixture.stop(t)
+		fixture.clock.Store(serveTestStart.Add(4 * time.Hour).UnixNano())
+		fixture.start(t)
+		fixture.step(t, serveTestStart.Add(4*time.Hour))
+		if len(fixture.states(t)) != 0 || len(fixture.runs(t)) != 0 {
+			t.Fatalf("ended schedule caught up: states=%+v runs=%+v", fixture.states(t), fixture.runs(t))
+		}
+	})
+}
+
 func TestFileStampsDetectPermissionChanges(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vars.env")
 	if err := os.WriteFile(path, []byte("SCHEDULE=every 1h\n"), 0o600); err != nil {
@@ -97,6 +161,7 @@ type serveFixture struct {
 	environment                         []string
 	logger                              io.Writer
 	clock                               atomic.Int64
+	now                                 func() time.Time
 	ticks                               chan time.Time
 	ack                                 chan struct{}
 	cancel                              context.CancelFunc
@@ -876,7 +941,12 @@ func (f *serveFixture) start(t *testing.T) {
 		f.done <- Serve(ctx, ServeOptions{
 			StateDir: f.stateDir, StateDirDefault: stateDirDefault, UserConfigDir: f.userConfig, Version: "test",
 			Environment: environment, ListenAddr: f.listenAddr, Platform: f.platform,
-			Now: func() time.Time { return time.Unix(0, f.clock.Load()).UTC() }, Ticks: f.ticks,
+			Now: func() time.Time {
+				if f.now != nil {
+					return f.now()
+				}
+				return time.Unix(0, f.clock.Load()).UTC()
+			}, Ticks: f.ticks,
 			KillGrace: 20 * time.Millisecond, Logger: logger, IgnoreSignals: true, OnTick: func() { f.ack <- struct{}{} },
 		})
 	}()

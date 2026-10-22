@@ -177,14 +177,14 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 			}
 		}
 	}
-	if err := cfg.resolveAgents(); err != nil {
-		return Config{}, err
-	}
 	if input.Timezone != nil {
 		if err := validTimezone(*input.Timezone); err != nil {
 			return Config{}, err
 		}
 		cfg.Timezone = *input.Timezone
+	}
+	if err := cfg.resolveAgents(); err != nil {
+		return Config{}, err
 	}
 	if input.StateDir != nil {
 		if strings.TrimSpace(*input.StateDir) == "" {

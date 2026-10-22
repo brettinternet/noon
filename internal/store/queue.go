@@ -13,6 +13,7 @@ var (
 	ErrProjectNotEnabled = errors.New("project is not enabled")
 	ErrJobNotFound       = errors.New("job not found")
 	ErrJobDisabled       = errors.New("job is disabled")
+	ErrJobEnded          = errors.New("job has ended or is due after its end")
 	ErrJobPaused         = errors.New("job is paused")
 	ErrNeedsApproval     = errors.New("job needs approval")
 	ErrQueueFull         = errors.New("job queue is full")
@@ -26,6 +27,7 @@ type QueueRunInput struct {
 	RequestedBy                      string
 	Trigger                          string
 	DueAt, Now                       time.Time
+	JobUntil                         *time.Time
 	NowFunc                          func() time.Time
 	JobExists, JobEnabled, JobShared bool
 	RequireUnpaused                  bool
@@ -69,6 +71,10 @@ func (s *Store) QueueRun(input QueueRunInput) (QueueRunResult, error) {
 		if input.Coalesce {
 			input.DueAt = input.Now
 		}
+	}
+
+	if input.JobUntil != nil && (!input.Now.Before(*input.JobUntil) || !input.DueAt.Before(*input.JobUntil)) {
+		return QueueRunResult{}, ErrJobEnded
 	}
 
 	eligibilityChecked := false

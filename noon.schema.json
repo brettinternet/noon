@@ -98,6 +98,10 @@
           "description": "Cron, macro, calendar phrase, or interval; validated by noon config check.",
           "examples": ["every 30m", "weekdays at 9am", "0 6 * * 1"]
         },
+        "until": {
+          "type": "string",
+          "description": "Exclusive end for unattended runs: YYYY-MM-DD HH:MM in the project timezone or RFC 3339. Past values are valid; validated by noon config check."
+        },
         "splay": {
           "$ref": "#/definitions/nonBlankString",
           "description": "Stable forward offset window, 1s to 1h; requires a cron, macro, or calendar schedule. Validated by noon config check.",

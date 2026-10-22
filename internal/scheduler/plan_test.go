@@ -10,6 +10,49 @@ import (
 	"github.com/brettinternet/noon/internal/schedule"
 )
 
+// An offline scheduler must not catch up after expiry, and offsets must not
+// move an otherwise eligible nominal occurrence beyond the exclusive end.
+func TestUntilPlanning(t *testing.T) {
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	hourly, _ := schedule.Parse("hourly")
+	key := JobKey{Project: 1, Job: "probe"}
+	end := base.Add(3 * time.Hour)
+	job := JobInput{Key: key, Schedule: &hourly, Active: true, Until: &end, Missed: "run_once"}
+	states, _, _ := Due(base, []JobInput{job}, nil, nil)
+	if len(states) != 1 || states[0].ScheduleKey != "@hourly|UTC" {
+		t.Fatalf("until changed persisted schedule key: %+v", states)
+	}
+	for hour := 1; hour < 3; hour++ {
+		upsert, remove, runs := Due(base.Add(time.Duration(hour)*time.Hour), []JobInput{job}, states, nil)
+		if len(runs) != 1 || runs[0].Status != "queued" || len(remove) != 0 {
+			t.Fatalf("hour %d: runs=%+v remove=%+v", hour, runs, remove)
+		}
+		states = upsert
+	}
+	for _, now := range []time.Time{*job.Until, job.Until.Add(24 * time.Hour)} {
+		upsert, remove, runs := Due(now, []JobInput{job}, states, nil)
+		if len(upsert) != 0 || len(runs) != 0 || !reflect.DeepEqual(remove, []JobKey{key}) {
+			t.Fatalf("ended planner caught up: %v %+v %+v %+v", now, upsert, remove, runs)
+		}
+		start, expire, cancel := Dispatch(now, []JobInput{job}, []Run{
+			{ID: 1, Key: key, Status: "running", DueAt: base},
+			{ID: 2, Key: key, Status: "queued", DueAt: base.Add(time.Hour)},
+		})
+		if len(start) != 0 || len(expire) != 0 || !reflect.DeepEqual(cancel, []int64{2}) {
+			t.Fatalf("expiry affected running work or retained queued work: %v %v %v", start, expire, cancel)
+		}
+	}
+	job.Splay, job.Jitter = time.Minute, time.Minute
+	nominal := base.Add(time.Hour)
+	effective := schedule.EffectiveStart("", key.Job, nominal, job.Splay, job.Jitter)
+	job.Until = &effective
+	state := JobState{Key: key, ScheduleKey: schedule.StateKey(hourly.String(), "UTC", "", key.Job, job.Splay, job.Jitter), NextAt: nominal}
+	_, _, runs := Due(effective.Add(-time.Nanosecond), []JobInput{job}, []JobState{state}, nil)
+	if len(runs) != 0 {
+		t.Fatalf("offset occurrence at until planned: %+v", runs)
+	}
+}
+
 func TestPlanDue(t *testing.T) {
 	base := time.Date(2026, 10, 1, 1, 0, 0, 0, time.UTC)
 	hourly, err := schedule.Parse("hourly")

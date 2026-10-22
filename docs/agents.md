@@ -34,7 +34,7 @@ worktree is its own project; run IDs are global.
 | `get_run` | One run and a bounded log read, by `run_id` or `job`; `timestamps: true` adds `line_times` |
 | `cancel_run` | Cancel a run |
 
-`run_job` follows the CLI's enablement and approval rules. The client's name and version are
+`run_job` follows the CLI's enablement and approval rules. Jobs whose `until` has passed, or whose requested due time is at or after `until`, refuse with `ended`. `list_jobs` exposes `until` (project-timezone RFC 3339 when set) and `ended`, with no `next_at` beyond the end. Already-running work finishes normally; foreground CLI runs remain available. The client's name and version are
 recorded as `requested_by`: metadata, not authority.
 
 Schedule a follow-up with `in` (a duration) or `at` (`HH:MM`, `YYYY-MM-DD HH:MM`, or RFC 3339),

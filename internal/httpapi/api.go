@@ -399,7 +399,7 @@ func errorStatus(code string) int {
 		return http.StatusBadRequest
 	case "not_found":
 		return http.StatusNotFound
-	case "not_enabled", "disabled", "paused", "needs_approval", "recursion", "unsupported_platform":
+	case "not_enabled", "disabled", "ended", "paused", "needs_approval", "recursion", "unsupported_platform":
 		return http.StatusConflict
 	case "queue_full":
 		return http.StatusTooManyRequests

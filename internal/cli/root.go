@@ -114,6 +114,8 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.BoolFlag{Name: "shared", Usage: "Write noon.yaml instead of private .git/noon.yaml"},
 				&urfave.StringFlag{Name: "in", Usage: "Queue a run after `DURATION`"},
 				&urfave.StringFlag{Name: "at", Usage: "Queue a run at `TIME`"},
+				&urfave.StringFlag{Name: "for", Usage: "End unattended runs after `DURATION` (at least 1m; rounded up to a minute)"},
+				&urfave.StringFlag{Name: "until", Usage: "End unattended runs at `TIME`: HH:MM, YYYY-MM-DD HH:MM, or RFC 3339"},
 			}, Action: addJob},
 			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition; retain history", Description: "Without NAME, list jobs without removing anything. If both repository files define NAME, choose --shared or --local. With --user, remove edits the user config.yaml.\n\nExample:\n  noon remove tests --local\n  noon --user remove digest", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared", Usage: "Remove from shared noon.yaml"}, &urfave.BoolFlag{Name: "local", Usage: "Remove from private .git/noon.yaml"}}, Action: removeJob},
 			{Name: "pause", Usage: "Pause background runs of jobs", ArgsUsage: "[NAME... | --all]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "Pause all currently configured jobs in the selected project"}}, Action: pauseJob},

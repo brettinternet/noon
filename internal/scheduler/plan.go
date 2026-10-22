@@ -22,6 +22,7 @@ type JobInput struct {
 	ProjectPath string
 	Splay       time.Duration
 	Jitter      time.Duration
+	Until       *time.Time
 	Location    *time.Location
 	Active      bool
 	Missed      string // run_once | skip
@@ -66,7 +67,7 @@ func Due(now time.Time, jobs []JobInput, states []JobState, runs []Run) (upsert 
 	}
 	retained := make(map[JobKey]bool, len(jobs))
 	for _, job := range jobs {
-		if !job.Active || job.Schedule == nil {
+		if !job.Active || job.Schedule == nil || (job.Until != nil && !now.Before(*job.Until)) {
 			continue
 		}
 		retained[job.Key] = true
@@ -82,6 +83,9 @@ func Due(now time.Time, jobs []JobInput, states []JobState, runs []Run) (upsert 
 			continue
 		}
 		effective := schedule.EffectiveStart(job.ProjectPath, job.Key.Job, state.NextAt, job.Splay, job.Jitter)
+		if job.Until != nil && !effective.Before(*job.Until) {
+			continue
+		}
 		if effective.After(now) {
 			continue
 		}
@@ -124,7 +128,7 @@ func Due(now time.Time, jobs []JobInput, states []JobState, runs []Run) (upsert 
 func Dispatch(now time.Time, jobs []JobInput, runs []Run) (start, expire, cancel []int64) {
 	active := make(map[JobKey]bool, len(jobs))
 	for _, job := range jobs {
-		active[job.Key] = job.Active
+		active[job.Key] = job.Active && (job.Until == nil || now.Before(*job.Until))
 	}
 	projects := map[int64]bool{}
 	running := 0

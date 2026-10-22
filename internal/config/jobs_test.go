@@ -13,6 +13,73 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
+// End dates must keep their absolute meaning through DST and config layering.
+func TestUntilParsing(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join("..", "..", "noon.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []any{"2099-01-01 00:00", float64(12), []any{"x"}} {
+		err := resolved.Validate(map[string]any{"jobs": map[string]any{"probe": map[string]any{"run": "true", "until": value}}})
+		_, isString := value.(string)
+		if (err == nil) != isString {
+			t.Fatalf("until schema value %v: %v", value, err)
+		}
+	}
+	root := t.TempDir()
+	for _, tc := range []struct{ value, want string }{
+		{"2099-01-01 00:00", "2099-01-01T00:00:00-07:00"},
+		{"2000-01-01 00:00", "2000-01-01T00:00:00-07:00"},
+		{"2026-11-01 01:30", "2026-11-01T01:30:00-06:00"},
+		{"2026-03-08 02:30", "2026-03-08T03:00:00-06:00"},
+		{"2026-11-01T01:30:00-07:00", "2026-11-01T01:30:00-07:00"},
+	} {
+		put(t, filepath.Join(root, "noon.yaml"), "timezone: UTC\njobs:\n  probe:\n    run: 'true'\n    until: "+tc.value+"\n")
+		put(t, filepath.Join(root, ".git", "noon.yaml"), "timezone: America/Denver\n")
+		cfg, err := config.Load(config.Input{CWD: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		job := cfg.Jobs["probe"]
+		if got := job.Until.Format(time.RFC3339); got != tc.want {
+			t.Fatalf("%s = %s, want %s", tc.value, got, tc.want)
+		}
+		if job.Ended(job.Until.Add(-time.Nanosecond)) || !job.Ended(*job.Until) {
+			t.Fatal("until is not an exclusive execution boundary")
+		}
+		utc := "UTC"
+		overridden, err := config.Load(config.Input{CWD: root, Timezone: &utc})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(tc.value, "T") && overridden.Jobs["probe"].Until.Location().String() != "UTC" {
+			t.Fatal("CLI timezone override was ignored")
+		}
+	}
+	put(t, filepath.Join(root, "noon.yaml"), "jobs: {probe: {run: 'true', until: 0001-01-01T00:00:00Z}}\n")
+	utc := "UTC"
+	zeroEnd, err := config.Load(config.Input{CWD: root, Timezone: &utc})
+	if err != nil || zeroEnd.Jobs["probe"].Until == nil || !zeroEnd.Jobs["probe"].Until.IsZero() || !zeroEnd.Jobs["probe"].Ended(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("explicit zero end treated as absent: %+v %v", zeroEnd.Jobs["probe"], err)
+	}
+	for _, value := range []string{"tomorrow", "'17:00'", "2h", "2026-13-01 00:00", "[x]", "null", "12"} {
+		put(t, filepath.Join(root, "noon.yaml"), "jobs:\n  probe:\n    run: 'true'\n    until: "+value+"\n")
+		_, err := config.Load(config.Input{CWD: root})
+		if err == nil || !strings.Contains(err.Error(), "noon.yaml:4: jobs.probe.until:") {
+			t.Fatalf("%s diagnostic = %v", value, err)
+		}
+	}
+}
+
 func TestVarsFileSchema(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "noon.schema.json"))
 	if err != nil {
@@ -585,6 +652,13 @@ func TestJobDigest(t *testing.T) {
 	}
 	if jittered != load(base+"    jitter: 1200s\n", "{}") {
 		t.Fatal("equivalent jitter changed digest")
+	}
+	ended := load(base+"    until: 2099-01-01T00:00:00Z\n", "{}")
+	if ended == digest || ended == load(base+"    until: 2099-01-02T00:00:00Z\n", "{}") {
+		t.Fatal("until was omitted from the approval digest")
+	}
+	if ended != load(base+"    until: 2098-12-31T17:00:00-07:00\n", "{}") {
+		t.Fatal("equivalent end instants changed the digest")
 	}
 	hookDefinition := "    run: echo hi\n    on_success: [notify, done]\n"
 	hookDigest := load(hookDefinition, "{}")

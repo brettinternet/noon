@@ -380,6 +380,8 @@ func Serve(ctx context.Context, options ServeOptions) error {
 
 		started, err := state.ScheduleTick(now, pid, identity,
 			func(snapshot store.SchedulerSnapshot) (store.SchedulerPlan, error) {
+				// The transaction may have waited across an end time.
+				now = options.Now()
 				jobs, err := makeJobInputs(snapshot, configs)
 				if err != nil {
 					return store.SchedulerPlan{}, err
@@ -417,7 +419,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 				if err != nil {
 					return store.DispatchPlan{}, err
 				}
-				start, expire, cancel := Dispatch(now, jobs, runs)
+				start, expire, cancel := Dispatch(options.Now(), jobs, runs)
 				sessionIDs := make(map[int64]string)
 				for _, id := range start {
 					var queued store.ScheduledRun
@@ -833,7 +835,7 @@ func makeJobInputs(snapshot store.SchedulerSnapshot, configs map[int64]*projectC
 		}
 		for name, job := range cached.config.Jobs {
 			active := job.Enabled && job.MatchesPlatform(cached.config.Platform) && !project.Paused[name] && (!job.Shared || project.Approvals[name] == job.Digest)
-			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, ProjectPath: project.Path, Splay: job.Splay, Jitter: job.Jitter, Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap})
+			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, ProjectPath: project.Path, Splay: job.Splay, Jitter: job.Jitter, Until: job.Until, Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap})
 		}
 	}
 	return jobs, nil

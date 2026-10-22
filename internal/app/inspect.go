@@ -26,7 +26,9 @@ type Job struct {
 	Splay             string     `json:"splay,omitempty"`
 	SplayOffset       string     `json:"splay_offset,omitempty"`
 	Jitter            string     `json:"jitter,omitempty"`
-	NextAt            *time.Time `json:"next_at"`
+	NextAt            *time.Time `json:"next_at,omitempty"`
+	Until             *time.Time `json:"until,omitempty"`
+	Ended             bool       `json:"ended"`
 	Run               any        `json:"run"`
 	Prompt            *string    `json:"prompt"`
 	PromptFile        *string    `json:"prompt_file"`
@@ -81,6 +83,11 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 	for _, name := range names {
 		job := cfg.Jobs[name]
 		view := Job{Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, EnvFile: job.EnvFile, Agent: job.Agent, AgentArgs: job.AgentArgs, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, NoopExitCode: job.NoopExitCode, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, OS: job.OS, Arch: job.Arch, PlatformSupported: job.MatchesPlatform(cfg.Platform), Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
+		view.Ended = job.Ended(now)
+		if job.Until != nil {
+			until := job.Until.In(loc)
+			view.Until = &until
+		}
 		view.Approval = "not_required"
 		if job.Shared {
 			view.Approval = "needs_approval"
@@ -99,10 +106,10 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 		if job.Schedule != nil {
 			text := job.Schedule.String()
 			view.Schedule = &text
-			if job.Enabled && view.PlatformSupported {
+			if job.Enabled && view.PlatformSupported && !view.Ended {
 				_, next := job.Schedule.NextEffective(now, loc, cfg.Project, name, job.Splay, job.Jitter, time.Time{})
 				next = next.In(loc)
-				if !next.IsZero() {
+				if !next.IsZero() && (job.Until == nil || next.Before(*job.Until)) {
 					view.NextAt = &next
 				}
 			}
