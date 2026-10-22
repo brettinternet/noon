@@ -1,10 +1,10 @@
 ---
 id: NOON-68
 title: End jobs at a configured until time
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-22 02:43'
-updated_date: '2026-10-22 02:55'
+updated_date: '2026-10-22 03:18'
 labels:
   - scheduler
   - config
@@ -101,19 +101,44 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose noon.yaml sets `timezone: America/Denver` and defines `future` (schedule `every 1h`, until `2099-01-01 00:00`, run ["true"]) and `past` (schedule `every 1h`, until `2000-01-01 00:00`, run ["true"]): `bin/noon list --json` reports `future` with `until` "2099-01-01T00:00:00-07:00", `ended` false, and a `next_at`; and `past` with `ended` true and no `next_at`. `bin/noon list` shows the `future` SCHEDULE cell ending in `until 2099-01-01 00:00` and NEXT `ended` for `past`.
-- [ ] #2 In the same environment, `bin/noon config check` exits 1 with file, line, and YAML path for each of `until: tomorrow`, `until: "17:00"`, `until: 2h`, `until: 2026-13-01 00:00`, and `until: [x]`, and exits 0 for both valid values above. After `bin/noon enable`, changing only the `until` of `future` makes `bin/noon list --json` report it `needs_approval`, while editing its description does not.
-- [ ] #3 In the same environment after `bin/noon enable`: `bin/noon run past --detach --json` exits 1 with error code `ended`; `bin/noon run future --at "2099-01-01 00:00" --json` exits 1 with code `ended`; `bin/noon run future --detach --json` exits 0; foreground `bin/noon run past` exits 0 and records a succeeded run.
-- [ ] #4 In the same environment, `bin/noon add tmp "every 1h" --for 2h -- true` exits 0 and writes `until` to .git/noon.yaml as an RFC 3339 time with a -06:00 or -07:00 offset, at a whole minute, no earlier than 2h and less than 2h1m after the command started; `bin/noon add tmp2 "every 1h" --until "2000-01-01 00:00" -- true`, `--for 30s`, and `--for 2h --until 17:00` each exit 2 and write nothing.
-- [ ] #5 `task cli:test PKG=./internal/scheduler -- -count=1` exits 0 and covers, with injected time: an hourly job with `until` runs each occurrence before `until` and none at or after it; a scheduler offline across `until` records no catch-up afterwards; a queued due run is cancelled once `until` passes while a run in progress finishes normally; persisted schedule state of jobs without `until` is unchanged.
-- [ ] #6 `task cli:test PKG=./internal/config -- -count=1` exits 0 and covers `until` parsing for both forms, DST repeated and skipped local times, rejected forms, and digest coverage. noon.schema.json accepts a string `until` and rejects a non-string; examples/jobs.yaml uses `until` and `task cli:test PKG=./integration -- -run ^TestExamplesValidate$ -count=1` exits 0. Docs in scope describe only implemented behavior. `task ci` exits 0.
+- [x] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose noon.yaml sets `timezone: America/Denver` and defines `future` (schedule `every 1h`, until `2099-01-01 00:00`, run ["true"]) and `past` (schedule `every 1h`, until `2000-01-01 00:00`, run ["true"]): `bin/noon list --json` reports `future` with `until` "2099-01-01T00:00:00-07:00", `ended` false, and a `next_at`; and `past` with `ended` true and no `next_at`. `bin/noon list` shows the `future` SCHEDULE cell ending in `until 2099-01-01 00:00` and NEXT `ended` for `past`.
+- [x] #2 In the same environment, `bin/noon config check` exits 1 with file, line, and YAML path for each of `until: tomorrow`, `until: "17:00"`, `until: 2h`, `until: 2026-13-01 00:00`, and `until: [x]`, and exits 0 for both valid values above. After `bin/noon enable`, changing only the `until` of `future` makes `bin/noon list --json` report it `needs_approval`, while editing its description does not.
+- [x] #3 In the same environment after `bin/noon enable`: `bin/noon run past --detach --json` exits 1 with error code `ended`; `bin/noon run future --at "2099-01-01 00:00" --json` exits 1 with code `ended`; `bin/noon run future --detach --json` exits 0; foreground `bin/noon run past` exits 0 and records a succeeded run.
+- [x] #4 In the same environment, `bin/noon add tmp "every 1h" --for 2h -- true` exits 0 and writes `until` to .git/noon.yaml as an RFC 3339 time with a -06:00 or -07:00 offset, at a whole minute, no earlier than 2h and less than 2h1m after the command started; `bin/noon add tmp2 "every 1h" --until "2000-01-01 00:00" -- true`, `--for 30s`, and `--for 2h --until 17:00` each exit 2 and write nothing.
+- [x] #5 `task cli:test PKG=./internal/scheduler -- -count=1` exits 0 and covers, with injected time: an hourly job with `until` runs each occurrence before `until` and none at or after it; a scheduler offline across `until` records no catch-up afterwards; a queued due run is cancelled once `until` passes while a run in progress finishes normally; persisted schedule state of jobs without `until` is unchanged.
+- [x] #6 `task cli:test PKG=./internal/config -- -count=1` exits 0 and covers `until` parsing for both forms, DST repeated and skipped local times, rejected forms, and digest coverage. noon.schema.json accepts a string `until` and rejects a non-string; examples/jobs.yaml uses `until` and `task cli:test PKG=./integration -- -run ^TestExamplesValidate$ -count=1` exits 0. Docs in scope describe only implemented behavior. `task ci` exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implementation scope expansion: internal/config/config.go is needed to resolve until in the final effective timezone after CLI overrides; internal/schedule/next.go exports the existing DST wall-time resolver rather than duplicating it; internal/cli/verify.go passes the effective timezone when verifying raw edited definitions. These preserve DST and layered-config parity.
+
+Additional scope expansion: internal/cli/root_test.go asserts the exact list JSON shape and must assert the new ended field and omitted absent next_at rather than the previous schema. Critical regressions to add: DST folds/gaps and layered timezone resolution must not shift end times; end-time edits must revoke approval; queue due-at/end boundaries must refuse side effects; expiry must cancel queued work without killing running work or catching up after downtime.
+
+One independent review found three concrete expiry defects to correct: refresh the injected scheduler clock inside transaction callbacks after lock acquisition; pass a refresh clock for shell-entry queueing; preserve explicit year-0001 end timestamps instead of confusing them with an unset zero-time sentinel. Scope expansion: internal/app/shell.go and internal/cli/shell.go must thread the clock for the shell-entry eligibility boundary; regression coverage remains in the allowed CLI/scheduler/config tests. Acceptance AC1 has a setup inconsistency with settled display precedence: an unapproved shared ended job displays needs approval, not ended. Verified JSON before enable and the ended human cell after enable, preserving the explicit settled precedence.
+
+AC#1: task cli:build; mise exec -- bun /tmp/noon-68-acceptance.LtaXrn/acceptance.mjs -> exit 0. Built binary in isolated HOME/XDG_CONFIG_HOME/XDG_STATE_HOME/NOON_STATE_DIR and real temp Git repo reports Denver RFC3339 until, ended flags, and omitted past next_at. Human schedule suffix and ended NEXT pass after enable, respecting the settled needs-approval precedence noted above.
+AC#2: same built-binary acceptance script -> exit 0. config check accepts both valid dates; each of tomorrow, HH:MM, duration, invalid month, and sequence exits 1 with noon.yaml:6: jobs.future.until. Until-only edits revoke approval; description edits retain it.
+AC#3: same built-binary acceptance script -> exit 0. Ended detach and due-at-end return ended/exit 1; future detach queues; foreground past succeeds and history records succeeded.
+AC#4: same built-binary acceptance script -> exit 0. --for 2h writes project-offset RFC3339 on a whole minute within [2h, 2h1m); past --until, --for 30s, and conflicting flags exit 2 without changing the private manifest.
+AC#5: task cli:test PKG=./internal/scheduler -- -count=1 -> exit 0. Injected-time planning covers hourly occurrences before exclusive expiry, no catch-up after downtime, offset boundaries, unchanged no-until state keys; real scheduler tests confirm queued cancellation, running completion, state removal, and a transaction clock crossing expiry.
+AC#6: task cli:test PKG=./internal/config -- -count=1 and task cli:test PKG=./integration -- -run ^TestExamplesValidate$ -count=1 -> exit 0. Parsing/DST/layered and CLI timezone/explicit-zero/digest/schema checks pass; examples/jobs.yaml uses until. In-scope documentation and MCP/help describe implemented behavior. task ci -> exit 0 in both implementation checkout and main at 368da19 (security, vet/Staticcheck, all tests, race, smoke). Logs: /tmp/noon-68-acceptance.LtaXrn/ci-final.log and ci-main.log.
+Delivery: implementation commit 368da19e671a8cdf967363bb42a1c5fdada34175 fast-forward merged into main. task check:staged passed before commit. One independent general review completed; its three concrete expiry defects were fixed and regression-tested, with no second general review. LSP diagnostics clean on affected config, CLI, scheduler, and shell files. No tests deleted, skipped, or weakened; exact JSON-shape expectations updated for implemented fields. All extra paths justified above. No dependency added, no push or PR.
+Cleanup: verified the Git-local creation receipt matched this session, branch, and checkout; wt list showed the clean merged checkout. Inspected its sole shell pane wHS:p1. wt remove feat/noon-68-until --foreground --format=json --yes removed the worktree and branch; post-remove hook closed exact workspace wHS, verified absent. No retained task checkout/workspace. No blocker or remaining task step; Done releases the provider-native claim.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented absolute until expiry across config, approval, scheduler, all queued request paths, CLI add --for/--until, JSON/MCP/list/TUI inspection, schema, examples, and docs. Verified every acceptance criterion, full CI, and three expiry review regressions. Merged 368da19 into main; owned worktree/branch/workspace cleaned. No push.
+<!-- SECTION:FINAL_SUMMARY:END -->
