@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/config"
 	urfave "github.com/urfave/cli/v3"
 )
@@ -69,7 +70,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.StringFlag{Name: "at", Usage: "Queue NAME at `TIME`: HH:MM, YYYY-MM-DD HH:MM, or RFC 3339"},
 				&urfave.StringFlag{Name: "key", Usage: "Idempotency `KEY`; deduplicated while retained (newest 50 terminal runs per job)"},
 			}, Action: runJob},
-			{Name: "cancel", Usage: "Cancel runs and end temporary schedules of named jobs; without arguments, list active runs", ArgsUsage: "[RUN|NAME...]", Action: cancelRuns},
+			{Name: "cancel", Usage: "Cancel runs and end temporary jobs or schedules of named jobs; without arguments, list active runs", ArgsUsage: "[RUN|NAME...]", Action: cancelRuns},
 			{Name: "history", Usage: "Inspect recent runs for this project", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{
 				&urfave.IntFlag{Name: "limit", Aliases: []string{"n"}, Value: 20, Usage: "Limit history to `N` runs (1–50)"},
 				&urfave.StringSliceFlag{Name: "status", Aliases: []string{"s"}, Usage: "Filter by `STATUS`; repeat or comma-separate values"},
@@ -107,7 +108,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "wide", Usage: "Show complete names, schedules, and commands without truncation"},
 			}, Action: listJobs},
-			{Name: "add", Usage: "Add a scheduled or manual job", Description: "Without arguments, print examples. Writes private .git/noon.yaml by default; --shared writes noon.yaml. With --user, writes the user config.yaml and rejects --shared/--local.\n\nExamples:\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon add lint --sh 'go vet ./...'\n  noon --user add digest \"every day at 8am\" --sh 'date >> digest.txt'\n  noon add review --agent claude --prompt 'Review changes'", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
+			{Name: "add", Usage: "Add a scheduled or manual job", Description: "Without arguments, print examples. --temporary stores a private job in state, requires --for or --until (maximum 7 days), and removes it 24h after ending. Writes private .git/noon.yaml by default; --shared writes noon.yaml. With --user, writes the user config.yaml and rejects --shared/--local.\n\nExamples:\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon add lint --sh 'go vet ./...'\n  noon --user add digest \"every day at 8am\" --sh 'date >> digest.txt'\n  noon add review --agent claude --prompt 'Review changes'", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
+				&urfave.BoolFlag{Name: "temporary", Usage: "Keep a private job in state, not config; requires --for or --until (maximum 7 days)"},
+				&urfave.StringFlag{Name: "key", Usage: "Idempotency KEY for --temporary creation"},
 				&urfave.StringFlag{Name: "sh", Usage: "Run `STRING` through /bin/sh -c"},
 				&urfave.StringFlag{Name: "prompt", Aliases: []string{"p"}, Usage: "Create an agent-prompt job with `TEXT`"},
 				&urfave.StringFlag{Name: "prompt-file", Usage: "Read the prompt from `PATH` at run time"},
@@ -356,7 +359,7 @@ func load(cmd *urfave.Command) (config.Config, error) {
 	if err != nil {
 		return config.Config{}, err
 	}
-	cfg, err := config.Load(values)
+	cfg, err := app.LoadJobs(values, time.Now())
 	return cfg, configError(err)
 }
 

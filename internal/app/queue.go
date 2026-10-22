@@ -50,8 +50,13 @@ type QueueOptions struct {
 
 const MaxWebhookBodyBytes = store.MaxWebhookBodyBytes
 
+const MaxTemporaryLifetime = 7 * 24 * time.Hour
+
 // QueueRun is the shared client operation for durable one-shot requests.
 func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc func() time.Time, coalesce bool, requestedBy string, queueOptions ...QueueOptions) (QueuedRun, error) {
+	if err := MergeTemporaryJobs(&cfg, now, true); err != nil {
+		return QueuedRun{}, err
+	}
 	var options QueueOptions
 	if len(queueOptions) > 0 {
 		options = queueOptions[0]
@@ -91,10 +96,15 @@ func QueueRun(cfg config.Config, name, key string, dueAt, now time.Time, nowFunc
 	if err != nil {
 		return QueuedRun{}, err
 	}
+	var temporaryCreated time.Time
+	temporaryDigest := ""
+	if job.Temporary != nil {
+		temporaryCreated, temporaryDigest = job.Temporary.CreatedAt, job.Temporary.DefinitionDigest
+	}
 	result, err := state.QueueRun(store.QueueRunInput{
 		ProjectID: projectID, Job: name, Digest: job.Digest, IdempotencyKey: key,
 		RequestedBy: requestedBy, Trigger: options.Trigger, DueAt: dueAt, Now: now, NowFunc: nowFunc,
-		JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared, JobUntil: job.Until,
+		JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared, JobUntil: job.EndTime(), TemporaryJob: job.Temporary != nil, TemporaryCreatedAt: temporaryCreated, TemporaryDigest: temporaryDigest,
 		Coalesce: coalesce, Cooldown: job.Cooldown, RequestsEach: job.Requests == "each", Depth: depth, RequireUnpaused: options.RequireUnpaused,
 		EventData: options.EventData, EventSource: options.EventSource, EventHeaders: options.EventHeaders,
 	})
@@ -124,7 +134,7 @@ func queueRequestError(err error, cfg config.Config, name string, job config.Job
 		if loc == nil {
 			loc = time.Local
 		}
-		err = &QueueError{Code: "ended", Message: fmt.Sprintf("job %q %s at %s", name, tense, job.Until.In(loc).Format(time.RFC3339)), Hint: fmt.Sprintf("Edit until in %q", job.Source)}
+		err = &QueueError{Code: "ended", Message: fmt.Sprintf("job %q %s at %s", name, tense, job.EndTime().In(loc).Format(time.RFC3339)), Hint: fmt.Sprintf("Edit until in %q", job.Source)}
 	case errors.Is(err, store.ErrJobDisabled):
 		err = &QueueError{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
 	case errors.Is(err, store.ErrJobPaused):
@@ -206,7 +216,7 @@ func TemporaryTimes(text, forValue, untilValue string, now time.Time, loc *time.
 	if err != nil {
 		return fail(err.Error())
 	}
-	if until.Sub(now) > 7*24*time.Hour {
+	if until.Sub(now) > MaxTemporaryLifetime {
 		return fail("temporary schedules must end within 7 days (including minute rounding)")
 	}
 	next := parsed.Next(now, loc)
@@ -218,6 +228,12 @@ func TemporaryTimes(text, forValue, untilValue string, now time.Time, loc *time.
 
 // ScheduleTemporary only requeues an existing eligible job; it never edits config.
 func ScheduleTemporary(cfg config.Config, name, text, forValue, untilValue, key, requestedBy, source string, data []byte, now time.Time) (TemporaryResult, error) {
+	if err := MergeTemporaryJobs(&cfg, now, true); err != nil {
+		return TemporaryResult{}, err
+	}
+	if job, ok := cfg.Jobs[name]; ok && job.Temporary != nil {
+		return TemporaryResult{}, UsageError("temporary jobs cannot have temporary schedules", "Remove and add the temporary job again")
+	}
 	if key != "" && !ValidIdempotencyKey(key) {
 		return TemporaryResult{}, UsageError("invalid key", "Use 1–200 characters of [A-Za-z0-9._:-]")
 	}
@@ -349,6 +365,7 @@ type CancelResult struct {
 	Runs          []Run `json:"runs"`
 	Pending       bool  `json:"pending"`
 	// EndedTemporarySchedules names jobs whose temporary schedule this request ended.
+	EndedTemporaryJobs      []string `json:"ended_temporary_jobs,omitempty"`
 	EndedTemporarySchedules []string `json:"ended_temporary_schedules,omitempty"`
 	AlreadyFinished         bool     `json:"-"`
 }
@@ -362,7 +379,7 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 	}
 	defer state.Close()
 	var stored []store.Run
-	alreadyFinished, ended := false, false
+	alreadyFinished, ended, endedJob := false, false, false
 	if runID != nil {
 		previous, err := state.RunByID(*runID)
 		if err != nil {
@@ -375,12 +392,15 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 		}
 		stored = []store.Run{run}
 	} else {
-		stored, ended, err = state.RequestCancelJob(project, job, now)
+		stored, ended, endedJob, err = state.RequestCancelJob(project, job, now)
 		if err != nil {
 			return CancelResult{}, err
 		}
 	}
 	result, err := waitForCancellation(state, stored, alreadyFinished, deadline)
+	if endedJob {
+		result.EndedTemporaryJobs = []string{job}
+	}
 	if ended {
 		result.EndedTemporarySchedules = []string{job}
 	}
@@ -414,11 +434,12 @@ func CancelRuns(stateDir string, ids []int64, now time.Time, jobs ...CancelJob) 
 		runs     []store.Run
 		finished bool
 		ended    bool
+		endedJob bool
 	}
 	var waiting []pending
 	seen := map[int64]bool{}
 	for _, job := range jobs {
-		runs, ended, err := state.RequestCancelJob(job.Project, job.Job, now)
+		runs, ended, endedJob, err := state.RequestCancelJob(job.Project, job.Job, now)
 		index := len(outcomes)
 		outcomes = append(outcomes, CancellationOutcome{Target: job.Job, Err: err})
 		if err != nil {
@@ -431,7 +452,7 @@ func CancelRuns(stateDir string, ids []int64, now time.Time, jobs ...CancelJob) 
 				unique = append(unique, run)
 			}
 		}
-		waiting = append(waiting, pending{index: index, runs: unique, ended: ended})
+		waiting = append(waiting, pending{index: index, runs: unique, ended: ended, endedJob: endedJob})
 	}
 	for _, id := range ids {
 		if seen[id] {
@@ -455,6 +476,9 @@ func CancelRuns(stateDir string, ids []int64, now time.Time, jobs ...CancelJob) 
 	deadline := time.Now().Add(15 * time.Second)
 	for _, item := range waiting {
 		outcomes[item.index].Result, outcomes[item.index].Err = waitForCancellation(state, item.runs, item.finished, deadline)
+		if item.endedJob {
+			outcomes[item.index].Result.EndedTemporaryJobs = []string{outcomes[item.index].Target}
+		}
 		if item.ended {
 			outcomes[item.index].Result.EndedTemporarySchedules = []string{outcomes[item.index].Target}
 		}

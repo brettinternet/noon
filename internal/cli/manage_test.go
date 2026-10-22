@@ -22,6 +22,130 @@ import (
 	"github.com/brettinternet/noon/internal/store"
 )
 
+// Temporary creation must never replace a symlink or mutate shared config;
+// keyed retries, collisions and ending must preserve durable name ownership.
+func TestTemporaryJobs(t *testing.T) {
+	root := sandbox(t)
+	target := filepath.Join(t.TempDir(), "template.yaml")
+	original := []byte("jobs:\n  ping: {run: ['true']}\n")
+	if err := os.WriteFile(target, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, ".git", "noon.yaml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"add", "watch", "every 10m", "--temporary", "--for", "2h", "--sh", "true", "--key", "k1", "--json"}
+	before := time.Now()
+	code, result := invoke(t, args...)
+	if code != 0 || result["created"] != true || result["scheduler"] != "offline" {
+		t.Fatalf("create: %d %+v", code, result)
+	}
+	job := result["job"].(map[string]any)
+	until, err := time.Parse(time.RFC3339Nano, job["until"].(string))
+	if err != nil || until.Second() != 0 || until.Nanosecond() != 0 || until.Before(before.Add(2*time.Hour)) || until.After(time.Now().Add(2*time.Hour+time.Minute)) {
+		t.Fatalf("rounded end: %s %v", until, err)
+	}
+	if job["source"] != "temporary" || job["shared"] != false || job["approval"] != "not_required" || job["ended"] != false || job["temporary"].(map[string]any)["requested_by"] != "cli" {
+		t.Fatalf("job: %+v", job)
+	}
+	if code, result = invoke(t, args...); code != 0 || result["created"] != false || result["reason"] != "duplicate" || result["job"].(map[string]any)["until"] != job["until"] {
+		t.Fatalf("retry: %d %+v", code, result)
+	}
+	for _, flags := range [][]string{
+		{"add", "invalid", "every 10m", "--temporary", "--sh", "true"},
+		{"add", "invalid", "every 10m", "--temporary", "--for", "8d", "--sh", "true"},
+		{"add", "invalid", "every 10m", "--temporary", "--for", "7d", "--sh", "true"},
+		{"add", "invalid", "every 10m", "--temporary", "--for", "1h", "--until", "17:00", "--sh", "true"},
+		{"add", "invalid", "every 10m", "--temporary", "--for", "1h", "--shared", "--sh", "true"},
+		{"add", "invalid", "--temporary", "--for", "1h", "--sh", "true"},
+		{"add", "invalid", "--key", "k", "--sh", "true"},
+		{"run", "watch", "--schedule", "every 5m", "--for", "1h"},
+	} {
+		if code, _, stderr := invokeText(t, flags...); code != 2 {
+			t.Fatalf("usage %v: %d %s", flags, code, stderr)
+		}
+	}
+	for _, flags := range [][]string{
+		{"add", "ping", "every 10m", "--temporary", "--for", "1h", "--sh", "true"},
+		{"add", "watch", "every 5m", "--temporary", "--for", "1h", "--sh", "true", "--key", "k2"},
+		{"add", "watch", "--sh", "true"},
+	} {
+		if code, result := invoke(t, append(flags, "--json")...); code != 1 || result["error"].(map[string]any)["code"] != "exists" {
+			t.Fatalf("collision %v: %d %+v", flags, code, result)
+		}
+	}
+	if code, result := invoke(t, "list", "--json"); code != 0 || result["project"].(map[string]any)["enabled"] != true {
+		t.Fatalf("list: %d %+v", code, result)
+	}
+	if code, out, _ := invokeText(t, "list"); code != 0 || !strings.Contains(out, "temporary until") {
+		t.Fatalf("list: %d %s", code, out)
+	}
+	if code, out, _ := invokeText(t); code != 0 || !strings.Contains(out, "temporary job: watch") {
+		t.Fatalf("dashboard: %d %s", code, out)
+	}
+	if code, _, stderr := invokeText(t, "cancel", "watch"); code != 0 {
+		t.Fatalf("cancel: %d %s", code, stderr)
+	}
+	code, result = invoke(t, "list", "--json")
+	if code != 0 {
+		t.Fatal(result)
+	}
+	for _, item := range result["jobs"].([]any) {
+		ended := item.(map[string]any)
+		if ended["name"] != "watch" {
+			continue
+		}
+		metadata := ended["temporary"].(map[string]any)
+		at, _ := time.Parse(time.RFC3339Nano, metadata["ended_at"].(string))
+		removes, _ := time.Parse(time.RFC3339Nano, metadata["removes_at"].(string))
+		if ended["ended"] != true || removes.Sub(at) != 24*time.Hour {
+			t.Fatalf("ended: %+v", ended)
+		}
+	}
+	if code, out, _ := invokeText(t, "list"); code != 0 || !strings.Contains(out, "temporary, ended") || !strings.Contains(out, "ended") {
+		t.Fatalf("ended list: %d %s", code, out)
+	}
+	if code, result := invoke(t, "run", "watch", "--detach", "--json"); code != 1 || result["error"].(map[string]any)["code"] != "ended" {
+		t.Fatalf("ended queue: %d %+v", code, result)
+	}
+	if code, _, stderr := invokeText(t, "run", "watch"); code != 0 {
+		t.Fatalf("ended foreground: %d %s", code, stderr)
+	}
+	if code, result := invoke(t, "add", "watch", "every 10m", "--temporary", "--for", "1h", "--sh", "true", "--json"); code != 0 || result["created"] != true {
+		t.Fatalf("replace: %d %+v", code, result)
+	}
+	// A never-run name must still resolve to empty history after removal.
+	if code, _, stderr := invokeText(t, "add", "empty", "--temporary", "--for", "1h", "--in", "10m", "--sh", "true"); code != 0 {
+		t.Fatalf("one shot: %d %s", code, stderr)
+	}
+	if code, _, stderr := invokeText(t, "remove", "watch", "empty"); code != 0 {
+		t.Fatalf("remove: %d %s", code, stderr)
+	}
+	if code, _, stderr := invokeText(t, "history", "watch"); code != 0 {
+		t.Fatalf("history: %d %s", code, stderr)
+	}
+	// Empty history without even a queued run.
+	if code, _, stderr := invokeText(t, "add", "never", "every 10m", "--temporary", "--for", "1h", "--sh", "true"); code != 0 {
+		t.Fatal(code, stderr)
+	}
+	if code, _, stderr := invokeText(t, "remove", "never"); code != 0 {
+		t.Fatal(code, stderr)
+	}
+	if code, _, stderr := invokeText(t, "history", "never"); code != 0 {
+		t.Fatal(code, stderr)
+	}
+	if got, err := os.Readlink(link); err != nil || got != target {
+		t.Fatalf("link changed: %q %v", got, err)
+	}
+	if got, err := os.ReadFile(target); err != nil || !bytes.Equal(got, original) {
+		t.Fatalf("target changed: %q %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "noon.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("shared config written: %v", err)
+	}
+}
+
 // Invalid end options must not leave a job definition behind; absolute end
 // times must retain their offset through add's edit verification and approval.
 func TestAddUntil(t *testing.T) {

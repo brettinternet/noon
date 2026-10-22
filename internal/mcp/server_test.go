@@ -120,6 +120,61 @@ func TestMCP(t *testing.T) {
 			t.Errorf("%s missing readOnlyHint", name)
 		}
 	}
+	// Remote clients must see and end CLI-created definitions, never create them
+	// or attach a second temporary schedule to them.
+	t.Run("temporary jobs visibility and cancellation", func(t *testing.T) {
+		cfg, err := config.Load(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now()
+		until := now.Add(time.Hour)
+		result, err := app.AddTemporaryJob(cfg, config.Job{Name: "ephemeral", Run: []string{"true"}, Enabled: true, Until: &until}, "mcp-visible", &now, now)
+		if err != nil || !result.Created {
+			t.Fatalf("CLI operation: %+v %v", result, err)
+		}
+		listed := callTool(t, ctx, clientSession, "list_jobs", map[string]any{})
+		if listed.IsError {
+			t.Fatal(listed)
+		}
+		found := false
+		for _, item := range decodeObject(t, listed.StructuredContent)["jobs"].([]any) {
+			job := item.(map[string]any)
+			if job["name"] == "ephemeral" {
+				found = true
+				if job["source"] != "temporary" || job["temporary"].(map[string]any)["requested_by"] != "cli" || job["approval"] != "not_required" {
+					t.Fatalf("list metadata: %+v", job)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("temporary job absent")
+		}
+		status := callTool(t, ctx, clientSession, "status", map[string]any{})
+		if status.IsError || !strings.Contains(fmt.Sprint(decodeObject(t, status.StructuredContent)["notices"]), "temporary job") {
+			t.Fatalf("status: %+v", status)
+		}
+		refused := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "ephemeral", "schedule": "every 10m", "for": "1h"})
+		if !refused.IsError || decodeObject(t, refused.StructuredContent)["error"].(map[string]any)["code"] != "usage" {
+			t.Fatalf("schedule temporary job: %+v", refused)
+		}
+		cancelled := callTool(t, ctx, clientSession, "cancel_run", map[string]any{"job": "ephemeral"})
+		if cancelled.IsError || len(decodeObject(t, cancelled.StructuredContent)["ended_temporary_jobs"].([]any)) != 1 {
+			t.Fatalf("cancel: %+v", cancelled)
+		}
+		view, err := app.ListJobs(input, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, job := range view.Jobs {
+			if job.Name == "ephemeral" && (!job.Ended || job.Temporary.EndedAt == nil) {
+				t.Fatalf("cancel did not end: %+v", job)
+			}
+		}
+		if err := app.RemoveTemporaryJob(cfg, "ephemeral", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("temporary schedules retain client metadata and cancel by job", func(t *testing.T) {
 		result := callTool(t, ctx, clientSession, "run_job", map[string]any{"name": "approved", "schedule": "every 10m", "for": "2h", "key": "temporary", "data": map[string]any{"pr": 42}})
 		value := decodeObject(t, result.StructuredContent)

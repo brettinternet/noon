@@ -247,7 +247,7 @@ func ListRunsForJobs(input config.Input, jobs []string, statuses []string, limit
 	if err := ValidateRunStatuses(statuses); err != nil {
 		return RunsView{}, err
 	}
-	cfg, err := config.Load(input)
+	cfg, err := LoadJobs(input, time.Now())
 	if err != nil {
 		return RunsView{}, ConfigError(err)
 	}
@@ -276,7 +276,18 @@ func ListRunsForJobs(input config.Input, jobs []string, statuses []string, limit
 					return RunsView{}, StateError(historyErr)
 				}
 				if len(retained) == 0 {
-					return RunsView{}, MissingJobError(jobName, "history", cfg.Jobs)
+					state, err := store.OpenExisting(cfg.StateDir)
+					known := false
+					if err == nil {
+						known, err = state.WasTemporaryJob(cfg.Project, jobName)
+						err = errors.Join(err, state.Close())
+					}
+					if err != nil && !errors.Is(err, store.ErrNoDatabase) {
+						return RunsView{}, StateError(err)
+					}
+					if !known {
+						return RunsView{}, MissingJobError(jobName, "history", cfg.Jobs)
+					}
 				}
 			}
 		}

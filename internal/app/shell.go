@@ -62,6 +62,9 @@ func EnterProject(input config.Input, entry ShellEntry, now time.Time, nowFunc f
 	// Like serve, keep using the store in which the checkout was enabled even
 	// if the recorded explicit configuration names another state location.
 	cfg.StateDir = stateDir
+	if err := MergeTemporaryJobs(&cfg, now, true); err != nil {
+		return token, err
+	}
 	if _, exists := cfg.Jobs[entry.Job]; !exists {
 		return token, nil
 	}

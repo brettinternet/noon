@@ -158,7 +158,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | --- | --- | --- |
 | `description` | — | Shown by `list`, the TUI, and MCP |
 | `schedule` | manual only | Cron, macro, calendar phrase, or interval ([grammar](design.md#schedules)) |
-| `until` | — | Exclusive end for unattended runs: local `YYYY-MM-DD HH:MM` or RFC 3339 ([Temporary jobs](#temporary-jobs)) |
+| `until` | — | Exclusive end for unattended runs: local `YYYY-MM-DD HH:MM` or RFC 3339 ([Ending jobs](#ending-jobs)) |
 | `splay` | — | Stable forward offset window, `1s`–`1h` ([Splay and jitter](#splay-and-jitter)) |
 | `jitter` | — | Per-occurrence forward offset window ([Splay and jitter](#splay-and-jitter)) |
 | `run` | — | String runs with `/bin/sh -c`; list is exact argv |
@@ -202,7 +202,7 @@ Unknown fields, duplicate keys, nulls, wrong types, multiple documents, whitespa
 files over 1 MiB are errors. A missing file, an empty file, and `{}` are fine. A broken file is an
 error even when a later file overrides it.
 
-### Temporary jobs
+### Ending jobs
 
 Set an absolute `until` on any job, including manual-only jobs:
 
@@ -236,6 +236,22 @@ inactive states. If no occurrence starts before the end, NEXT is `-`. JSON and M
 `until` (RFC 3339 in the project timezone, omitted when unset), `ended`, and omit `next_at`
 when there is no eligible next occurrence. Changing `until` requires shared-job approval again;
 `noon enable` can approve ended jobs too.
+
+### Temporary jobs
+
+`noon add NAME [SCHEDULE] --temporary --for DURATION` keeps a complete private job in the
+per-user state database instead of any config file. It works without config and with a symlinked
+`.git/noon.yaml`. Use an end within 7 days, and a schedule or first run via `--in`/`--at`.
+Creation enables the project and requires no approval. Only the CLI creates these definitions;
+MCP and the HTTP API can inspect, run, and cancel them, not create them.
+
+The same execution and [ending rules](#ending-jobs) apply. Pause/resume and project disable
+never extend the end. Cancel by job ends it immediately and cancels active runs; expiry lets
+running work finish. The ended definition remains visible for 24h, then disappears even from
+offline reads. `noon remove NAME` deletes it immediately; history and logs keep normal retention.
+A config definition with the same name wins and deletes the temporary definition.
+
+See [CLI temporary jobs](cli.md#temporary-jobs) for flags, keyed retries, and output.
 
 ### Splay and jitter
 

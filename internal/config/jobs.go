@@ -33,7 +33,18 @@ type Webhook struct {
 	SecretEnv string
 }
 
+// TemporaryJob describes the lifetime and provenance of a state-backed job.
+type TemporaryJob struct {
+	DefinitionDigest string     `json:"-"`
+	CreatedAt        time.Time  `json:"created_at"`
+	RequestedBy      string     `json:"requested_by"`
+	Key              string     `json:"key,omitempty"`
+	EndedAt          *time.Time `json:"ended_at,omitempty"`
+	RemovesAt        time.Time  `json:"removes_at"`
+}
+
 type Job struct {
+	Temporary          *TemporaryJob
 	Name               string
 	Description        string
 	Schedule           *schedule.Schedule
@@ -115,7 +126,16 @@ func jobString(file, path string, node *yaml.Node) (string, error) {
 
 // Ended reports whether unattended execution has reached its exclusive end.
 func (job Job) Ended(now time.Time) bool {
-	return job.Until != nil && !now.Before(*job.Until)
+	end := job.EndTime()
+	return end != nil && !now.Before(*end)
+}
+
+// EndTime is the exclusive background deadline, including explicit cancellation.
+func (job Job) EndTime() *time.Time {
+	if job.Temporary != nil && job.Temporary.EndedAt != nil {
+		return job.Temporary.EndedAt
+	}
+	return job.Until
 }
 
 // ParseUntil parses an absolute end time, never a clock relative to now.

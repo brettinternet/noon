@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/brettinternet/noon/internal/app"
-	"github.com/brettinternet/noon/internal/config"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -141,7 +140,7 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(values)
+	cfg, err := app.LoadJobs(values, time.Now())
 	if err != nil {
 		return configError(err)
 	}

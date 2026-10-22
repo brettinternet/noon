@@ -84,7 +84,7 @@ Don't bundle short flags. `-p=-j` keeps `-j` as prompt text; everything after `a
 literal argv. Options with scope or side effects (`--config`, `--in`, `--at`, `--data`, `--key`,
 `--shared`, `--write`, `--listen`, …) are deliberately long-only.
 
-## Adding temporary jobs
+## Ending jobs
 
 ```sh
 noon add watch-ci "every 10m" --for 2h --agent claude --prompt "Check CI and fix failures"
@@ -95,12 +95,52 @@ noon add watch-ci "every 10m" --until "2026-10-20 17:00" --sh './check-ci'
 time and store an absolute RFC 3339 end in the project timezone. `--for` rounds up to a whole
 minute; `--until` accepts `HH:MM` as its next occurrence, `YYYY-MM-DD HH:MM`, or RFC 3339.
 An end not after now is a usage error (exit 2), with no definition written.
-See [Temporary jobs](configuration.md#temporary-jobs) for expiry and DST behavior.
+See [Ending jobs](configuration.md#ending-jobs) for expiry and DST behavior.
 
 Queued `run` requests fail with code `ended` (exit 1, HTTP 409) if the job has ended or the
 requested due time is at or after its end. The message names the end time and the hint names the
 config source to edit. This applies to detach, delayed requests, MCP, API, webhooks, and triggers.
 Foreground `noon run NAME` remains available after the end.
+
+## Temporary jobs
+
+```sh
+noon add watch-pr-42 "every 2h" --temporary --for 3d --agent claude --prompt "Check PR 42 CI; fix failures" --key pr-42
+noon add check-ci --temporary --in 2h --for 3h --sh './check-ci'
+noon cancel watch-pr-42
+noon remove check-ci
+```
+
+`--temporary` writes no config file, including when `.git/noon.yaml` is a symlink. `--user`
+selects the user project. It accepts the normal add actions, description, timeout, and a first run
+via `--in` or `--at`. Exactly one of `--for`/`--until` is required, after now and within 7 days
+including minute rounding. A schedule or queued first run must occur before the end. `--shared`,
+explicit `--config`, a missing end or occurrence, and `--key` without `--temporary` are usage
+errors (exit 2). Intervals retain their phase; use cron for wall-clock alignment.
+
+Creation enables the project. The definition is private (`shared: false`, `approval:
+"not_required"`), with `requested_by: "cli"`. A config name collision or an active temporary
+job with a different/missing key fails with `exists` (exit 1). The same nonempty `--key` returns
+the existing job with `created: false`, `reason: "duplicate"`; an ended definition is replaced.
+A normal config add refuses any retained temporary name, suggesting `noon remove NAME`.
+A later hand-written config definition wins and deletes the temporary definition.
+
+JSON creation returns `schema_version`, `job` (the list job object), `created`, optional `reason`,
+and `scheduler` (`running`/`offline`). Human output warns when the scheduler is offline.
+List JSON and MCP `list_jobs` use `source: "temporary"`, `until`, `ended`, and `temporary` with
+`created_at`, `requested_by`, optional `key`/`ended_at`, and `removes_at`. List SCHEDULE marks
+`temporary until YYYY-MM-DD HH:MM` or `temporary, ended YYYY-MM-DD HH:MM`; NEXT is `ended`
+after ending. The dashboard and MCP status list active temporary jobs in one notice. TUI rows
+mark temporary jobs, render ended ones faint, and show end/removal times in the selected detail.
+
+At the exclusive end queued work is cancelled; running work finishes within its timeout. Pause,
+resume, and project disable never extend the lifetime. Cancel by name ends it and cancels active
+work, with `ended_temporary_jobs` in JSON. Ended definitions remain for 24h from `ended_at`
+(or `until` on natural expiry), then are removed; reads exclude expired rows without a scheduler.
+`remove` deletes immediately, retaining normal run/log history. Foreground `run` works while
+the definition is retained; queued requests after the end fail with `ended`. `run --schedule`
+refuses temporary jobs (exit 2). To edit one, remove and add again. MCP and the HTTP API never
+create temporary definitions.
 
 ## Pausing jobs
 
@@ -126,7 +166,7 @@ failures, report them, and exit 1; completed work isn't undone. Multi-target JSO
 | --- | --- |
 | `pause` / `resume` | `jobs`, `paused`, `changed` |
 | `history` | `runs`, merged newest-first under one `--limit` |
-| `cancel` | `runs`, `pending`, optional `ended_temporary_schedules`, `errors` |
+| `cancel` | `runs`, `pending`, optional `ended_temporary_schedules` / `ended_temporary_jobs`, `errors` |
 | queued `run` | `results` (`run`, `created`, `scheduler`, optional `reason` / `cooldown_until`), `errors` |
 | `remove` | `removed` (`removed`, `file`), `errors` |
 
@@ -296,7 +336,7 @@ notice. There are no temporary-schedule JSON API `/v1/` routes; MCP over HTTP su
 ```sh
 noon cancel                # list active runs; changes nothing
 noon cancel 12             # cancel run 12, even another terminal's foreground run
-noon cancel tests          # end its temporary schedule and cancel every active run
+noon cancel tests          # end its temporary job/schedule and cancel every active run
 noon cancel tests lint 42  # jobs and run IDs together
 ```
 
@@ -304,7 +344,8 @@ Queued runs cancel immediately; running ones get TERM then KILL. An `orphaned` r
 recorded cancelled, and only an identity-matched process group is signaled. `noon disable` also
 cancels queued runs and ends temporary schedules. Cancelling a run ID alone leaves its temporary
 schedule intact. Cancelling a job prints `Ended temporary schedule for NAME.` when one existed,
-and JSON lists those jobs in `ended_temporary_schedules`.
+and JSON lists those jobs in `ended_temporary_schedules`. For a temporary job definition,
+it prints `Ended temporary job NAME.` and lists `ended_temporary_jobs`; the 24h grace starts now.
 
 ## History
 

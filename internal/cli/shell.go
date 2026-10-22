@@ -318,7 +318,7 @@ func completionConfig(cmd *urfave.Command, args []string) (config.Config, bool) 
 		values.User = true
 		values.Project, values.File = nil, nil
 	}
-	cfg, err := config.Load(values)
+	cfg, err := app.LoadJobs(values, time.Now())
 	return cfg, err == nil
 }
 

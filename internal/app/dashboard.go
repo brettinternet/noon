@@ -170,15 +170,25 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 		}
 		add("orphaned", fmt.Sprintf("Orphaned runs %s block background runs in this project.", strings.Join(runs, ", ")))
 	}
-	var temporary []string
+	var temporary, temporaryJobs []string
 	location, _ := time.LoadLocation(result.Project.Timezone)
 	if location == nil {
 		location = time.UTC
 	}
 	for _, job := range result.Jobs {
+		if job.Temporary != nil && !job.Ended && job.Until != nil {
+			temporaryJobs = append(temporaryJobs, fmt.Sprintf("%s until %s (%s)", job.Name, job.Until.In(location).Format("Mon 15:04"), job.Temporary.RequestedBy))
+		}
 		if value := job.TemporarySchedule; value != nil {
 			temporary = append(temporary, fmt.Sprintf("%s until %s (%s)", job.Name, value.Until.In(location).Format("Mon 15:04"), value.RequestedBy))
 		}
+	}
+	if len(temporaryJobs) > 0 {
+		noun := "temporary jobs"
+		if len(temporaryJobs) == 1 {
+			noun = "temporary job"
+		}
+		add("temporary_job", fmt.Sprintf("%d %s: %s", len(temporaryJobs), noun, strings.Join(temporaryJobs, ", ")))
 	}
 	if len(temporary) > 0 {
 		noun := "temporary schedules"

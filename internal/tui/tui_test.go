@@ -23,6 +23,67 @@ import (
 	"github.com/brettinternet/noon/internal/tui"
 )
 
+// Ended state-backed jobs must remain visibly temporary and faint, with their
+// removal deadline still available instead of looking runnable.
+func TestEndedTemporaryJob(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "user"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	for _, key := range []string{"NOON_PROJECT", "NOON_CONFIG", "NOON_TIMEZONE", "NOON_STATE_DIR", "NOON_DEPTH"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	input := config.Input{CWD: project, UserConfigDir: filepath.Join(root, "user", "noon"), StateDirDefault: filepath.Join(root, "state", "noon")}
+	cfg, err := config.Load(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	until := now.Add(time.Hour)
+	if _, err := app.AddTemporaryJob(cfg, config.Job{Name: "watch", Run: []string{"true"}, Enabled: true, Until: &until}, "", &now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Cancel(cfg.StateDir, cfg.Project, nil, "watch", now); err != nil {
+		t.Fatal(err)
+	}
+	model, err := tui.NewModel(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := screen(model)
+	for _, want := range []string{"temporary", "ended", "removes "} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("missing %q:\n%s", want, content)
+		}
+	}
+	found := false
+	for _, row := range strings.Split(model.View().Content, "\n") {
+		plain := ansi.Strip(row)
+		if !strings.Contains(plain, "watch") || !strings.Contains(plain, "temporary") {
+			continue
+		}
+		found = true
+		if !strings.Contains(plain, "ended") {
+			t.Fatalf("NEXT is not ended: %s", plain)
+		}
+		// Mono theme uses SGR 2 for every rendered cell (name, schedule, next,
+		// last); padding also inherits the same faint cell style.
+		if count := len(regexp.MustCompile(`\x1b\[[0-9;]*2[;m]`).FindAllString(row, -1)); count < 4 {
+			t.Fatalf("row not entirely faint (%d spans): %q", count, row)
+		}
+	}
+	if !found {
+		t.Fatal("temporary row absent")
+	}
+}
+
 func TestTUIModel(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")

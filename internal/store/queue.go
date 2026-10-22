@@ -28,6 +28,9 @@ type QueueRunInput struct {
 	Trigger                          string
 	DueAt, Now                       time.Time
 	JobUntil                         *time.Time
+	TemporaryJob                     bool
+	TemporaryCreatedAt               time.Time
+	TemporaryDigest                  string
 	NowFunc                          func() time.Time
 	JobExists, JobEnabled, JobShared bool
 	RequireUnpaused                  bool
@@ -73,6 +76,21 @@ func (s *Store) QueueRun(input QueueRunInput) (QueueRunResult, error) {
 		}
 	}
 
+	if input.TemporaryJob {
+		value, err := scanTemporaryJob(tx.QueryRow("SELECT "+temporaryJobColumns+" FROM temporary_jobs WHERE project_id=? AND name=?", input.ProjectID, input.Job))
+		if errors.Is(err, sql.ErrNoRows) {
+			return QueueRunResult{}, ErrJobNotFound
+		}
+		if err != nil {
+			return QueueRunResult{}, err
+		}
+		if value.Digest != input.TemporaryDigest || !value.CreatedAt.Equal(input.TemporaryCreatedAt) {
+			return QueueRunResult{}, ErrJobNotFound
+		}
+		if value.EndedAt != nil || !input.Now.Before(value.End()) || !input.DueAt.Before(value.End()) {
+			return QueueRunResult{}, ErrJobEnded
+		}
+	}
 	if input.JobUntil != nil && (!input.Now.Before(*input.JobUntil) || !input.DueAt.Before(*input.JobUntil)) {
 		return QueueRunResult{}, ErrJobEnded
 	}

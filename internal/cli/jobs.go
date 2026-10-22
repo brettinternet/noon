@@ -77,10 +77,18 @@ func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide
 				scheduled += " ~" + job.Jitter
 			}
 		}
-		if job.Until != nil {
+		if job.Temporary != nil {
+			if job.Ended && job.Temporary.EndedAt != nil {
+				scheduled += " · temporary, ended " + job.Temporary.EndedAt.Format("2006-01-02 15:04")
+			} else if job.Until != nil {
+				scheduled += " · temporary until " + job.Until.Format("2006-01-02 15:04")
+			}
+		} else if job.Until != nil {
 			scheduled += " until " + job.Until.Format("2006-01-02 15:04")
 		}
-		if !job.PlatformSupported {
+		if job.Temporary != nil && job.Ended {
+			next = "ended"
+		} else if !job.PlatformSupported {
 			next = "other platform"
 		} else if job.Paused {
 			next = "paused"

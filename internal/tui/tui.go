@@ -132,7 +132,7 @@ type Model struct {
 // NewModel loads the current project dashboard without creating application
 // state. Mutations are performed only by explicit keyboard actions.
 func NewModel(input config.Input) (*Model, error) {
-	cfg, err := config.Load(input)
+	cfg, err := app.LoadJobs(input, time.Now())
 	if err != nil {
 		return nil, app.ConfigError(err)
 	}
@@ -1010,7 +1010,7 @@ func (m *Model) queueSelectedJob() {
 }
 
 func (m *Model) queueJob(jobName string) {
-	cfg, err := config.Load(m.input)
+	cfg, err := app.LoadJobs(m.input, time.Now())
 	if err != nil {
 		m.flash(toneError, errorMessage(app.ConfigError(err)))
 		return
@@ -1062,7 +1062,7 @@ func (m *Model) togglePause() {
 		m.flash(toneInfo, "No job selected.")
 		return
 	}
-	cfg, err := config.Load(m.input)
+	cfg, err := app.LoadJobs(m.input, time.Now())
 	if err != nil {
 		m.flash(toneError, errorMessage(app.ConfigError(err)))
 		return

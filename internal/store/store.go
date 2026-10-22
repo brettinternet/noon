@@ -87,6 +87,16 @@ CREATE TABLE temporary_schedules (
   requested_by TEXT NOT NULL, request_key TEXT NOT NULL DEFAULT '',
   data BLOB, event_source TEXT NOT NULL, created_at TEXT NOT NULL, next_at TEXT NOT NULL,
   PRIMARY KEY(project_id, job));
+`, `
+CREATE TABLE temporary_jobs (
+  project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL,
+  definition BLOB NOT NULL, digest TEXT NOT NULL, until_at TEXT NOT NULL,
+  created_at TEXT NOT NULL, requested_by TEXT NOT NULL,
+  request_key TEXT NOT NULL DEFAULT '', ended_at TEXT,
+  PRIMARY KEY(project_id, name));
+CREATE TABLE temporary_job_names (
+  project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL,
+  PRIMARY KEY(project_id, name));
 `}
 
 type Store struct {
@@ -103,6 +113,7 @@ type Store struct {
 	hasSchedulerCommit bool
 	hasAgentSessionID  bool
 	hasTemporary       bool
+	hasTemporaryJobs   bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -344,6 +355,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasAgentSessionID = version >= 11
 		state.hasSchedulerCommit = version >= 12
 		state.hasTemporary = version >= 13
+		state.hasTemporaryJobs = version >= 14
 		return state, nil
 	}
 	for {
@@ -388,6 +400,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasAgentSessionID = true
 	state.hasSchedulerCommit = true
 	state.hasTemporary = true
+	state.hasTemporaryJobs = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}

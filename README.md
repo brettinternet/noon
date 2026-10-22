@@ -102,11 +102,22 @@ Enabled /home/me/app · 1 jobs · approved 1 shared jobs
 | --- | --- |
 | `noon.yaml` (shared) | `noon enable`, again after a pull changes the job |
 | `.git/noon.yaml` (private) | `noon enable` once; no approval |
+| `noon add --temporary` (private state) | creation enables the project; no approval |
 | `noon run NAME` (foreground) | nothing |
 
 `noon disable` revokes everything and keeps history. Approval covers job definitions, not the
 scripts or prompt files they reference, so only enable repositories you would run by hand. Noon
 ignores an in-tree `.noon.yaml`, since a commit could supply it.
+
+For bounded follow-ups without editing config (including symlinked private config):
+
+```sh
+noon add watch-pr-42 "every 2h" --temporary --for 3d --agent claude --prompt "Check PR 42 CI; fix failures" --key pr-42
+noon cancel watch-pr-42   # end now; visible for 24h, then removed
+```
+
+Temporary jobs end within 7 days. `noon remove NAME` deletes the definition immediately;
+run history remains. Only the CLI creates them, not MCP or the HTTP API.
 
 ## Personal jobs
 
@@ -128,11 +139,11 @@ and [examples/local-dev/housekeeping](examples/local-dev/housekeeping/).
 | --- | --- |
 | `noon` / `noon status` | Dashboard: jobs, scheduler, queued work, next step |
 | `noon list` | Jobs and next run times |
-| `noon add NAME [SCHEDULE] -- CMD…` | Add a job (`--sh`, `--prompt`, `--prompt-file`, `--shared`) |
+| `noon add NAME [SCHEDULE] -- CMD…` | Add a job (`--sh`, `--prompt`, `--prompt-file`, `--shared`); `--temporary --for 2h` keeps it in state, not config |
 | `noon remove NAME...` | Remove job definitions; history stays |
 | `noon run NAME` | Run now; returns 0 when `noop_exit_code` matches |
 | `noon run NAME... --detach` | Queue jobs for the scheduler (`--in 2h`, `--at 17:00`, `--key`, `--data`); `--schedule S --for 2h` repeats approved jobs |
-| `noon cancel RUN\|NAME...` | Cancel selected runs or jobs' active work and temporary schedules |
+| `noon cancel RUN\|NAME...` | Cancel selected runs or end temporary jobs/schedules and their active work |
 | `noon pause NAME...` / `resume NAME...` | Stop or restart background runs; `-a` for all jobs |
 | `noon history [NAME...]` | Recent runs (`--status failed`) |
 | `noon logs [NAME\|RUN]` | Read, search, page, or `--follow` a run log (`-t` for timestamps) |

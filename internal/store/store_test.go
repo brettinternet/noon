@@ -727,6 +727,199 @@ func TestCompleteHookRebasesTimingPastSyntheticMarker(t *testing.T) {
 	}
 }
 
+// Offline temporary-job terminal transitions must keep the normal 50-run
+// history and 10-payload limits, including replacement and natural expiry.
+func TestTemporaryJobCancellationRetention(t *testing.T) {
+	for _, mode := range []string{"remove", "replace", "expire"} {
+		t.Run(mode, func(t *testing.T) {
+			state, projectID := testStore(t)
+			var project string
+			if err := state.db.QueryRow("SELECT path FROM projects WHERE id=?", projectID).Scan(&project); err != nil {
+				t.Fatal(err)
+			}
+			start := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+			create := func(now time.Time) TemporaryJob {
+				t.Helper()
+				value, added, err := state.CreateTemporaryJob(TemporaryJob{ProjectID: projectID, Name: "watch", Definition: []byte("jobs:\n  watch: {run: ['true']}\n"), Digest: "creation", CreatedAt: now, Until: now.Add(time.Minute), RequestedBy: "cli"}, now)
+				if err != nil || !added {
+					t.Fatalf("create: %+v %t %v", value, added, err)
+				}
+				return value
+			}
+			var paths []string
+			for i := range 51 {
+				now := start.Add(time.Duration(i) * 2 * time.Minute)
+				value := create(now)
+				queued, err := state.QueueRun(QueueRunInput{ProjectID: projectID, Job: "watch", Digest: "effective", TemporaryJob: true, TemporaryDigest: value.Digest, TemporaryCreatedAt: value.CreatedAt, JobExists: true, JobEnabled: true, Now: now, DueAt: now.Add(30 * time.Second), EventData: []byte(`{"probe":true}`), EventSource: "cli"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				paths = append(paths, queued.Run.EventPath.String)
+				switch mode {
+				case "remove":
+					if err := state.DeleteTemporaryJob(project, "watch", now); err != nil {
+						t.Fatal(err)
+					}
+				case "expire":
+					if err := state.PurgeTemporaryJobs(value.Until); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if mode == "replace" {
+				create(start.Add(102 * time.Minute))
+			}
+			var count int
+			if err := state.db.QueryRow("SELECT count(*) FROM runs WHERE project_id=? AND job='watch' AND status='cancelled'", projectID).Scan(&count); err != nil || count != 50 {
+				t.Fatalf("terminal retention count=%d err=%v", count, err)
+			}
+			if err := state.db.QueryRow("SELECT count(*) FROM runs WHERE project_id=? AND job='watch' AND event_path IS NOT NULL", projectID).Scan(&count); err != nil || count != 10 {
+				t.Fatalf("payload retention count=%d err=%v", count, err)
+			}
+			for i, path := range paths {
+				_, err := os.Stat(filepath.Join(state.dir, path))
+				if i < len(paths)-10 && !os.IsNotExist(err) {
+					t.Fatalf("old payload retained: %s %v", path, err)
+				}
+				if i >= len(paths)-10 && err != nil {
+					t.Fatalf("recent payload lost: %s %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+// A schema-13 database must retain history while concurrent temporary-job
+// creators serialize name ownership; offline reads must honor the grace limit.
+func TestTemporaryJobs(t *testing.T) {
+	dir := t.TempDir()
+	legacy, err := sql.Open("sqlite", filepath.Join(dir, databaseName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, migration := range migrations[:13] {
+		if _, err := legacy.Exec(migration); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := legacy.Exec(fmt.Sprintf("PRAGMA user_version=%d", i+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := legacy.Exec("INSERT INTO projects(path,created_at,enabled) VALUES('/temporary','2026-10-16T00:00:00.000Z',1)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec("INSERT INTO runs(project_id,job,status,trigger,digest,created_at) VALUES(1,'probe','succeeded','manual','old','2026-10-16T00:00:00.000Z')"); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	if run, err := state.RunByID(1); err != nil || run.Status != "succeeded" {
+		t.Fatalf("migration lost history: %+v %v", run, err)
+	}
+	now := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+	type outcome struct {
+		created bool
+		err     error
+	}
+	results := make(chan outcome, 10)
+	for i := range 10 {
+		go func() {
+			peer, err := Open(dir)
+			if err != nil {
+				results <- outcome{err: err}
+				return
+			}
+			defer peer.Close()
+			_, created, err := peer.CreateTemporaryJob(TemporaryJob{ProjectID: 1, Name: "probe", Definition: []byte("jobs:\n  probe: {run: ['true']}\n"), Digest: "d", Until: now.Add(time.Hour), CreatedAt: now, RequestedBy: "cli", Key: fmt.Sprint(i)}, now)
+			results <- outcome{created, err}
+		}()
+	}
+	created := 0
+	for range 10 {
+		result := <-results
+		if result.created {
+			created++
+		} else if !errors.Is(result.err, ErrJobExists) {
+			t.Fatalf("competing creation: %+v", result)
+		}
+	}
+	values, err := state.TemporaryJobs("/temporary", now)
+	if err != nil || created != 1 || len(values) != 1 {
+		t.Fatalf("created=%d values=%+v err=%v", created, values, err)
+	}
+	value := values[0]
+	got, added, err := state.CreateTemporaryJob(value, now)
+	if err != nil || added || got.Key != value.Key {
+		t.Fatalf("keyed duplicate: %+v %v %v", got, added, err)
+	}
+	input := QueueRunInput{ProjectID: 1, Job: "probe", Digest: "d", TemporaryJob: true, TemporaryDigest: "d", TemporaryCreatedAt: now, JobExists: true, JobEnabled: true, Now: now, DueAt: now.Add(30 * time.Minute)}
+	if _, err := state.QueueRun(input); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := state.RequestCancelJob("/temporary", "probe", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.QueueRun(input); !errors.Is(err, ErrJobEnded) {
+		t.Fatalf("stale snapshot queued cancelled job: %v", err)
+	}
+	ended := now.Add(time.Minute)
+	reader, err := OpenExisting(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	values, err = reader.TemporaryJobs("/temporary", ended.Add(TemporaryJobGrace-time.Millisecond))
+	if err != nil || len(values) != 1 || values[0].EndedAt == nil || !values[0].EndedAt.Equal(ended) {
+		t.Fatalf("grace: %+v %v", values, err)
+	}
+	values, err = reader.TemporaryJobs("/temporary", ended.Add(TemporaryJobGrace))
+	if err != nil || len(values) != 0 {
+		t.Fatalf("offline expired read: %+v %v", values, err)
+	}
+	if err := state.PurgeTemporaryJobs(ended.Add(TemporaryJobGrace)); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := state.db.QueryRow("SELECT count(*) FROM temporary_jobs").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("purge rows: %d %v", count, err)
+	}
+	if known, err := state.WasTemporaryJob("/temporary", "probe"); err != nil || !known {
+		t.Fatalf("name history lost: %v %v", known, err)
+	}
+	if run, err := state.RunByID(1); err != nil || run.Status != "succeeded" {
+		t.Fatalf("purge lost history: %+v %v", run, err)
+	}
+	// Even an identical-definition replacement must reject an older row identity.
+	replacement := value
+	replacement.CreatedAt = ended.Add(TemporaryJobGrace)
+	replacement.Until = replacement.CreatedAt.Add(time.Hour)
+	if _, err := state.db.Exec("UPDATE projects SET enabled=0, enabled_at=?, config_file='/old-explicit.yaml' WHERE id=1", FormatTime(now)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.db.Exec("INSERT INTO job_state(project_id, job, schedule_key, next_at) VALUES(1,'other','every 1h|UTC',?)", FormatTime(now)); err != nil {
+		t.Fatal(err)
+	}
+	if _, added, err := state.CreateTemporaryJob(replacement, replacement.CreatedAt); err != nil || !added {
+		t.Fatalf("replacement: %v %v", added, err)
+	}
+	if states, err := state.ScheduleStatesForProject("/temporary"); err != nil || len(states) != 0 {
+		t.Fatalf("reactivation retained disabled phase: %+v %v", states, err)
+	}
+	if approval, err := state.ApprovalForProject("/temporary"); err != nil || !approval.Enabled || approval.EnabledAt.String != FormatTime(replacement.CreatedAt) || approval.ConfigFile.Valid {
+		t.Fatalf("temporary add activation: %+v %v", approval, err)
+	}
+	input.Now, input.DueAt = replacement.CreatedAt, replacement.CreatedAt
+	if _, err := state.QueueRun(input); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("stale identity queued replacement: %v", err)
+	}
+}
+
 // Competing clients must not create two schedules; schema upgrades preserve history.
 func TestTemporarySchedules(t *testing.T) {
 	dir := t.TempDir()

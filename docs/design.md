@@ -198,7 +198,8 @@ values are invalid; past values stay valid. Ended jobs drop schedule state witho
 Effective starts, including splay and jitter, must be strictly before the end. Queued requests
 refuse with `ended` when now or their due time reaches it; queued runs are cancelled after expiry
 by the inactive-job dispatch rule, while running work finishes under its timeout. Foreground
-runs remain explicit and allowed. Definitions stay in config, which the scheduler never writes.
+runs remain explicit and allowed. Config definitions stay in config, which the scheduler never writes.
+CLI-created [temporary jobs](#temporary-jobs) are the only state-backed definition exception.
 
 The pure `internal/scheduler.Due` and `Dispatch` planners decide; `noon serve` persists each tick's
 schedule and dispatch changes atomically, then starts runs. Schedule state is keyed by normalized
@@ -265,6 +266,47 @@ self-daemonizes and is not one process per repo.
 - There is no local IPC socket. Local clients read SQLite for scheduler status and next times; the optional HTTP API is an adapter over shared app operations, not a second scheduler. The scheduler polls SQLite every second and config files every two seconds. Revisit polling only if latency or cost becomes a measured problem.
 - Queueing (`--detach`, `--in`, `--at`, MCP, API, webhooks) is one immediate SQLite transaction:
   idempotency key, enablement and approval, cooldown, then due-run merging or the `each` cap.
+
+### Temporary jobs
+
+Definitions normally live in config. The only state-backed exception is CLI
+`add NAME [SCHEDULE] --temporary`, using the existing add action flags plus `--in`/`--at` and
+optional `--key`; `--user` selects the user project. It writes no config and supports absent,
+shared-only, or symlinked private config. Explicit `--config` and `--shared` are refused.
+Creation requires exactly one end (`--for`/`--until`), after now and within the shared 7-day limit
+including minute rounding, and a schedule or queued run before it. Config `until` alone has no
+7-day limit. Intervals retain elapsed phase, not wall-clock alignment.
+
+The definition uses config's one-job parser, including validation, hook defaults, and digest.
+It is private (`shared: false`, approval `not_required`); creation enables the project and records
+`requested_by: cli`. Only CLI creation has this authority; neither MCP nor HTTP creates definitions.
+Name ownership is transactional: config names refuse with `exists`; an active temporary name
+requires the same nonempty key for a duplicate (`created: false`, `reason: duplicate`), otherwise
+`exists`. Ended retained names can be replaced. Config add refuses a retained temporary name;
+a hand-added config job wins and deletes the state definition. There is no in-place edit or
+promotion: remove and add again.
+
+One app merge operation resolves these jobs for inspection, execution, queue/cancel/remove,
+history/logs, MCP, TUI, and scheduler reload. The scheduler refreshes state-backed definitions on
+its 1-second state poll independently of config stamps. They use normal private-job scheduling,
+missed/overlap rules, timeout, and exclusive `until`: no start at/after the end, queued work is
+cancelled, running work finishes. Pause/resume and disable never extend the end. Foreground runs
+remain available while retained; queued requests after the end refuse `ended`. Temporary
+schedules cannot attach to temporary jobs.
+
+Cancel by job ends the definition at now and cancels active work; cancel by run ID does not end
+it. Natural expiry records `ended_at: until`. The fixed grace is 24h from `ended_at`, else `until`;
+reads exclude elapsed grace even offline, and the scheduler purges definitions. Remove deletes
+immediately. Normal run/log retention remains, including history/log lookup after removal.
+A name-only record lets never-run removed jobs return empty history without accepting unknown
+names or retaining expired definitions.
+
+List JSON/MCP use `source: temporary`, existing `until`/`ended`, and `temporary` containing
+`created_at`, `requested_by`, optional `key`/`ended_at`, and `removes_at`. Human list marks
+`temporary until` or `temporary, ended` and NEXT `ended`. Dashboard/MCP status list active jobs
+in one notice. TUI marks them temporary, renders ended rows faint, and shows end/removal times.
+Creation JSON is `{schema_version:1, job:<list job>, created:bool, reason?:duplicate,
+scheduler:running|offline}`; human creation uses the queued-run offline notice.
 
 ### Temporary schedules
 
@@ -414,7 +456,11 @@ worktrees, and lets one scheduler see every enabled project.
   newer database is refused with an upgrade hint. Read-only commands never create state. State schema
   version 10 marks the incompatible noop status and retention semantics; version 11 adds the nullable
   `agent_session_id` run field. Version 12 adds scheduler build_commit; version 13 adds the
-  `temporary_schedules` table and its independent durable phase. Older binaries refuse the newer database.
+  `temporary_schedules` table and its independent durable phase. Version 14 adds `temporary_jobs`
+  (project/name primary key, one-job config definition, digest, until, created_at, requested_by,
+  optional key, ended_at) and `temporary_job_names` (project/name only, retained for empty history
+  resolution after removal). Temporary schedules and job definitions are separate tables.
+  Older binaries refuse the newer database.
 - Run `status`: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`,
   `interrupted`, `skipped`, `missed`, `expired`. `noop` is a terminal run status, distinct from
   `skipped`, which means an occurrence never started because of overlap. Noops count as terminal
@@ -491,6 +537,7 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 | Input | Trust | Consequence |
 | --- | --- | --- |
 | User project `config.yaml`, `.git/noon.yaml` | Yours: user config is outside the repository; Git cannot commit `.git` paths | Runs unattended once the project is enabled |
+| Temporary jobs (`noon add --temporary`) | Created through the user's shell, private and approval-free; creation enables the project | Definitions normally live in config; this is the only state-backed exception, CLI-only, ending within 7 days and removed after 24h grace |
 | In-tree `.noon.yaml` | Repository content: commits can add it | Never loaded |
 | `noon.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
 | Scripts, prompt files, and env files | Not pinned | Approval covers what and when, not file contents |

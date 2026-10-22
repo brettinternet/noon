@@ -446,14 +446,27 @@ func (m *Model) jobCells(job app.Job, now time.Time) [][]span {
 	if job.Schedule != nil {
 		schedule = span{*job.Schedule, t.text}
 	}
+	if job.Temporary != nil {
+		schedule.text += " · temporary"
+	}
 	status, when := m.lastRunCells(job.LastRun, now)
-	return [][]span{{{job.Name, t.text}}, {schedule}, m.nextCell(job, now), status, when}
+	cells := [][]span{{{job.Name, t.text}}, {schedule}, m.nextCell(job, now), status, when}
+	if job.Temporary != nil && job.Ended {
+		for i := range cells {
+			for j := range cells[i] {
+				cells[i][j].style = t.faint
+			}
+		}
+	}
+	return cells
 }
 
 // nextCell shows when a job runs next, or the state that keeps it from running.
 func (m *Model) nextCell(job app.Job, now time.Time) []span {
 	t := m.theme
 	switch {
+	case job.Temporary != nil && job.Ended:
+		return []span{{"ended", t.faint}}
 	case !job.PlatformSupported:
 		return []span{{"other platform", t.warning}}
 	case !job.Enabled:
@@ -500,6 +513,15 @@ func (m *Model) jobDetail(job app.Job) []string {
 	}
 	if job.Source != "" {
 		facts = append(facts, filepath.Base(job.Source))
+	}
+	if job.Temporary != nil {
+		about = []span{{" " + job.Name, t.strong}}
+		if job.Temporary.EndedAt != nil {
+			about = append(about, span{" · ended " + job.Temporary.EndedAt.Format("2006-01-02 15:04"), t.muted})
+		} else if job.Until != nil {
+			about = append(about, span{" · ends " + job.Until.Format("2006-01-02 15:04"), t.muted})
+		}
+		facts = []string{"removes " + job.Temporary.RemovesAt.Format("2006-01-02 15:04")}
 	}
 	command := []span{{" $ ", t.faint}, {commandText(job), t.muted}}
 	return []string{

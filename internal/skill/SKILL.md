@@ -34,7 +34,28 @@ Track the returned run ID until it finishes. An older successful run is not a
 pass, and neither is a skipped or cancelled one. Do not enable projects, approve
 jobs, or start services to get around a blocker.
 
-## Bounded recurring work
+## New bounded follow-ups
+
+With the user's authorization to create a new follow-up, use a temporary job:
+
+```sh
+noon add watch-pr-42 "every 2h" --temporary --for 3d --agent claude --prompt "Check PR 42 CI; fix failures" --key pr-42 --json
+```
+
+This writes state, not config, and works with a symlinked `.git/noon.yaml`. It enables the
+project and creates a private job. Require exactly one of `--for`/`--until`, ending within 7 days
+including minute rounding, with a schedule or `--in`/`--at` first run before the end. Same-key
+retries return the existing active job; other name collisions fail. Creation is not a passed run.
+Only the CLI creates temporary jobs, never MCP or the HTTP API. Don't attach `run --schedule`
+to one. Inspect `temporary`, `until`, and `ended` in list JSON and check run results.
+
+`noon cancel watch-pr-42` ends it and cancels active work. At natural expiry, running work
+finishes and queued work is cancelled. Pause/resume and disable never extend the end. The ended
+definition remains visible for 24h; `noon remove NAME` deletes immediately. History/log retention
+is unchanged. Remove and add again to edit. This does not authorize creating jobs the user did
+not request, enabling other projects, approving jobs, or starting services.
+
+## Bounded recurring work on existing jobs
 
 ```sh
 noon run watch-ci --schedule "every 10m" --for 2h --key watch-ci-pr-42 --json

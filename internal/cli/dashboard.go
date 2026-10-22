@@ -83,7 +83,7 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 	style.printBoundedRows(cmd.Writer, rows, "  ", outputWidth(cmd.Writer), 0)
 	notices := slices.Clone(view.Notices[:min(3, len(view.Notices))])
 	for _, notice := range view.Notices[min(3, len(view.Notices)):] {
-		if notice.Code == "temporary_schedule" {
+		if notice.Code == "temporary_schedule" || notice.Code == "temporary_job" {
 			notices = append(notices, notice)
 		}
 	}

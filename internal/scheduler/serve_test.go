@@ -23,6 +23,308 @@ import (
 
 var serveTestStart = time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 
+// State-backed jobs must be discovered without config edits, preserve phase
+// across restart, and expire without losing history or executing queued work.
+func TestServeTemporaryJobs(t *testing.T) {
+	add := func(t *testing.T, f *serveFixture) config.Input {
+		t.Helper()
+		input := config.Input{CWD: f.project, UserConfigDir: f.userConfig, StateDirDefault: f.stateDir}
+		cfg, err := config.Load(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := fmt.Sprintf("jobs:\n  watch:\n    schedule: every 1m\n    until: %s\n    run: ['true']\n", serveTestStart.Add(3*time.Minute).Format(time.RFC3339))
+		job, err := config.JobFromSource([]byte(source), "watch", cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, false, cfg.Project, cfg.Timezone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result, err := app.AddTemporaryJob(cfg, job, "watch", nil, serveTestStart); err != nil || !result.Created {
+			t.Fatalf("add temporary: %+v %v", result, err)
+		}
+		return input
+	}
+	t.Run("poll restart end grace and history", func(t *testing.T) {
+		f := newServeFixture(t, "")
+		defer f.stop(t)
+		f.step(t, serveTestStart)
+		input := add(t, f)
+		f.step(t, serveTestStart.Add(time.Second))
+		if states := f.states(t); len(states) != 1 {
+			t.Fatalf("state-only creation not polled: %+v", states)
+		}
+		f.step(t, serveTestStart.Add(61*time.Second))
+		waitFor(t, func() bool { runs := f.runs(t); return len(runs) == 1 && runs[0].Status == "succeeded" })
+		f.step(t, serveTestStart.Add(121*time.Second))
+		waitFor(t, func() bool { runs := f.runs(t); return len(runs) == 2 && runs[0].Status == "succeeded" })
+		f.stop(t)
+		f.start(t)
+		f.step(t, serveTestStart.Add(121*time.Second))
+		if len(f.runs(t)) != 2 {
+			t.Fatal("restart duplicated an occurrence")
+		}
+		cfg, err := app.LoadJobs(input, serveTestStart.Add(122*time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		queued, err := app.QueueRun(cfg, "watch", "pending", serveTestStart.Add(170*time.Second), serveTestStart.Add(122*time.Second), nil, false, "cli")
+		if err != nil {
+			t.Fatal(err)
+		}
+		end := serveTestStart.Add(3 * time.Minute)
+		f.step(t, end)
+		if got := f.runByID(t, queued.Run.ID); got.Status != "cancelled" || got.StartedAt != "" {
+			t.Fatalf("end queued: %+v", got)
+		}
+		f.step(t, end.Add(time.Minute))
+		if len(f.runs(t)) != 3 {
+			t.Fatalf("run started after end: %+v", f.runs(t))
+		}
+		for _, run := range f.runs(t) {
+			if run.RequestedBy.String != "cli" {
+				t.Fatalf("provenance: %+v", run)
+			}
+		}
+		view, err := app.ListJobs(input, end.Add(24*time.Hour-time.Millisecond))
+		if err != nil || len(view.Jobs) != 1 || !view.Jobs[0].Ended || view.Jobs[0].Temporary.EndedAt == nil || !view.Jobs[0].Temporary.RemovesAt.Equal(end.Add(24*time.Hour)) {
+			t.Fatalf("grace: %+v %v", view, err)
+		}
+		f.step(t, end.Add(24*time.Hour))
+		view, err = app.ListJobs(input, end.Add(24*time.Hour))
+		if err != nil || len(view.Jobs) != 0 {
+			t.Fatalf("purged view: %+v %v", view, err)
+		}
+		state, err := store.OpenExisting(f.stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		snapshot, err := state.ReadSchedulerSnapshot()
+		if err != nil || len(snapshot.TemporaryJobs) != 0 {
+			t.Fatalf("row not purged: %+v %v", snapshot.TemporaryJobs, err)
+		}
+		history, err := app.ListRuns(input, ptrString("watch"), nil, 50)
+		if err != nil || len(history.Runs) != 3 {
+			t.Fatalf("history lost: %+v %v", history, err)
+		}
+	})
+	// Inherited defaults may change the effective digest without replacing the
+	// stored definition. Neither scheduling nor queue guards may mistake that
+	// for a stale identity and strand the job.
+	t.Run("default agent reload preserves temporary identity", func(t *testing.T) {
+		manifest := "default_agent: a\n"
+		f := newServeFixture(t, "")
+		defer f.stop(t)
+		if err := os.MkdirAll(filepath.Join(f.userConfig, "noon"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(f.userConfig, "noon", "config.yaml"), []byte("agents:\n  a: {command: [sh, -c, 'true']}\n  b: {command: [sh, -c, 'true']}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f.writeConfig(t, manifest)
+		f.step(t, serveTestStart)
+		input := config.Input{CWD: f.project, UserConfigDir: f.userConfig, StateDirDefault: f.stateDir}
+		cfg, err := config.Load(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := config.JobFromSource([]byte("jobs:\n  watch: {schedule: every 1m, prompt: check}\n"), "watch", cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project, cfg.Timezone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		until := serveTestStart.Add(3 * time.Minute)
+		added, err := app.AddTemporaryJob(cfg, config.Job{Name: "watch", Prompt: parsed.Prompt, Schedule: parsed.Schedule, Until: &until, Enabled: true}, "", nil, serveTestStart)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.step(t, serveTestStart.Add(time.Second))
+		f.writeConfig(t, strings.Replace(manifest, "default_agent: a", "default_agent: b", 1))
+		f.step(t, serveTestStart.Add(3*time.Second))
+		cfg, err = app.LoadJobs(input, serveTestStart.Add(3*time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Jobs["watch"].Agent != "b" || cfg.Jobs["watch"].Digest == added.Job.Digest {
+			t.Fatalf("default not inherited: %+v", cfg.Jobs["watch"])
+		}
+		if _, err := app.QueueRun(cfg, "watch", "changed-default", serveTestStart.Add(4*time.Second), serveTestStart.Add(3*time.Second), nil, false, "cli"); err != nil {
+			t.Fatalf("queue after default change: %v", err)
+		}
+		f.step(t, serveTestStart.Add(4*time.Second))
+		waitFor(t, func() bool { runs := f.runs(t); return len(runs) == 1 && runs[0].Status == "succeeded" })
+		// A CLI can see a new profile before serve's next 2s config poll.
+		if err := os.WriteFile(filepath.Join(f.userConfig, "noon", "config.yaml"), []byte("agents:\n  a: {command: [sh, -c, 'true']}\n  b: {command: [sh, -c, 'true']}\n  c: {command: [sh, -c, 'true']}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err = config.Load(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := app.AddTemporaryJob(cfg, config.Job{Name: "newcomer", Prompt: parsed.Prompt, Agent: "c", Schedule: parsed.Schedule, Until: &until, Enabled: true}, "", nil, serveTestStart.Add(4100*time.Millisecond)); err != nil {
+			t.Fatal(err)
+		}
+		f.step(t, serveTestStart.Add(4500*time.Millisecond))
+		if states := f.states(t); len(states) != 2 {
+			t.Fatalf("new profile was not reloaded on state poll: %+v", states)
+		}
+		f.step(t, serveTestStart.Add(61*time.Second))
+		waitFor(t, func() bool { runs := f.runs(t); return len(runs) == 2 && runs[0].Status == "succeeded" })
+		// Effective B digests differ from stored creation A digests, but
+		// shadow deletion must cancel every request belonging to this name.
+		pending, err := app.QueueRun(cfg, "watch", "shadowed", serveTestStart.Add(90*time.Second), serveTestStart.Add(62*time.Second), nil, false, "cli")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run := f.runByID(t, pending.Run.ID); run.Digest == added.Job.Digest {
+			t.Fatal("fixture did not change effective digest")
+		}
+		marker := filepath.Join(f.root, "replacement-ran")
+		f.writeConfig(t, fmt.Sprintf("default_agent: b\njobs:\n  watch: {run: [touch, %q]}\n", marker))
+		f.step(t, serveTestStart.Add(63*time.Second))
+		if run := f.runByID(t, pending.Run.ID); run.Status != "cancelled" {
+			t.Fatalf("shadow retained changed-digest request: %+v", run)
+		}
+		f.step(t, serveTestStart.Add(90*time.Second))
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("temporary request executed replacement config: %v", err)
+		}
+	})
+	// Removing config and creating a temporary name between polls must not
+	// let the old config snapshot delete the new definition or its requests.
+	t.Run("removed config does not delete new temporary job before config poll", func(t *testing.T) {
+		f := newServeFixture(t, "jobs:\n  watch: {run: ['true']}\n")
+		defer f.stop(t)
+		f.step(t, serveTestStart)
+		f.writeConfig(t, "{}\n")
+		input := add(t, f)
+		cfg, err := app.LoadJobs(input, serveTestStart)
+		if err != nil {
+			t.Fatal(err)
+		}
+		queued, err := app.QueueRun(cfg, "watch", "first", serveTestStart.Add(2*time.Minute), serveTestStart, nil, false, "cli")
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.step(t, serveTestStart.Add(time.Second))
+		state, err := store.OpenExisting(f.stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		values, err := state.TemporaryJobs(f.project, serveTestStart.Add(time.Second))
+		if err != nil || len(values) != 1 {
+			t.Fatalf("stale config deleted new definition: %+v %v", values, err)
+		}
+		if run := f.runByID(t, queued.Run.ID); run.Status != "queued" {
+			t.Fatalf("stale config cancelled first request: %+v", run)
+		}
+	})
+	t.Run("config shadows and deletes definition", func(t *testing.T) {
+		f := newServeFixture(t, "")
+		defer f.stop(t)
+		f.step(t, serveTestStart)
+		input := add(t, f)
+		f.step(t, serveTestStart.Add(time.Second))
+		f.writeConfig(t, "jobs:\n  watch: {run: ['true'], description: config wins}\n")
+		f.step(t, serveTestStart.Add(3*time.Second))
+		state, err := store.OpenExisting(f.stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		values, err := state.TemporaryJobs(f.project, serveTestStart)
+		if err != nil || len(values) != 0 {
+			t.Fatalf("shadowed row retained: %+v %v", values, err)
+		}
+		view, err := app.ListJobs(input, serveTestStart.Add(3*time.Second))
+		if err != nil || len(view.Jobs) != 1 || view.Jobs[0].Temporary != nil || view.Jobs[0].Description != "config wins" {
+			t.Fatalf("shadow: %+v %v", view, err)
+		}
+	})
+}
+
+// A transaction can see creation/replacement after its config cache was
+// captured. Live first-run requests must wait, not be cancelled as missing.
+func TestTemporaryJobsCreatedAfterConfigCapture(t *testing.T) {
+	for _, replace := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replace=%t", replace), func(t *testing.T) {
+			f := newServeFixture(t, "")
+			f.step(t, serveTestStart)
+			f.stop(t)
+			input := config.Input{CWD: f.project, UserConfigDir: f.userConfig, StateDirDefault: f.stateDir}
+			cfg, err := config.Load(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			end, due := serveTestStart.Add(time.Hour), serveTestStart.Add(30*time.Minute)
+			requested := config.Job{Name: "watch", Run: []string{"true"}, Enabled: true, Until: &end}
+			if replace {
+				if _, err := app.AddTemporaryJob(cfg, requested, "old", &due, serveTestStart); err != nil {
+					t.Fatal(err)
+				}
+				cfg, err = app.LoadJobs(input, serveTestStart)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := app.Cancel(cfg.StateDir, cfg.Project, nil, "watch", serveTestStart); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// cfg is intentionally captured before the new identity is committed.
+			if _, err := app.AddTemporaryJob(cfg, requested, "new", &due, serveTestStart.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			state, err := store.Open(f.stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer state.Close()
+			snapshot, err := state.ReadSchedulerSnapshot()
+			if err != nil || len(snapshot.Projects) != 1 {
+				t.Fatalf("snapshot: %+v %v", snapshot, err)
+			}
+			project := snapshot.Projects[0]
+			configs := map[int64]*projectConfig{project.ID: {project: project, config: &cfg, configSelection: configSelection(project)}}
+			queued, err := state.QueuedRunsForProject(f.project)
+			if err != nil || len(queued) != 1 {
+				t.Fatalf("first request: %+v %v", queued, err)
+			}
+			id := queued[0].ID
+			if err := state.SetScheduler(store.SchedulerRecord{PID: 1, StartIdentity: "test", StartedAt: store.FormatTime(serveTestStart), HeartbeatAt: store.FormatTime(serveTestStart)}); err != nil {
+				t.Fatal(err)
+			}
+			tick := func(now time.Time) {
+				t.Helper()
+				_, err := state.ScheduleTick(now, 1, "test", func(store.SchedulerSnapshot) (store.SchedulerPlan, error) { return store.SchedulerPlan{}, nil }, func(snapshot store.SchedulerSnapshot) (store.DispatchPlan, error) {
+					jobs, err := makeJobInputs(snapshot, configs)
+					if err != nil {
+						return store.DispatchPlan{}, err
+					}
+					runs, err := plannerRuns(withoutUnloaded(snapshot, configs, now).Runs)
+					if err != nil {
+						return store.DispatchPlan{}, err
+					}
+					start, expire, cancel := Dispatch(now, jobs, runs)
+					return store.DispatchPlan{Start: start, Expire: expire, Cancel: cancel}, nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			tick(serveTestStart.Add(2 * time.Second))
+			if run, err := state.RunByID(id); err != nil || run.Status != "queued" {
+				t.Fatalf("uncached identity cancelled first request: %+v %v", run, err)
+			}
+			// Deferral must never make an expired identity eligible or immortal.
+			tick(end)
+			if run, err := state.RunByID(id); err != nil || run.Status != "cancelled" {
+				t.Fatalf("ended identity remained deferred: %+v %v", run, err)
+			}
+		})
+	}
+}
+
+func ptrString(value string) *string { return &value }
+
 // Expiry must cancel queued work, not interrupt a process that already started.
 func TestServeUntil(t *testing.T) {
 	t.Run("running finishes and queued cancels", func(t *testing.T) {

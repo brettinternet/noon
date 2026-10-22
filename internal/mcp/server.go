@@ -58,7 +58,7 @@ type getRunArgs struct {
 
 type cancelRunArgs struct {
 	RunID   *int64  `json:"run_id,omitempty" jsonschema:"run ID; pass this or job"`
-	Job     *string `json:"job,omitempty" jsonschema:"end the temporary schedule and cancel all active runs of this job; pass this or run_id"`
+	Job     *string `json:"job,omitempty" jsonschema:"end the temporary job or schedule and cancel all active runs of this job; pass this or run_id"`
 	Project *string `json:"project,omitempty" jsonschema:"absolute project path; only with job"`
 }
 
@@ -169,7 +169,7 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 				return toolFailure(app.UsageError("key must be 1–200 characters of [A-Za-z0-9._:-]", "Use letters, digits, dot, underscore, colon, or hyphen"))
 			}
 		}
-		cfg, err := config.Load(values)
+		cfg, err := app.LoadJobs(values, time.Now())
 		if err != nil {
 			return toolFailure(app.ConfigError(err))
 		}
@@ -289,7 +289,7 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 			}
 			view, err = app.GetRun(ctx, stateDir, *args.RunID, waitSeconds, query)
 		} else {
-			cfg, configErr := config.Load(values)
+			cfg, configErr := app.LoadJobs(values, time.Now())
 			if configErr != nil {
 				return toolFailure(app.ConfigError(configErr))
 			}
@@ -309,7 +309,7 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "cancel_run", Description: "Cancel a run by run_id, or end a temporary schedule and cancel all active runs by job (with optional project).",
+		Name: "cancel_run", Description: "Cancel a run by run_id, or end a temporary job or schedule and cancel all active runs by job (with optional project).",
 		Annotations: &protocol.ToolAnnotations{DestructiveHint: &destructive},
 	}, func(_ context.Context, _ *protocol.CallToolRequest, args cancelRunArgs) (*protocol.CallToolResult, any, error) {
 		if (args.RunID == nil) == (args.Job == nil) || (args.RunID != nil && args.Project != nil) {
@@ -332,6 +332,9 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 				return toolFailure(app.StateError(err))
 			}
 			message := fmt.Sprintf("Requested cancellation of %d active runs of %s.", len(result.Runs), *args.Job)
+			if len(result.EndedTemporaryJobs) > 0 {
+				message = fmt.Sprintf("Ended the temporary job and requested cancellation of %d active runs of %s.", len(result.Runs), *args.Job)
+			}
 			if len(result.EndedTemporarySchedules) > 0 {
 				message = fmt.Sprintf("Ended the temporary schedule and requested cancellation of %d active runs of %s.", len(result.Runs), *args.Job)
 			}

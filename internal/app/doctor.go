@@ -44,7 +44,7 @@ func Doctor(ctx context.Context, input config.Input, now time.Time, build config
 			add(name, "ok", message, "")
 		}
 	}
-	cfg, configErr := config.Load(input)
+	cfg, configErr := LoadJobs(input, now)
 	check("config", "Configuration valid", "Fix configuration; run noon config check", configErr)
 	if configErr == nil {
 		_, err := time.LoadLocation(cfg.Timezone)

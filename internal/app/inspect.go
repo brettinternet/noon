@@ -22,6 +22,7 @@ type Project struct {
 // Job exposes environment names, never their values.
 type Job struct {
 	TemporarySchedule *store.TemporarySchedule `json:"temporary_schedule,omitempty"`
+	Temporary         *config.TemporaryJob     `json:"temporary,omitempty"`
 	Name              string                   `json:"name"`
 	Description       string                   `json:"description"`
 	Schedule          *string                  `json:"schedule"`
@@ -68,10 +69,14 @@ type Inspection struct {
 // Inspect validates the effective configuration without executing or writing.
 // Until a scheduler persists interval phase, intervals are relative to now.
 func Inspect(input config.Input, now time.Time) (Inspection, error) {
-	cfg, err := config.Load(input)
+	cfg, err := LoadJobs(input, now)
 	if err != nil {
 		return Inspection{}, err
 	}
+	return inspectConfig(cfg, now)
+}
+
+func inspectConfig(cfg config.Config, now time.Time) (Inspection, error) {
 	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
 		return Inspection{}, err
@@ -84,7 +89,7 @@ func Inspect(input config.Input, now time.Time) (Inspection, error) {
 	slices.Sort(names)
 	for _, name := range names {
 		job := cfg.Jobs[name]
-		view := Job{Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, EnvFile: job.EnvFile, Agent: job.Agent, AgentArgs: job.AgentArgs, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, NoopExitCode: job.NoopExitCode, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, OS: job.OS, Arch: job.Arch, PlatformSupported: job.MatchesPlatform(cfg.Platform), Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
+		view := Job{Temporary: job.Temporary, Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, EnvFile: job.EnvFile, Agent: job.Agent, AgentArgs: job.AgentArgs, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, NoopExitCode: job.NoopExitCode, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, OS: job.OS, Arch: job.Arch, PlatformSupported: job.MatchesPlatform(cfg.Platform), Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
 		view.Ended = job.Ended(now)
 		if job.Until != nil {
 			until := job.Until.In(loc)

@@ -43,10 +43,11 @@ type ScheduledRun struct {
 }
 
 type SchedulerSnapshot struct {
-	Projects  []EnabledProject
-	States    []PersistedJobState
-	Runs      []ScheduledRun
-	Temporary []TemporarySchedule
+	Projects      []EnabledProject
+	States        []PersistedJobState
+	Runs          []ScheduledRun
+	TemporaryJobs []TemporaryJob
+	Temporary     []TemporarySchedule
 }
 
 type JobStateChange struct {
@@ -127,7 +128,7 @@ func (s *Store) ReadSchedulerSnapshot() (SchedulerSnapshot, error) {
 		return SchedulerSnapshot{}, err
 	}
 	defer tx.Rollback()
-	return schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary)
+	return schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary, s.hasTemporaryJobs)
 }
 
 // SchedulerInfo returns the last scheduler heartbeat, or no record for old state
@@ -233,7 +234,7 @@ func (s *Store) ScheduleTick(now time.Time, pid int, identity string,
 	if n, _ := result.RowsAffected(); n != 1 {
 		return nil, errors.New("scheduler ownership was lost")
 	}
-	snapshot, err := schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary)
+	snapshot, err := schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary, s.hasTemporaryJobs)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +313,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, ru
 			}
 		}
 	}
-	snapshot, err = schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary)
+	snapshot, err = schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary, s.hasTemporaryJobs)
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +381,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, ru
 	return started, nil
 }
 
-func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID, hasTemporary bool) (SchedulerSnapshot, error) {
+func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID, hasTemporary, hasTemporaryJobs bool) (SchedulerSnapshot, error) {
 	var snapshot SchedulerSnapshot
 	projects, err := tx.Query(`SELECT p.id, p.path, p.config_file, a.job, a.digest FROM projects p LEFT JOIN approvals a ON a.project_id=p.id WHERE p.enabled=1 ORDER BY p.id, a.job`)
 	if err != nil {
@@ -466,6 +467,12 @@ func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID, hasTemporary bo
 	}
 	if err := errors.Join(runs.Err(), runs.Close()); err != nil {
 		return snapshot, err
+	}
+	if hasTemporaryJobs {
+		snapshot.TemporaryJobs, err = readTemporaryJobs(tx, "")
+		if err != nil {
+			return snapshot, err
+		}
 	}
 	if hasTemporary {
 		snapshot.Temporary, err = readTemporary(tx, "")

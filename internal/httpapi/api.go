@@ -223,7 +223,7 @@ func (h *APIHandler) queue(w http.ResponseWriter, r *http.Request, id int64, job
 		h.writeError(w, app.UsageError("key must be 1–200 characters of [A-Za-z0-9._:-]", "Use letters, digits, dot, underscore, colon, or hyphen"), 0)
 		return
 	}
-	cfg, err := config.Load(input)
+	cfg, err := app.LoadJobs(input, time.Now())
 	if err != nil {
 		h.writeError(w, app.ConfigError(err), 0)
 		return

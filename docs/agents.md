@@ -1,8 +1,9 @@
 # Agents
 
 Coding agents use Noon through MCP, or the CLI when only a shell is available. They can inspect
-jobs, queue approved ones, attach bounded temporary schedules to those jobs, read logs, and cancel runs. They can't add, edit, enable, approve,
-pause, or resume jobs.
+jobs, queue approved ones, attach bounded temporary schedules to those jobs, read logs, and cancel runs.
+MCP can't add, edit, enable, approve, pause, or resume jobs. Shell agents with user authorization
+can create bounded private jobs using `noon add --temporary`.
 
 ## Set up MCP
 
@@ -32,7 +33,7 @@ worktree is its own project; run IDs are global.
 | `run_job` | Queue a job; optional `key`, `in` or `at`, JSON `data`; or repeat with `schedule` and `for` or `until` |
 | `list_runs` | Recent runs; optional `status` array; each run reports `orphaned` |
 | `get_run` | One run and a bounded log read, by `run_id` or `job`; `timestamps: true` adds `line_times` |
-| `cancel_run` | Cancel by `run_id`, or end a temporary schedule and cancel active runs by `job` (optional `project`) |
+| `cancel_run` | Cancel by `run_id`, or end a temporary job or schedule and cancel active runs by `job` (optional `project`) |
 
 `run_job` follows the CLI's enablement and approval rules. Jobs whose `until` has passed, or whose requested due time is at or after `until`, refuse with `ended`. `list_jobs` exposes `until` (project-timezone RFC 3339 when set) and `ended`, with no `next_at` beyond the end. Already-running work finishes normally; foreground CLI runs remain available. The client's name and version are
 recorded as `requested_by`: metadata, not authority.
@@ -50,6 +51,31 @@ one-shot that never merges into a due run. Reusing `key` returns the existing ru
 
 Without MCP, `noon skill` prints a shell-only Agent Skills document for you to save into your
 agent's skills directory (`--json` wraps it as `content`).
+
+## Temporary jobs
+
+For a new bounded follow-up, use the CLI with the user's authorization:
+
+```sh
+noon add watch-pr-42 "every 2h" --temporary --for 3d --agent claude --prompt "Check PR 42 CI; fix failures" --key pr-42
+```
+
+This writes only state, not config (including symlinked `.git/noon.yaml`). It enables the project
+and creates a private job with `requested_by: cli`. Exactly one end is required within 7 days
+including minute rounding; use a schedule or `--in`/`--at` for a first run before it. Same-key
+retries return the existing active definition; other active name collisions fail. Only the CLI
+creates temporary jobs: no MCP tool or HTTP API route has this authority.
+
+`list_jobs` exposes `source: "temporary"`, `until`, `ended`, and `temporary` with `created_at`,
+`requested_by`, optional `key`/`ended_at`, and `removes_at`. `status` lists active temporary jobs
+in one notice. `run_job` can queue one before its end, but cannot attach `schedule` to it.
+At expiry queued work is cancelled and running work finishes. Pause, resume, and project disable
+never extend the end. `cancel_run {"job":"watch-pr-42"}` ends it now and cancels active work;
+`ended_temporary_jobs` names it in the result. Cancel by run ID alone does not end the definition.
+
+Ended definitions remain visible for 24h, then disappear even without a running scheduler.
+`noon remove NAME` deletes immediately; history and logs keep normal retention. A later config
+job with the same name wins. Remove and add again to change a temporary job.
 
 ## Temporary schedules
 

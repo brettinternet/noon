@@ -48,6 +48,15 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	if setting(cmd, "config") != nil {
 		return &Error{Code: "explicit_config", Message: "cannot edit an explicit config file", Hint: "Edit that file directly", Usage: true}
 	}
+	if cmd.IsSet("key") && !cmd.Bool("temporary") {
+		return usageError("--key requires --temporary", "")
+	}
+	if cmd.Bool("temporary") && cmd.Bool("shared") {
+		return usageError("--temporary conflicts with --shared", "")
+	}
+	if cmd.Bool("temporary") && !cmd.IsSet("for") && !cmd.IsSet("until") {
+		return usageError("--temporary requires --for or --until", "")
+	}
 	name := args[0]
 	if !validJobName(name) {
 		return usageError("invalid job name", "Use a name matching ^[a-z][a-z0-9_-]{0,63}$")
@@ -162,6 +171,52 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		if err != nil {
 			return usageError(err.Error(), "Use --in DURATION or --at TIME")
 		}
+	}
+	merged := cfg
+	if err := app.MergeTemporaryJobs(&merged, now, true); err != nil {
+		return stateError(err)
+	}
+	if cmd.Bool("temporary") {
+		var due *time.Time
+		if queued {
+			due = &queueDue
+		}
+		result, err := app.AddTemporaryJob(merged, job, cmd.String("key"), due, now)
+		if err != nil {
+			return queueError(err)
+		}
+		if cmd.Bool("json") {
+			output := map[string]any{"job": result.Job, "created": result.Created, "scheduler": result.Scheduler}
+			if result.Reason != "" {
+				output["reason"] = result.Reason
+			}
+			return emit(cmd, output)
+		}
+		scheduleText := "manual"
+		if result.Job.Schedule != nil {
+			scheduleText = *result.Job.Schedule
+		}
+		verb := "Added temporary job"
+		if !result.Created {
+			verb = "Already added temporary job"
+		}
+		fmt.Fprintf(cmd.Writer, "%s %s (%s until %s)", verb, name, scheduleText, result.Job.Until.Format("Mon 15:04"))
+		if result.Job.NextAt != nil {
+			fmt.Fprintf(cmd.Writer, " · next %s", result.Job.NextAt.Format("Mon 15:04"))
+		}
+		fmt.Fprintln(cmd.Writer)
+		if result.Scheduler == "offline" {
+			fmt.Fprintln(cmd.Writer, "The scheduler isn't running, so nothing runs until it starts.")
+			hint, err := serviceGuidance(cfg.StateDir)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.Writer, guidance(cmd, hint))
+		}
+		return nil
+	}
+	if existing, ok := merged.Jobs[name]; ok && existing.Temporary != nil {
+		return &Error{Code: "exists", Message: fmt.Sprintf("job %q already exists", name), Hint: "noon remove " + name}
 	}
 	userProject := config.IsUserProject(cfg.Project, values.UserConfigDir)
 	if userProject && (cmd.Bool("shared") || cmd.Bool("local")) {
@@ -396,6 +451,9 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	if e != nil {
 		return configError(e)
 	}
+	if err := app.MergeTemporaryJobs(&cfg, time.Now(), true); err != nil {
+		return stateError(err)
+	}
 	if cmd.Bool("shared") && cmd.Bool("local") {
 		return usageError("--shared and --local are mutually exclusive", "Choose the definition to remove")
 	}
@@ -413,6 +471,25 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 		return usageError("no private config outside a Git checkout", "Choose --shared")
 	}
 	args = uniqueTargets(args)
+	removed := []map[string]string{}
+	for _, name := range args {
+		if _, ok := cfg.Jobs[name]; !ok {
+			return app.MissingJobError(name, "remove", cfg.Jobs)
+		}
+	}
+	var temporary []string
+	for name, job := range cfg.Jobs {
+		if job.Temporary != nil {
+			if slices.Contains(args, name) {
+				if cmd.Bool("shared") || cmd.Bool("local") {
+					return usageError("temporary jobs have no config file", "Remove without --shared or --local")
+				}
+				temporary = append(temporary, name)
+			}
+			delete(cfg.Jobs, name)
+		}
+	}
+	args = slices.DeleteFunc(args, func(name string) bool { return slices.Contains(temporary, name) })
 	byFile := map[string][]string{}
 	files := []string{}
 	for _, name := range args {
@@ -481,7 +558,15 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 		}
 		prepared[file] = src
 	}
-	removed := []map[string]string{}
+	for _, name := range temporary {
+		if err := app.RemoveTemporaryJob(cfg, name, time.Now()); err != nil {
+			return stateError(err)
+		}
+		removed = append(removed, map[string]string{"removed": name, "file": "temporary"})
+		if !cmd.Bool("json") {
+			fmt.Fprintf(cmd.Writer, "Removed temporary job %s. History is retained.\n", name)
+		}
+	}
 	failures := []targetFailure{}
 	for _, file := range files {
 		if err := app.EndTemporarySchedules(cfg.StateDir, cfg.Project, byFile[file]); err != nil {
@@ -539,7 +624,7 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 	if e != nil {
 		return e
 	}
-	cfg, e := config.Load(values)
+	cfg, e := app.LoadJobs(values, time.Now())
 	if e != nil {
 		return configError(e)
 	}
@@ -675,7 +760,7 @@ func refuseSymlink(path string) error {
 		return nil
 	}
 	target, _ := os.Readlink(path)
-	return &Error{Code: "config_edit", Message: fmt.Sprintf("%s is a symlink to %s; Noon does not edit symlinked config", path, target), Hint: "Edit the link target by hand"}
+	return &Error{Code: "config_edit", Message: fmt.Sprintf("%s is a symlink to %s; Noon does not edit symlinked config", path, target), Hint: "Edit the link target by hand, or use noon add --temporary for a bounded follow-up"}
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {

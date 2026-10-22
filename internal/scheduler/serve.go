@@ -324,6 +324,9 @@ func Serve(ctx context.Context, options ServeOptions) error {
 			continue
 		}
 		now := options.Now()
+		if err := state.PurgeTemporaryJobs(now); err != nil {
+			return err
+		}
 		snapshot, err := state.ReadSchedulerSnapshot()
 		if err != nil {
 			return err
@@ -350,6 +353,18 @@ func Serve(ctx context.Context, options ServeOptions) error {
 			} else if cached.config == nil && cached.checkedAt.IsZero() {
 				if err := reloadProject(state, cached, options, now, &logger, true); err != nil {
 					return err
+				}
+			}
+			if cached.config != nil {
+				merged := *cached.config
+				if err := app.MergeTemporaryJobs(&merged, now, false); err != nil {
+					// A collision or new profile may reflect config newer than
+					// the 2s poll. Validate current config before deleting shadows.
+					if err := reloadProject(state, cached, options, now, &logger, true); err != nil {
+						return err
+					}
+				} else {
+					cached.config = &merged
 				}
 			}
 		}
@@ -387,7 +402,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 				if err != nil {
 					return store.SchedulerPlan{}, err
 				}
-				snapshot = withoutUnloaded(snapshot, configs)
+				snapshot = withoutUnloaded(snapshot, configs, now)
 				states, err := plannerStates(snapshot.States)
 				if err != nil {
 					return store.SchedulerPlan{}, err
@@ -407,7 +422,11 @@ func Serve(ctx context.Context, options ServeOptions) error {
 				for _, value := range create {
 					cached := configs[value.Key.Project]
 					job := cached.config.Jobs[value.Key.Job]
-					plan.Create = append(plan.Create, store.ScheduledRunInput{ProjectID: value.Key.Project, Job: value.Key.Job, Status: value.Status, Trigger: value.Trigger, Digest: job.Digest, ScheduledAt: value.ScheduledAt, DueAt: value.DueAt})
+					requestedBy := ""
+					if job.Temporary != nil {
+						requestedBy = job.Temporary.RequestedBy
+					}
+					plan.Create = append(plan.Create, store.ScheduledRunInput{ProjectID: value.Key.Project, Job: value.Key.Job, Status: value.Status, Trigger: value.Trigger, Digest: job.Digest, ScheduledAt: value.ScheduledAt, DueAt: value.DueAt, RequestedBy: requestedBy})
 				}
 				if err := planTemporary(now, snapshot, configs, jobs, &plan); err != nil {
 					return store.SchedulerPlan{}, err
@@ -419,7 +438,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 				if err != nil {
 					return store.DispatchPlan{}, err
 				}
-				runs, err := plannerRuns(withoutUnloaded(snapshot, configs).Runs)
+				runs, err := plannerRuns(withoutUnloaded(snapshot, configs, options.Now()).Runs)
 				if err != nil {
 					return store.DispatchPlan{}, err
 				}
@@ -606,6 +625,10 @@ func reloadProject(state *store.Store, cached *projectConfig, options ServeOptio
 		input.File = &file
 	}
 	loaded, err := config.Load(input)
+	if err == nil {
+		loaded.StateDir = options.StateDir
+		err = app.MergeTemporaryJobs(&loaded, now, true)
+	}
 	cached.stamps = stamps
 	cached.checkedAt = now
 	if err != nil {
@@ -801,20 +824,29 @@ func loadedConfig(project store.EnabledProject, configs map[int64]*projectConfig
 
 // withoutUnloaded hides enabled projects that have no valid configuration yet
 // from the planners, so a transient config error neither resets their schedule
-// watermarks nor cancels their queued runs. Running runs still count toward caps.
-func withoutUnloaded(snapshot store.SchedulerSnapshot, configs map[int64]*projectConfig) store.SchedulerSnapshot {
+// watermarks nor cancels their queued runs. Active temporary identities created
+// after config capture also wait for the next reload. Running runs count toward caps.
+func withoutUnloaded(snapshot store.SchedulerSnapshot, configs map[int64]*projectConfig, now time.Time) store.SchedulerSnapshot {
 	unloaded := map[int64]bool{}
 	for _, project := range snapshot.Projects {
 		if loadedConfig(project, configs) == nil {
 			unloaded[project.ID] = true
 		}
 	}
-	if len(unloaded) == 0 {
+	deferred := map[JobKey]bool{}
+	for _, project := range snapshot.Projects {
+		for _, value := range snapshot.TemporaryJobs {
+			if value.ProjectID == project.ID && value.EndedAt == nil && now.Before(value.Until) && !temporaryJobLoaded(value, configs) {
+				deferred[JobKey{Project: value.ProjectID, Job: value.Name}] = true
+			}
+		}
+	}
+	if len(unloaded) == 0 && len(deferred) == 0 {
 		return snapshot
 	}
-	filtered := store.SchedulerSnapshot{Projects: snapshot.Projects}
+	filtered := store.SchedulerSnapshot{Projects: snapshot.Projects, TemporaryJobs: snapshot.TemporaryJobs}
 	for _, state := range snapshot.States {
-		if !unloaded[state.ProjectID] {
+		if !unloaded[state.ProjectID] && !deferred[JobKey{Project: state.ProjectID, Job: state.Job}] {
 			filtered.States = append(filtered.States, state)
 		}
 	}
@@ -824,11 +856,20 @@ func withoutUnloaded(snapshot store.SchedulerSnapshot, configs map[int64]*projec
 		}
 	}
 	for _, run := range snapshot.Runs {
-		if run.Status == "running" || !unloaded[run.ProjectID] {
+		if run.Status == "running" || (!unloaded[run.ProjectID] && !deferred[JobKey{Project: run.ProjectID, Job: run.Job}]) {
 			filtered.Runs = append(filtered.Runs, run)
 		}
 	}
 	return filtered
+}
+
+func temporaryJobLoaded(value store.TemporaryJob, configs map[int64]*projectConfig) bool {
+	cached := configs[value.ProjectID]
+	if cached == nil || cached.config == nil {
+		return false
+	}
+	job := cached.config.Jobs[value.Name]
+	return job.Temporary != nil && value.Digest == job.Temporary.DefinitionDigest && value.CreatedAt.Equal(job.Temporary.CreatedAt)
 }
 
 func makeJobInputs(snapshot store.SchedulerSnapshot, configs map[int64]*projectConfig) ([]JobInput, error) {
@@ -843,8 +884,30 @@ func makeJobInputs(snapshot store.SchedulerSnapshot, configs map[int64]*projectC
 			return nil, fmt.Errorf("load timezone %q for %q: %w", cached.config.Timezone, project.Path, err)
 		}
 		for name, job := range cached.config.Jobs {
+			// A newer temporary identity must not inherit a stale config job's
+			// schedule or execute its action while it waits for reload.
+			for _, value := range snapshot.TemporaryJobs {
+				if value.ProjectID == project.ID && value.Name == name && !temporaryJobLoaded(value, configs) {
+					job.Enabled = false
+				}
+			}
+			if job.Temporary != nil {
+				found := false
+				for _, value := range snapshot.TemporaryJobs {
+					if value.ProjectID == project.ID && value.Name == name && value.Digest == job.Temporary.DefinitionDigest && value.CreatedAt.Equal(job.Temporary.CreatedAt) {
+						end := value.End()
+						job.Until = &end
+						job.Temporary = nil
+						found = true
+						break
+					}
+				}
+				if !found {
+					job.Enabled = false
+				}
+			}
 			active := job.Enabled && job.MatchesPlatform(cached.config.Platform) && !project.Paused[name] && (!job.Shared || project.Approvals[name] == job.Digest)
-			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, ProjectPath: project.Path, Splay: job.Splay, Jitter: job.Jitter, Until: job.Until, Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap})
+			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, ProjectPath: project.Path, Splay: job.Splay, Jitter: job.Jitter, Until: job.EndTime(), Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap})
 		}
 	}
 	return jobs, nil

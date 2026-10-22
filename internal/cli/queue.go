@@ -143,8 +143,12 @@ func temporaryJobs(cmd *urfave.Command, cfg config.Config, names []string, data 
 		return err
 	}
 	for _, name := range names {
-		if _, ok := cfg.Jobs[name]; !ok {
+		job, ok := cfg.Jobs[name]
+		if !ok {
 			return app.MissingJobError(name, "run", cfg.Jobs)
+		}
+		if job.Temporary != nil {
+			return usageError("temporary jobs cannot have temporary schedules", "Remove and add the temporary job again")
 		}
 	}
 	results := []app.TemporaryResult{}
