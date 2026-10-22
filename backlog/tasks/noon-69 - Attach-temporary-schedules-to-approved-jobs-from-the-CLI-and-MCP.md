@@ -1,10 +1,10 @@
 ---
 id: NOON-69
 title: Attach temporary schedules to approved jobs from the CLI and MCP
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-22 02:56'
-updated_date: '2026-10-22 02:56'
+updated_date: '2026-10-22 03:39'
 labels:
   - scheduler
   - cli
@@ -104,18 +104,42 @@ Modified-file contract: the modified_files list plus this task record. Justify o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo enabled with `bin/noon enable` whose .git/noon.yaml defines manual job `ping` (run ["true"]): `bin/noon run ping --schedule "*/10 * * * *" --for 2h --json` exits 0 with `created` true and `temporary_schedule` holding that schedule, an `until` 2h out rounded up to a whole minute, a `next_at` on a 10-minute boundary, and `requested_by` "cli"; `bin/noon list --json` reports the same `temporary_schedule` for `ping` and a matching job `next_at`; bare `bin/noon` prints the temporary schedule notice.
-- [ ] #2 In the same environment: repeating the request without `--key` exits 1 with code `already_scheduled`; after `bin/noon cancel ping`, `bin/noon run ping --schedule "every 10m" --for 1h --key k1 --json` twice returns the same schedule with the second reporting `created` false and `reason` "duplicate"; each of `--schedule "every 10m"` alone, `--for 8d`, `--for 1h --until 17:00`, `--schedule "0 9 1 1 *" --for 1h` (no occurrence before the end), `--schedule "every 10m" --for 1h --detach`, and `--schedule "every day"` exits 2; after adding shared job `shared` (run ["true"]) to noon.yaml without re-running enable, `bin/noon run shared --schedule "every 10m" --for 1h` exits 1 with code `needs_approval`; after `bin/noon cancel ping` and `bin/noon pause ping`, a new request for `ping` exits 1 with code `paused`.
-- [ ] #3 `task cli:test PKG=./internal/scheduler -- -count=1` exits 0 and covers, with injected time and a real store: a temporary schedule creates runs at its occurrences with its requested_by and one event file per run holding its data; none at or after its end, after which its row is gone; a config schedule and a temporary schedule coinciding on one job produce one run and one `skipped` record; the job `missed` policy applies after downtime; pause, disable, digest change, job removal, and project disable each delete the schedule and resume or re-enable does not restore it; the persisted next occurrence survives a scheduler restart without a duplicate run.
-- [ ] #4 `task cli:test PKG=./internal/store -- -count=1` exits 0 and covers migration of an existing database, and 10 concurrent creation requests for one job with distinct keys producing exactly one temporary schedule. `task cli:test PKG=./internal/mcp -- -count=1` exits 0 and covers `run_job` with `schedule` and `for` creating a schedule recorded with the client name, `run_job` rejecting `schedule` with `in`, and `cancel_run` with `job` ending the schedule.
-- [ ] #5 Docs in scope describe only implemented behavior, including the agents.md authority statement. `task ci` exits 0.
+- [x] #1 After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo enabled with `bin/noon enable` whose .git/noon.yaml defines manual job `ping` (run ["true"]): `bin/noon run ping --schedule "*/10 * * * *" --for 2h --json` exits 0 with `created` true and `temporary_schedule` holding that schedule, an `until` 2h out rounded up to a whole minute, a `next_at` on a 10-minute boundary, and `requested_by` "cli"; `bin/noon list --json` reports the same `temporary_schedule` for `ping` and a matching job `next_at`; bare `bin/noon` prints the temporary schedule notice.
+- [x] #2 In the same environment: repeating the request without `--key` exits 1 with code `already_scheduled`; after `bin/noon cancel ping`, `bin/noon run ping --schedule "every 10m" --for 1h --key k1 --json` twice returns the same schedule with the second reporting `created` false and `reason` "duplicate"; each of `--schedule "every 10m"` alone, `--for 8d`, `--for 1h --until 17:00`, `--schedule "0 9 1 1 *" --for 1h` (no occurrence before the end), `--schedule "every 10m" --for 1h --detach`, and `--schedule "every day"` exits 2; after adding shared job `shared` (run ["true"]) to noon.yaml without re-running enable, `bin/noon run shared --schedule "every 10m" --for 1h` exits 1 with code `needs_approval`; after `bin/noon cancel ping` and `bin/noon pause ping`, a new request for `ping` exits 1 with code `paused`.
+- [x] #3 `task cli:test PKG=./internal/scheduler -- -count=1` exits 0 and covers, with injected time and a real store: a temporary schedule creates runs at its occurrences with its requested_by and one event file per run holding its data; none at or after its end, after which its row is gone; a config schedule and a temporary schedule coinciding on one job produce one run and one `skipped` record; the job `missed` policy applies after downtime; pause, disable, digest change, job removal, and project disable each delete the schedule and resume or re-enable does not restore it; the persisted next occurrence survives a scheduler restart without a duplicate run.
+- [x] #4 `task cli:test PKG=./internal/store -- -count=1` exits 0 and covers migration of an existing database, and 10 concurrent creation requests for one job with distinct keys producing exactly one temporary schedule. `task cli:test PKG=./internal/mcp -- -count=1` exits 0 and covers `run_job` with `schedule` and `for` creating a schedule recorded with the client name, `run_job` rejecting `schedule` with `in`, and `cancel_run` with `job` ending the schedule.
+- [x] #5 Docs in scope describe only implemented behavior, including the agents.md authority statement. `task ci` exits 0.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 task ci passes on the final commit
-- [ ] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] #4 No test was deleted, skipped, or weakened
-- [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] #1 task ci passes on the final commit
+- [x] #2 Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] #3 The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] #4 No test was deleted, skipped, or weakened
+- [x] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implementation plan: append schema v13; serialize schedule creation with existing queue eligibility; persist an independent next occurrence and feed temporary occurrences through scheduler.Due after config occurrences so overlap is shared; expose shared app operation to CLI and MCP. No dependencies added. Modified-file contract expansion: internal/skill/SKILL.md is the actual go:embed source; update it rather than the unchanged embedding wrapper internal/skill/skill.go. Regression tests will cover authorization, concurrent deduplication, occurrence/restart integrity, cancellation, and permanent lifecycle removal.
+
+Independent review found two concrete defects to fix before delivery: offline remove/re-add could retain and revive a temporary row, and mixed job/ID cancellation waited on the first job before requesting later targets. Contract expansion: internal/cli/manage.go must invalidate temporary schedules when removing a job, including while the scheduler is offline. Add regressions in existing queue tests. The first task ci attempt hit an unrelated existing runner subprocess PID timing flake; its focused rerun and a complete task ci rerun passed without changing or weakening that test.
+
+Delivery: implementation commit 761349c0729486bbd57118ce8e7dd65df84cfb29 fast-forward merged into main. One independent reviewer pass found offline remove/re-add resurrection and delayed mixed-selector cancellation; both fixed and regression-tested. No further review pass; no tests deleted, skipped, or weakened. AC#1: task cli:build && bun /tmp/noon-69-acceptance.mjs -> PASS, isolated temporary Git repo with private ping, all HOME/XDG/state variables under mktemp; validates created metadata, minute-rounded 2h end, 10-minute NEXT, list identity and dashboard notice. AC#2: same acceptance script -> PASS, unkeyed conflict, keyed duplicate identity, cancel, every specified invalid form exit 2, needs_approval and paused exit 1. AC#3: task cli:test PKG=./internal/scheduler -- -count=1 -> PASS; real-store/injected-clock occurrences, distinct event files/data/identity, exclusive expiry/deletion, shared overlap with config, missed policies, permanent lifecycle deletion, persisted phase and no restart duplicate. AC#4: task cli:test PKG=./internal/store -- -count=1 and task cli:test PKG=./internal/mcp -- -count=1 -> PASS; schema v12 migration, ten competing writers, key duplicate, MCP client identity, conflicting timing and job cancellation. AC#5: task ci -> PASS after review fixes, including unit/integration/race, vet/Staticcheck, vulnerability/secret scans and smoke; docs/help describe implemented authority and behavior. Focused CLI regression checks passed; LSP diagnostics clean. Worktree creation receipt: checkout /Users/brett/dev/me/noon/.worktrees/feat-noon-69-temporary-schedules; branch feat/noon-69-temporary-schedules; creation SHA 71e81db96e77c6b1c5d1f7f1640eb777df399f87; owner session 01a1619e-7b71-7735-9cbc-f05fd8c52fa3; loop fc6f397e-090b-47d1-9f96-11d9e27ee2e1. Verified clean and integrated using wt list and Git-local agent-creation.json; associated Herdr workspace wHW has only its idle zsh pane wHW:p1. Next step: remove this verified owned worktree through Worktrunk, finalize task bookkeeping, and run task ci on final main commit. No remaining implementation blocker.
+
+Cleanup complete: wt remove feat/noon-69-temporary-schedules --foreground --format=json --yes returned branch_outcome deleted; git worktree list now shows only primary main. Verified associated Herdr workspace wHW disappeared. No retained task worktrees/workspaces or running children. All acceptance and delivery obligations are satisfied; final bookkeeping commit is gated by task ci immediately after commit. No push or PR requested or performed.
+
+AC#1: task cli:build && bun /tmp/noon-69-acceptance.mjs -> PASS (creation, rounded end, NEXT, list and dashboard).
+AC#2: bun /tmp/noon-69-acceptance.mjs -> PASS (duplicate/key/cancel, invalid inputs, approval and pause errors).
+AC#3: task cli:test PKG=./internal/scheduler -- -count=1 -> PASS (real-store injected-clock temporary scheduling regressions).
+AC#4: task cli:test PKG=./internal/store -- -count=1; task cli:test PKG=./internal/mcp -- -count=1 -> both PASS (migration/concurrency and MCP lifecycle).
+AC#5: task ci -> PASS after fixes (docs/help checked against implemented behavior; full compiler, test, race, security and smoke gate).
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented bounded temporary schedules for approved existing jobs across CLI and MCP, schema v13 persistence, shared planner policies, lifecycle deletion, NEXT/dashboard visibility, cancellation, docs and skill. Commit 761349c fast-forward integrated into main. Acceptance checks and full CI/race passed; one independent review completed and both concrete findings fixed with regressions. Owned worktree, branch and Herdr workspace removed; no remaining blocker or resumable work.
+<!-- SECTION:FINAL_SUMMARY:END -->
