@@ -267,7 +267,7 @@ func TestEnvFileDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roundTrip, err := config.JobFromSource(encoded, "tests", config.BuiltInAgents(), "", nil, nil, false, "")
+	roundTrip, err := config.JobFromSource(encoded, "tests", config.BuiltInAgents(), "", nil, nil, false, "", "")
 	if err != nil || roundTrip.Digest != ordered.Digest {
 		t.Fatalf("round trip lost paths: %s %v", encoded, err)
 	}

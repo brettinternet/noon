@@ -188,8 +188,9 @@ func JobNames(src []byte) ([]string, error) {
 }
 
 // JobFromSource validates one raw definition, even when another file shadows it.
-// A relative vars_file in src resolves from project, matching Load.
-func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool, project string, timezone ...string) (Job, error) {
+// A relative vars_file in src resolves from project, matching Load. A nonempty
+// timezone (the effective one after overrides) wins over the timezone in src.
+func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool, project, timezone string) (Job, error) {
 	values, err := parse(src)
 	if err != nil {
 		return Job{}, err
@@ -222,11 +223,11 @@ func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defa
 		if value := values["timezone"]; value != nil {
 			zone = value.Value
 		}
-		if len(timezone) > 0 {
-			zone = timezone[0]
+		if timezone != "" {
+			zone = timezone
 		}
 		cfg := Config{Timezone: zone, Jobs: map[string]Job{name: parsed}, Agents: agents, DefaultAgent: defaultAgent}
-		if err := cfg.resolveAgents(); err != nil {
+		if err := cfg.resolveJobs(); err != nil {
 			return Job{}, err
 		}
 		return cfg.Jobs[name], nil
@@ -260,7 +261,7 @@ func DigestJobDefinition(job Job, agents map[string]AgentProfile, defaultAgent s
 		return "", err
 	}
 	cfg := Config{Jobs: map[string]Job{job.Name: parsed}, Agents: agents, DefaultAgent: defaultAgent}
-	if err := cfg.resolveAgents(); err != nil {
+	if err := cfg.resolveJobs(); err != nil {
 		return "", err
 	}
 	return cfg.Jobs[job.Name].Digest, nil

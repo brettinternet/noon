@@ -23,6 +23,12 @@ type TemporarySchedule struct {
 	EventSource string    `json:"-"`
 }
 
+// In returns the schedule with its times shown in loc.
+func (value TemporarySchedule) In(loc *time.Location) TemporarySchedule {
+	value.Until, value.NextAt, value.CreatedAt = value.Until.In(loc), value.NextAt.In(loc), value.CreatedAt.In(loc)
+	return value
+}
+
 const temporaryColumns = "project_id, job, schedule, until_at, next_at, requested_by, created_at, request_key, digest, data, event_source"
 
 func scanTemporary(row interface{ Scan(...any) error }) (TemporarySchedule, error) {
@@ -96,7 +102,8 @@ func (s *Store) CreateTemporarySchedule(value TemporarySchedule, input QueueRunI
 	if err := s.checkQueueEligibility(tx, input); err != nil {
 		return value, false, "", err
 	}
-	if input.JobUntil != nil && !input.Now.Before(*input.JobUntil) {
+	// Like a queued request due at or after the job end, a first occurrence there is refused.
+	if input.JobUntil != nil && (!input.Now.Before(*input.JobUntil) || !value.NextAt.Before(*input.JobUntil)) {
 		return value, false, "", ErrJobEnded
 	}
 	// Expired or changed definitions must never be revived by a duplicate request.

@@ -118,6 +118,7 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 		}
 		result.Runs = append(result.Runs, outcome.Result.Runs...)
 		result.Pending = result.Pending || outcome.Result.Pending
+		result.EndedTemporarySchedules = append(result.EndedTemporarySchedules, outcome.Result.EndedTemporarySchedules...)
 		result.AlreadyFinished = outcome.Result.AlreadyFinished
 	}
 	if cmd.Args().Len() == 1 && len(failures) == 0 {
@@ -128,12 +129,26 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 			return err
 		}
 	}
-	return finishBatch(cmd, map[string]any{"runs": result.Runs, "pending": result.Pending}, failures)
+	return finishBatch(cmd, cancellationJSON(result), failures)
+}
+
+func cancellationJSON(result app.CancelResult) map[string]any {
+	output := map[string]any{"runs": result.Runs, "pending": result.Pending}
+	if len(result.EndedTemporarySchedules) > 0 {
+		output["ended_temporary_schedules"] = result.EndedTemporarySchedules
+	}
+	return output
 }
 
 func renderCancellation(cmd *urfave.Command, result app.CancelResult) error {
 	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"runs": result.Runs, "pending": result.Pending})
+		return emit(cmd, cancellationJSON(result))
+	}
+	for _, job := range result.EndedTemporarySchedules {
+		fmt.Fprintf(cmd.Writer, "Ended temporary schedule for %s.\n", job)
+	}
+	if len(result.Runs) == 0 && len(result.EndedTemporarySchedules) > 0 {
+		return nil
 	}
 	if len(result.Runs) == 0 {
 		fmt.Fprintln(cmd.Writer, "No active runs to cancel.")

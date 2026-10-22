@@ -145,6 +145,44 @@ type TemporaryResult struct {
 	Scheduler         string                  `json:"scheduler"`
 }
 
+// ResolveEnd resolves exactly one of a relative (for) or absolute (until) end
+// once, in loc. A duration is at least 1m and rounds up to a whole minute;
+// HH:MM means its next occurrence. The end must be after now.
+func ResolveEnd(forValue, untilValue string, now time.Time, loc *time.Location) (time.Time, error) {
+	if (forValue == "") == (untilValue == "") {
+		return time.Time{}, errors.New("exactly one of for or until is required")
+	}
+	var until time.Time
+	if forValue != "" {
+		duration, err := schedule.ParseDuration(forValue)
+		if err != nil || duration < time.Minute {
+			return time.Time{}, errors.New("for must be a duration of at least 1m")
+		}
+		until = now.Add(duration)
+		if rounded := until.Truncate(time.Minute); !rounded.Equal(until) {
+			until = rounded.Add(time.Minute)
+		}
+	} else {
+		var err error
+		if _, clockErr := time.Parse("15:04", untilValue); clockErr == nil {
+			local := now.In(loc)
+			until, err = config.ParseUntil(local.Format("2006-01-02")+" "+untilValue, loc)
+			if err == nil && !until.After(now) {
+				until, err = config.ParseUntil(local.AddDate(0, 0, 1).Format("2006-01-02")+" "+untilValue, loc)
+			}
+		} else {
+			until, err = config.ParseUntil(untilValue, loc)
+		}
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid until time %q: use HH:MM, YYYY-MM-DD HH:MM, or RFC 3339", untilValue)
+		}
+	}
+	if !until.After(now) {
+		return time.Time{}, errors.New("until must be after now")
+	}
+	return until.In(loc), nil
+}
+
 // TemporaryTimes validates the common schedule and bounded end syntax.
 func TemporaryTimes(text, forValue, untilValue string, now time.Time, loc *time.Location) (time.Time, time.Time, error) {
 	parsed, err := schedule.Parse(text)
@@ -157,35 +195,9 @@ func TemporaryTimes(text, forValue, untilValue string, now time.Time, loc *time.
 	if (forValue == "") == (untilValue == "") {
 		return fail("a temporary schedule requires exactly one of for or until")
 	}
-	var until time.Time
-	if forValue != "" {
-		duration, err := schedule.ParseDuration(forValue)
-		if err != nil || duration < time.Minute {
-			return fail("for must be a duration of at least 1m")
-		}
-		if duration > 7*24*time.Hour {
-			return fail("temporary schedules must end within 7 days")
-		}
-		until = now.Add(duration)
-		if rounded := until.Truncate(time.Minute); !rounded.Equal(until) {
-			until = rounded.Add(time.Minute)
-		}
-	} else {
-		if len(untilValue) == len("15:04") {
-			local := now.In(loc)
-			until, err = config.ParseUntil(local.Format("2006-01-02")+" "+untilValue, loc)
-			if err == nil && !until.After(now) {
-				until, err = config.ParseUntil(local.AddDate(0, 0, 1).Format("2006-01-02")+" "+untilValue, loc)
-			}
-		} else {
-			until, err = config.ParseUntil(untilValue, loc)
-		}
-		if err != nil {
-			return fail(err.Error())
-		}
-	}
-	if !until.After(now) {
-		return fail("until must be after now")
+	until, err := ResolveEnd(forValue, untilValue, now, loc)
+	if err != nil {
+		return fail(err.Error())
 	}
 	if until.Sub(now) > 7*24*time.Hour {
 		return fail("temporary schedules must end within 7 days (including minute rounding)")
@@ -242,7 +254,7 @@ func ScheduleTemporary(cfg config.Config, name, text, forValue, untilValue, key,
 	if !created {
 		reason = "duplicate"
 	}
-	return TemporaryResult{SchemaVersion: 1, TemporarySchedule: value, Created: created, Reason: reason, Scheduler: status}, nil
+	return TemporaryResult{SchemaVersion: 1, TemporarySchedule: value.In(loc), Created: created, Reason: reason, Scheduler: status}, nil
 }
 
 // QueueDueAt applies the same one-shot time syntax as the CLI.
@@ -347,10 +359,12 @@ func mapRuns(state *store.Store, stored []store.Run) ([]Run, error) {
 }
 
 type CancelResult struct {
-	SchemaVersion   int   `json:"schema_version"`
-	Runs            []Run `json:"runs"`
-	Pending         bool  `json:"pending"`
-	AlreadyFinished bool  `json:"-"`
+	SchemaVersion int   `json:"schema_version"`
+	Runs          []Run `json:"runs"`
+	Pending       bool  `json:"pending"`
+	// EndedTemporarySchedules names jobs whose temporary schedule this request ended.
+	EndedTemporarySchedules []string `json:"ended_temporary_schedules,omitempty"`
+	AlreadyFinished         bool     `json:"-"`
 }
 
 // Cancel requests cancellation and waits up to 15 seconds for live owners.
@@ -362,7 +376,7 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 	}
 	defer state.Close()
 	var stored []store.Run
-	alreadyFinished := false
+	alreadyFinished, ended := false, false
 	if runID != nil {
 		previous, err := state.RunByID(*runID)
 		if err != nil {
@@ -375,12 +389,16 @@ func Cancel(stateDir, project string, runID *int64, job string, now time.Time) (
 		}
 		stored = []store.Run{run}
 	} else {
-		stored, err = state.RequestCancelJob(project, job, now)
+		stored, ended, err = state.RequestCancelJob(project, job, now)
 		if err != nil {
 			return CancelResult{}, err
 		}
 	}
-	return waitForCancellation(state, stored, alreadyFinished, deadline)
+	result, err := waitForCancellation(state, stored, alreadyFinished, deadline)
+	if ended {
+		result.EndedTemporarySchedules = []string{job}
+	}
+	return result, err
 }
 
 // CancellationOutcome retains per-run results when some requests fail.
@@ -409,11 +427,12 @@ func CancelRuns(stateDir string, ids []int64, now time.Time, jobs ...CancelJob) 
 		index    int
 		runs     []store.Run
 		finished bool
+		ended    bool
 	}
 	var waiting []pending
 	seen := map[int64]bool{}
 	for _, job := range jobs {
-		runs, err := state.RequestCancelJob(job.Project, job.Job, now)
+		runs, ended, err := state.RequestCancelJob(job.Project, job.Job, now)
 		index := len(outcomes)
 		outcomes = append(outcomes, CancellationOutcome{Target: job.Job, Err: err})
 		if err != nil {
@@ -426,7 +445,7 @@ func CancelRuns(stateDir string, ids []int64, now time.Time, jobs ...CancelJob) 
 				unique = append(unique, run)
 			}
 		}
-		waiting = append(waiting, pending{index: index, runs: unique})
+		waiting = append(waiting, pending{index: index, runs: unique, ended: ended})
 	}
 	for _, id := range ids {
 		if seen[id] {
@@ -450,6 +469,9 @@ func CancelRuns(stateDir string, ids []int64, now time.Time, jobs ...CancelJob) 
 	deadline := time.Now().Add(15 * time.Second)
 	for _, item := range waiting {
 		outcomes[item.index].Result, outcomes[item.index].Err = waitForCancellation(state, item.runs, item.finished, deadline)
+		if item.ended {
+			outcomes[item.index].Result.EndedTemporarySchedules = []string{outcomes[item.index].Target}
+		}
 	}
 	return outcomes, nil
 }

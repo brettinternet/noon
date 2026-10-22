@@ -391,7 +391,9 @@ func validSessionIDFlag(value string) bool {
 	return true
 }
 
-func (cfg *Config) resolveAgents() error {
+// resolveJobs completes settings that depend on the final effective config:
+// until in the project timezone and agent profiles, updating digests.
+func (cfg *Config) resolveJobs() error {
 	loc := time.Local
 	if cfg.Timezone != "" {
 		var err error

@@ -48,30 +48,36 @@ func (s *Store) RequestCancelRun(id int64, now time.Time) (Run, error) {
 }
 
 // RequestCancelJob cancels every queued and running run for a project's job.
-func (s *Store) RequestCancelJob(projectPath, job string, now time.Time) ([]Run, error) {
+// It also deletes the job's temporary schedule and reports whether one existed.
+func (s *Store) RequestCancelJob(projectPath, job string, now time.Time) ([]Run, bool, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
-		return nil, fmt.Errorf("begin job cancellation: %w", err)
+		return nil, false, fmt.Errorf("begin job cancellation: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM temporary_schedules WHERE project_id IN (SELECT id FROM projects WHERE path=?) AND job=?`, projectPath, job); err != nil {
-		return nil, err
+	deleted, err := tx.Exec(`DELETE FROM temporary_schedules WHERE project_id IN (SELECT id FROM projects WHERE path=?) AND job=?`, projectPath, job)
+	if err != nil {
+		return nil, false, err
+	}
+	count, err := deleted.RowsAffected()
+	if err != nil {
+		return nil, false, err
 	}
 	rows, err := tx.Query(`SELECT `+s.qualifiedRunSelectColumns()+` FROM runs JOIN projects ON projects.id=runs.project_id WHERE projects.path=? AND runs.job=? AND runs.status IN ('queued','running') ORDER BY runs.id`, projectPath, job)
 	if err != nil {
-		return nil, fmt.Errorf("find active job runs: %w", err)
+		return nil, false, fmt.Errorf("find active job runs: %w", err)
 	}
 	var runs []Run
 	for rows.Next() {
 		run, scanErr := scanRun(rows)
 		if scanErr != nil {
 			_ = rows.Close()
-			return nil, scanErr
+			return nil, false, scanErr
 		}
 		runs = append(runs, run)
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	stamp := FormatTime(now)
 	cancelledJobs := map[JobStateKey]bool{}
@@ -79,7 +85,7 @@ func (s *Store) RequestCancelJob(projectPath, job string, now time.Time) ([]Run,
 		run := &runs[i]
 		if run.Status == "queued" {
 			if _, err := tx.Exec(`UPDATE runs SET status='cancelled', finished_at=?, error='cancelled before start' WHERE id=? AND status='queued'`, stamp, run.ID); err != nil {
-				return nil, fmt.Errorf("cancel queued run: %w", err)
+				return nil, false, fmt.Errorf("cancel queued run: %w", err)
 			}
 			run.Status = "cancelled"
 			run.FinishedAt = sql.NullString{String: stamp, Valid: true}
@@ -87,20 +93,20 @@ func (s *Store) RequestCancelJob(projectPath, job string, now time.Time) ([]Run,
 			cancelledJobs[JobStateKey{ProjectID: run.ProjectID, Job: run.Job}] = true
 		} else {
 			if _, err := tx.Exec(`UPDATE runs SET cancel_requested_at=COALESCE(cancel_requested_at, ?) WHERE id=? AND status='running'`, stamp, run.ID); err != nil {
-				return nil, fmt.Errorf("request running cancellation: %w", err)
+				return nil, false, fmt.Errorf("request running cancellation: %w", err)
 			}
 			run.CancelRequestedAt = sql.NullString{String: stamp, Valid: true}
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit job cancellation: %w", err)
+		return nil, false, fmt.Errorf("commit job cancellation: %w", err)
 	}
 	for key := range cancelledJobs {
 		if err := s.pruneJobRuns(key.ProjectID, key.Job); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
-	return runs, nil
+	return runs, count > 0, nil
 }
 
 // ActiveRunsForProject lists current work without creating a state database.

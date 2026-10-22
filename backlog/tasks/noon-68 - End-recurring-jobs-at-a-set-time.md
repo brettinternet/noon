@@ -4,10 +4,11 @@ title: End jobs at a configured until time
 status: Done
 assignee: []
 created_date: '2026-10-22 02:43'
-updated_date: '2026-10-22 03:18'
+updated_date: '2026-10-22 04:05'
 labels:
   - scheduler
   - config
+  - reviewed
 dependencies: []
 documentation:
   - docs/design.md
@@ -135,6 +136,8 @@ AC#5: task cli:test PKG=./internal/scheduler -- -count=1 -> exit 0. Injected-tim
 AC#6: task cli:test PKG=./internal/config -- -count=1 and task cli:test PKG=./integration -- -run ^TestExamplesValidate$ -count=1 -> exit 0. Parsing/DST/layered and CLI timezone/explicit-zero/digest/schema checks pass; examples/jobs.yaml uses until. In-scope documentation and MCP/help describe implemented behavior. task ci -> exit 0 in both implementation checkout and main at 368da19 (security, vet/Staticcheck, all tests, race, smoke). Logs: /tmp/noon-68-acceptance.LtaXrn/ci-final.log and ci-main.log.
 Delivery: implementation commit 368da19e671a8cdf967363bb42a1c5fdada34175 fast-forward merged into main. task check:staged passed before commit. One independent general review completed; its three concrete expiry defects were fixed and regression-tested, with no second general review. LSP diagnostics clean on affected config, CLI, scheduler, and shell files. No tests deleted, skipped, or weakened; exact JSON-shape expectations updated for implemented fields. All extra paths justified above. No dependency added, no push or PR.
 Cleanup: verified the Git-local creation receipt matched this session, branch, and checkout; wt list showed the clean merged checkout. Inspected its sole shell pane wHS:p1. wt remove feat/noon-68-until --foreground --format=json --yes removed the worktree and branch; post-remove hook closed exact workspace wHS, verified absent. No retained task checkout/workspace. No blocker or remaining task step; Done releases the provider-native claim.
+
+Review follow-up: consolidated --for/--until end resolution into app.ResolveEnd shared by noon add and temporary schedules (fixes 5-character invalid values such as 'bogus' being misread as HH:MM); JobFromSource now takes a required timezone; resolveAgents renamed resolveJobs because it also resolves until. task ci -> exit 0.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

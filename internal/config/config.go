@@ -183,7 +183,7 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 		}
 		cfg.Timezone = *input.Timezone
 	}
-	if err := cfg.resolveAgents(); err != nil {
+	if err := cfg.resolveJobs(); err != nil {
 		return Config{}, err
 	}
 	if input.StateDir != nil {
@@ -311,7 +311,7 @@ func validateUserConfig(path, userConfigDir, stateDefault string, override *file
 	if err := validation.applyFile(path, true, "user", path, false, override, true); err != nil {
 		return nil, err
 	}
-	if err := validation.resolveAgents(); err != nil {
+	if err := validation.resolveJobs(); err != nil {
 		return nil, err
 	}
 	return validation.VarsFiles, nil

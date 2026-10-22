@@ -138,7 +138,7 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 	})
 
 	protocol.AddTool(server, &protocol.Tool{
-		Name: "run_job", Description: "Queue a job from list_jobs, or attach a temporary schedule with schedule and for or until (maximum 7 days). This never creates or edits job definitions. Cancel by job to end it.  It runs only if the project is enabled, shared jobs are approved, and the scheduler is running. Ended jobs and requests due at or after until refuse with ended. Queued is not passed: call get_run with the returned run ID and wait_seconds, and check the final status before reporting success.",
+		Name: "run_job", Description: "Queue a job from list_jobs, or attach a temporary schedule with schedule and for or until (maximum 7 days). This never creates or edits job definitions. Cancel by job to end it. It runs only if the project is enabled, shared jobs are approved, and the scheduler is running. Ended jobs and requests due at or after until refuse with ended. Queued is not passed: call get_run with the returned run ID and wait_seconds, and check the final status before reporting success.",
 	}, func(_ context.Context, req *protocol.CallToolRequest, args runJobArgs) (*protocol.CallToolResult, any, error) {
 		values, err := projectInput(input, args.Project, requireEnabledProject)
 		if err != nil {
@@ -331,7 +331,11 @@ func newServer(input config.Input, version string, requireEnabledProject bool) *
 			if err != nil {
 				return toolFailure(app.StateError(err))
 			}
-			return toolSuccess("Ended temporary schedule and cancelled active runs for "+*args.Job+".", result)
+			message := fmt.Sprintf("Requested cancellation of %d active runs of %s.", len(result.Runs), *args.Job)
+			if len(result.EndedTemporarySchedules) > 0 {
+				message = fmt.Sprintf("Ended the temporary schedule and requested cancellation of %d active runs of %s.", len(result.Runs), *args.Job)
+			}
+			return toolSuccess(message, result)
 		}
 		stateDir, err := stateDirectory(input)
 		if err != nil {

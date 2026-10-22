@@ -274,7 +274,7 @@ within 7 days including whole-minute upward rounding for durations, with an occu
 Schedule mode rejects detach/in/at. Several CLI names share the schedule and end.
 
 Creation uses an immediate transaction and the queue eligibility checks, including pause, job end,
-and recursion. `temporary_schedules` has one row per project/job: schedule text, exclusive end,
+and recursion; a first occurrence at or after the job's `until` is refused as `ended`. `temporary_schedules` has one row per project/job: schedule text, exclusive end,
 creation digest, requested_by, optional key/data (valid JSON up to 256 KiB), event source,
 created_at, and persisted next_at. Same nonempty key returns the existing row as a duplicate;
 otherwise `already_scheduled` hints to cancel by job.
@@ -285,8 +285,8 @@ queues suppress temporary occurrences in the same tick; coinciding occurrences r
 row, never double execution. Cooldown and requests-each do not apply. Runs use schedule/catch_up,
 carry requested_by, and receive separate event files from stored data before the transaction commits.
 
-Expiry, cancel by job, pause, project disable, and observed job removal, disablement, platform
-mismatch, digest change, or end delete the row. Resume, re-enable, and re-approval never restore it.
+Expiry, cancel by job, pause, project disable, job removal, and job end delete the row; the
+running scheduler also deletes it when it observes the job disabled, changed, or unsupported. Resume, re-enable, and re-approval never restore it.
 Already-created runs follow existing dispatch/cancellation rules. Cancel by run ID leaves it intact.
 Inspection omits absent/ineligible schedules, exposes temporary_schedule metadata, and uses the
 earlier next_at. Dashboard and MCP status add a notice. HTTP MCP shares this authority; no JSON

@@ -142,35 +142,10 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		if err != nil {
 			return configError(err)
 		}
-		var until time.Time
-		if cmd.IsSet("for") {
-			duration, err := schedule.ParseDuration(cmd.String("for"))
-			if err != nil || duration < time.Minute {
-				return usageError("--for must be a duration of at least 1m", "Use --for 2h")
-			}
-			until = now.Add(duration)
-			if rounded := until.Truncate(time.Minute); !rounded.Equal(until) {
-				until = rounded.Add(time.Minute)
-			}
-		} else {
-			value := cmd.String("until")
-			if len(value) == len("15:04") {
-				local := now.In(location)
-				until, err = config.ParseUntil(local.Format("2006-01-02")+" "+value, location)
-				if err == nil && !until.After(now) {
-					until, err = config.ParseUntil(local.AddDate(0, 0, 1).Format("2006-01-02")+" "+value, location)
-				}
-			} else {
-				until, err = config.ParseUntil(value, location)
-			}
-			if err != nil {
-				return usageError(err.Error(), "Use HH:MM, YYYY-MM-DD HH:MM, or RFC 3339")
-			}
+		until, err := app.ResolveEnd(cmd.String("for"), cmd.String("until"), now, location)
+		if err != nil {
+			return usageError(err.Error(), "Use --for 2h, or --until HH:MM, YYYY-MM-DD HH:MM, or RFC 3339")
 		}
-		if !until.After(now) {
-			return usageError("--until must be after now", "Choose a future job end time")
-		}
-		until = until.In(location)
 		job.Until = &until
 	}
 	var queueDue time.Time
@@ -245,7 +220,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		if err != nil {
 			return usageError(err.Error(), "")
 		}
-		rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project)
+		rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project, "")
 		if err != nil || rawAddedJob.Digest != requestedDigest {
 			return editVerificationError("added job digest differs from the requested definition")
 		}

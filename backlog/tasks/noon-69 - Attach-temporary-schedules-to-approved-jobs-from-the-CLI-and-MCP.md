@@ -4,11 +4,12 @@ title: Attach temporary schedules to approved jobs from the CLI and MCP
 status: Done
 assignee: []
 created_date: '2026-10-22 02:56'
-updated_date: '2026-10-22 03:39'
+updated_date: '2026-10-22 04:05'
 labels:
   - scheduler
   - cli
   - mcp
+  - reviewed
 dependencies:
   - NOON-68
 documentation:
@@ -136,6 +137,8 @@ AC#2: bun /tmp/noon-69-acceptance.mjs -> PASS (duplicate/key/cancel, invalid inp
 AC#3: task cli:test PKG=./internal/scheduler -- -count=1 -> PASS (real-store injected-clock temporary scheduling regressions).
 AC#4: task cli:test PKG=./internal/store -- -count=1; task cli:test PKG=./internal/mcp -- -count=1 -> both PASS (migration/concurrency and MCP lifecycle).
 AC#5: task ci -> PASS after fixes (docs/help checked against implemented behavior; full compiler, test, race, security and smoke gate).
+
+Review follow-up: temporary schedule JSON/MCP times use the project timezone; creation refuses with ended when the first occurrence is at or after the job until; noon cancel NAME and MCP cancel_run by job report ended_temporary_schedules instead of 'No active runs to cancel.'; human creation output shows the relative next time; MCP description typo fixed; docs state which invalidations need a running scheduler to observe. task ci -> exit 0.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

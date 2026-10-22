@@ -168,7 +168,8 @@ func temporaryJobs(cmd *urfave.Command, cfg config.Config, names []string, data 
 		}
 		if !cmd.Bool("json") {
 			value := result.TemporarySchedule
-			fmt.Fprintf(cmd.Writer, "Scheduled %s %s until %s · next %s\n", name, cell(value.Schedule, -1), value.Until.In(loc).Format("Mon 15:04"), value.NextAt.In(loc).Format("Mon 15:04"))
+			next := store.FormatTime(value.NextAt)
+			fmt.Fprintf(cmd.Writer, "Scheduled %s %s until %s · next %s (%s)\n", name, cell(value.Schedule, -1), value.Until.In(loc).Format("Mon 15:04"), value.NextAt.In(loc).Format("Mon 15:04"), app.RelativeTime(&next, now))
 		}
 	}
 	if !cmd.Bool("json") && len(results) > 0 && results[0].Scheduler == "offline" {

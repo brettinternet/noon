@@ -63,7 +63,7 @@ this platform, approved when shared, and not ended. Client identity is still met
 
 Use the config schedule grammar with exactly one of `for` (at least 1m, rounded up to a minute)
 or `until` (`HH:MM`, local date/time, or RFC 3339). The end must be within 7 days including
-rounding, with an occurrence before it. `schedule` cannot combine with `in` or `at`. Intervals
+rounding, with an occurrence before it (and before the job's own `until`, else `ended`). `schedule` cannot combine with `in` or `at`. Intervals
 retain their phase; clock schedules use the project timezone. Missed/overlap policies are shared
 with config schedules, without splay, jitter, cooldown, or `requests: each`.
 
@@ -76,9 +76,10 @@ false`, `reason: "duplicate"`; a different/missing key gets `already_scheduled`.
 adds a notice. Each queued occurrence carries the client identity and its own event file.
 
 End it with `cancel_run {"job":"watch-ci"}`, adding `project` for another checkout. This also
-cancels active runs. Cancelling one `run_id` does not end the schedule. Expiry, pause, project
-disable, and an observed job removal, disablement, platform mismatch, digest change, or job end
-delete it permanently; resume, re-enable, or re-approval never restore it.
+cancels active runs; the result lists `ended_temporary_schedules` when one existed. Cancelling
+one `run_id` does not end the schedule. Expiry, pause, project disable, job removal, job end, and a
+disablement, digest change, or platform mismatch seen by the running scheduler delete it
+permanently; resume, re-enable, or re-approval never restore it.
 
 Remote MCP uses the same tools and bearer token, still restricted to enabled projects. Pass
 `project` when cancelling by job remotely. The JSON API `/v1/` has no temporary schedule routes.

@@ -126,7 +126,7 @@ failures, report them, and exit 1; completed work isn't undone. Multi-target JSO
 | --- | --- |
 | `pause` / `resume` | `jobs`, `paused`, `changed` |
 | `history` | `runs`, merged newest-first under one `--limit` |
-| `cancel` | `runs`, `pending`, `errors` |
+| `cancel` | `runs`, `pending`, optional `ended_temporary_schedules`, `errors` |
 | queued `run` | `results` (`run`, `created`, `scheduler`, optional `reason` / `cooldown_until`), `errors` |
 | `remove` | `removed` (`removed`, `file`), `errors` |
 
@@ -276,13 +276,16 @@ file for each queued occurrence. Cooldown and `requests: each` don't apply.
 Intervals retain their creation phase across restarts; cron forms align to the project clock.
 The job's missed and overlap policies apply, shared with its config schedule. Coinciding
 occurrences produce one queued run and one skipped record. Temporary schedules have no splay or
-jitter. No occurrence starts at or after the temporary end or the job's own `until`.
+jitter. No occurrence starts at or after the temporary end or the job's own `until`; if the
+first occurrence would, creation fails with `ended`.
 
-Expiry, cancellation by job, pause, project disable, and an observed removal, disablement,
-platform mismatch, digest change, or job end delete the temporary schedule. Resume, re-enable,
+Expiry, cancellation by job, pause, project disable, `noon remove`, and job end delete the
+temporary schedule. The running scheduler also deletes it when it sees the job disabled, its
+digest changed, or its platform unsupported; an edit reverted while no scheduler runs goes unseen. Resume, re-enable,
 and re-approval never restore it. Already-created runs follow the ordinary queue/running rules.
 
-Creation JSON is `{schema_version:1,temporary_schedule:{schedule,until,next_at,requested_by,created_at,key?},created,scheduler,reason?}`.
+Creation JSON is `{schema_version:1,temporary_schedule:{schedule,until,next_at,requested_by,created_at,key?},created,scheduler,reason?}`,
+with times in the project timezone.
 `scheduler` is `running` or `offline`; offline human output prints the same warning as queueing.
 `list --json` includes the optional `temporary_schedule` on each job; job `next_at` and human
 NEXT select the earlier config or temporary occurrence. The dashboard adds a temporary-schedule
@@ -300,7 +303,8 @@ noon cancel tests lint 42  # jobs and run IDs together
 Queued runs cancel immediately; running ones get TERM then KILL. An `orphaned` run (owner gone) is
 recorded cancelled, and only an identity-matched process group is signaled. `noon disable` also
 cancels queued runs and ends temporary schedules. Cancelling a run ID alone leaves its temporary
-schedule intact.
+schedule intact. Cancelling a job prints `Ended temporary schedule for NAME.` when one existed,
+and JSON lists those jobs in `ended_temporary_schedules`.
 
 ## History
 

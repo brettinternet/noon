@@ -48,8 +48,8 @@ One temporary schedule is allowed per job; the same nonempty key returns it,
 otherwise cancel the old one first. Creation is not a passed run. Inspect
 `noon list --json` for `temporary_schedule` and check each run's result.
 Cancelling by job ends it and cancels active runs; cancelling a run ID doesn't.
-Expiry, pause, project disable, or an observed job definition/eligibility change
-deletes it permanently. This never grants permission to create or edit jobs.
+Expiry, pause, project disable, or a job definition/eligibility change deletes it
+permanently. This never grants permission to create or edit jobs.
 
 ## Diagnose a failure
 
