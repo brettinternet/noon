@@ -505,7 +505,8 @@ noon resume tests                                      # restart from now, no ca
 
 `add` writes `.git/noon.yaml` by default, editing in place and keeping comments. It enables the
 project when the job is scheduled or queued, and approves only that job. `add`, `remove`, and
-`import --write` refuse `--config` files and unusual `jobs` layouts. Paused jobs still run with
+`import --write` refuse `--config` files, symlinked config files, and unusual `jobs` layouts;
+edit a link's target by hand. Paused jobs still run with
 `noon run`.
 
 ## Listing jobs

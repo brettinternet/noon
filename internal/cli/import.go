@@ -120,6 +120,9 @@ func writeImportedJobs(values config.Input, before config.Config, jobs []cronimp
 			return "", err
 		}
 	}
+	if err := refuseSymlink(file); err != nil {
+		return "", err
+	}
 	source, err := os.ReadFile(file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", configError(err)

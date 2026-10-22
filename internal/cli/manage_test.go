@@ -161,6 +161,28 @@ func TestAddJobs(t *testing.T) {
 		}
 	})
 
+	// Replacing a link shared by several checkouts would silently fork the shared config.
+	t.Run("symlinked config is never replaced", func(t *testing.T) {
+		root := sandbox(t)
+		target := filepath.Join(t.TempDir(), "shared.yaml")
+		original := []byte("jobs:\n  tests:\n    run: 'true'\n")
+		if err := os.WriteFile(target, original, 0600); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(root, ".git", "noon.yaml")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{{"add", "other", "--sh", "true"}, {"remove", "tests"}} {
+			code, result := invoke(t, append([]string{"--json"}, args...)...)
+			got, err := os.ReadFile(target)
+			info, lerr := os.Lstat(link)
+			if err != nil || lerr != nil || code != 1 || result["error"].(map[string]any)["code"] != "config_edit" || !bytes.Equal(got, original) || info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("%v: %d %+v %q %v", args, code, result, got, info.Mode())
+			}
+		}
+	})
+
 	t.Run("new file modes and scheduled enable", func(t *testing.T) {
 		root := sandbox(t)
 		if code, _, stderr := invokeText(t, "add", "local", "every 1h", "--sh", "true"); code != 0 {

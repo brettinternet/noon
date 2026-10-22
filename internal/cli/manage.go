@@ -177,6 +177,9 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		}
 		kind, mode = "private", 0600
 	}
+	if err := refuseSymlink(file); err != nil {
+		return err
+	}
 	if info, statErr := os.Stat(file); statErr == nil {
 		mode = info.Mode().Perm()
 	} else if !errors.Is(statErr, os.ErrNotExist) {
@@ -436,6 +439,9 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	// Prepare and verify every file before writing any of them.
 	prepared := map[string][]byte{}
 	for _, file := range files {
+		if err := refuseSymlink(file); err != nil {
+			return err
+		}
 		src, err := os.ReadFile(file)
 		if err != nil {
 			return err
@@ -662,7 +668,20 @@ func displayPath(project, path string) string {
 	return path
 }
 
+// refuseSymlink keeps edits from replacing a link, which may be shared by other checkouts.
+func refuseSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	target, _ := os.Readlink(path)
+	return &Error{Code: "config_edit", Message: fmt.Sprintf("%s is a symlink to %s; Noon does not edit symlinked config", path, target), Hint: "Edit the link target by hand"}
+}
+
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
+	if err := refuseSymlink(path); err != nil {
+		return err
+	}
 	if mode == 0 {
 		if info, err := os.Stat(path); err == nil {
 			mode = info.Mode().Perm()
