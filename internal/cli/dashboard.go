@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -38,6 +39,10 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 			return configError(err)
 		}
 		return stateError(err)
+	}
+	// People at a terminal browse runnable jobs in the TUI; scripts and agents keep the run command.
+	if !cmd.Bool("json") && strings.HasPrefix(view.Next, "noon run ") && terminal(os.Stdin) && terminalWriter(cmd.Writer) {
+		view.Next = "noon tui"
 	}
 	view.Next = guidance(cmd, view.Next)
 	for i := range view.Notices {

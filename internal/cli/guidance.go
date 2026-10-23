@@ -12,7 +12,7 @@ import (
 
 // Guidance contains only commands authored by Noon, never user-supplied prose.
 // Match command prefixes rather than parsing prose or shell arguments.
-var guidanceCommand = regexp.MustCompile(`\bnoon (service install|service uninstall|service|serve|config check|config show|config|run|logs|history|cancel|enable|disable|list|add|remove|pause|resume|status)\b`)
+var guidanceCommand = regexp.MustCompile(`\bnoon (service install|service uninstall|service|serve|config check|config show|config|run|logs|history|cancel|enable|disable|list|add|remove|pause|resume|status|tui)\b`)
 
 func guidance(cmd *urfave.Command, text string) string {
 	return guidanceCommand.ReplaceAllStringFunc(text, func(command string) string {

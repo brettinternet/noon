@@ -419,7 +419,7 @@ plus a temporary-schedule summary when present, and one `Suggested action:`. Bot
 | Scheduled but not enabled / pending approval | `noon enable` |
 | Scheduler offline | `noon service install` (or `noon serve` if installed) |
 | Orphaned run (blocks background runs) | `noon cancel ID` |
-| Queued work / otherwise | Run an unpaused job, or `noon add` |
+| Queued work / otherwise | Run an unpaused job (`noon tui` at a terminal), or `noon add` |
 
 The suggestion is a command, not the next scheduled run; that's the `NEXT` column. JSON has
 `project`, `scheduler`, `service`, `jobs`, `queued`, `notices`, and `next`.
@@ -453,7 +453,7 @@ restart never approves jobs. See [service upgrades](service.md#upgrades).
 
 ## TUI
 
-`noon tui` refreshes every second and never edits jobs or enables projects.
+`noon tui` (alias `noon ui`) refreshes every second and never edits jobs or enables projects.
 
 | Key | Action |
 | --- | --- |

@@ -151,7 +151,7 @@ and [examples/local-dev/housekeeping](examples/local-dev/housekeeping/).
 | `noon serve` | Foreground scheduler; optional webhooks and remote API/MCP |
 | `noon service install` / `restart` | Per-user launchd/systemd service; restart interrupts jobs |
 | `noon doctor` | Read-only setup checks |
-| `noon tui` | Keyboard-driven jobs, runs, and logs (`?` for keys) |
+| `noon tui` / `ui` | Keyboard-driven jobs, runs, and logs (`?` for keys) |
 | `noon mcp` | MCP tools over stdio for coding agents |
 | `noon import crontab FILE` | Preview a crontab as Noon YAML; `--write` to add it |
 | `noon shell init bash` | Shell completion; optional job on `cd` |
