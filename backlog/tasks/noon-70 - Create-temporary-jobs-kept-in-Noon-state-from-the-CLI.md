@@ -4,7 +4,7 @@ title: Create temporary jobs kept in Noon state from the CLI
 status: Done
 assignee: []
 created_date: '2026-10-22 21:28'
-updated_date: '2026-10-22 22:56'
+updated_date: '2026-10-23 01:41'
 labels:
   - scheduler
   - cli
@@ -162,6 +162,8 @@ AC#5: task cli:test PKG=./internal/store -- -count=1; task cli:test PKG=./intern
 AC#6: task ci -> exit 0 on committed implementation 3eaf743 (security, formatting, vet, Staticcheck, all tests, race, build, smoke). Verified scoped docs/help/skill and renamed Ending jobs links; design trust table states sole state-backed definition exception. Final bookkeeping-only commit will also run task ci.
 Review: one independent general pass; all four confirmed findings fixed with targeted regression coverage (stale collision reload, changed-digest shadow cancellation, unseen live identity deferral, per-job run/payload retention). No further general pass. No test removed/skipped/weakened; modified tests additions only. All 38 implementation paths within original contract or prior approved notes. LSP diagnostics clean for app/manage.go and scheduler/serve.go; compiler/test gates passed.
 Delivery: implementation commit 3eaf7436313d659237325fe5e43348b46af2e240 fast-forward merged to main. task check:staged passed before commit. Verified session receipt matched checkout path/branch and session 01a165a8-5542-70fd-80c9-785887156b50; checked exact Herdr workspace wKX (one shell pane), removed owned worktree and branch together with Worktrunk foreground removal, and verified workspace wKX disappeared and only main worktree remains. No retained task worktree/workspace; no push. Remaining blockers: none; next resumable step: none.
+
+Post-completion review (4e7c3f3): a stored definition that stopped resolving after a config edit (e.g. its agent removed) failed every project command including noon remove/cancel, and on scheduler restart left the whole project unloaded while logging a config error every second. Fixed: remove/cancel resolve temporary jobs by name; job commands fail with a noon remove NAME hint; the scheduler skips and records only the unresolvable row, merges from its 1s snapshot instead of reopening state per project, and reloads only when the merge result changes. Also: ended hint for temporary jobs suggests re-adding instead of editing "temporary"; human add output shows relative next time per the outcome example. Regressions added to TestTemporaryJobs (cli) and TestServeTemporaryJobs (scheduler); both fail on 3eaf743. task ci exit 0; ruby /tmp/noon-70-acceptance.rb AC1-3 PASS.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
