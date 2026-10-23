@@ -150,6 +150,11 @@ func TestStateKeyJitterCompatibility(t *testing.T) {
 func TestScheduleParse(t *testing.T) {
 	for _, tt := range []struct{ input, want, err string }{
 		{"  0  9 * JAN-MAR MON-FRI  ", "0 9 * jan-mar mon-fri", ""},
+		{"  */15  ", "*/15 * * * *", ""},
+		{"*/15 1-5", "*/15 1-5 * * *", ""},
+		{"0 2 1", "0 2 1 * *", ""},
+		{"0 2 1 JAN", "0 2 1 jan *", ""},
+		{"5", "5 * * * *", ""},
 		{"1,5-10/2,30/15 */3 * * 0,7", "1,5-10/2,30/15 */3 * * 0,7", ""},
 		{"0 0 30 2 mon", "0 0 30 2 mon", ""},
 		{"@hourly", "@hourly", ""}, {"hourly", "@hourly", ""},
@@ -193,7 +198,10 @@ func TestScheduleParse(t *testing.T) {
 		{"daily at 24:00", "", "9am or 9:00"}, {"daily at 0am", "", "9am or 9:00"},
 		{"daily at 13pm", "", "9am or 9:00"}, {"daily at 9:60", "", "9am or 9:00"},
 		{"daily at 9:1", "", "9am or 9:00"}, {"daily at 9am,5pm", "", "one time only"},
-		{"someday at noon", "", "unknown day"}, {"", "", "five-field"},
+		{"someday at noon", "", "unknown day"}, {"", "", "one to five"},
+		{" \t ", "", "one to five"}, {"* * * * * * *", "", "one to five"},
+		{"60", "", "out of range"}, {"0 24", "", "out of range"},
+		{"0 0 30 2", "", "never match"},
 	} {
 		t.Run(tt.input, func(t *testing.T) {
 			s, err := schedule.Parse(tt.input)
@@ -225,6 +233,9 @@ func TestScheduleParse(t *testing.T) {
 func TestScheduleNext(t *testing.T) {
 	for _, tt := range []struct{ name, input, zone, after, want string }{
 		{"lists ranges steps", "1,10-20/5 9-17/2 * * *", "UTC", "2026-01-01T09:15:00Z", "2026-01-01T09:20:00Z"},
+		{"short quarter-hour", "*/15", "UTC", "2026-01-01T09:15:00Z", "2026-01-01T09:30:00Z"},
+		{"short hour range rollover", "*/15 1-5", "UTC", "2026-01-01T05:45:00Z", "2026-01-02T01:00:00Z"},
+		{"short minute is not interval", "5", "UTC", "2026-01-01T00:05:00Z", "2026-01-01T01:05:00Z"},
 		{"value step", "5/20 * * * *", "UTC", "2026-01-01T00:25:00Z", "2026-01-01T00:45:00Z"},
 		{"names", "0 9 * FEB MON-FRI", "UTC", "2026-01-31T00:00:00Z", "2026-02-02T09:00:00Z"},
 		{"Sunday seven", "0 0 * * 7", "UTC", "2026-01-03T00:00:00Z", "2026-01-04T00:00:00Z"},
@@ -303,7 +314,7 @@ func TestParseDuration(t *testing.T) {
 }
 
 func FuzzScheduleParse(f *testing.F) {
-	for _, seed := range []string{"*/15 * * * *", "0 0 29 2 *", "@daily", "weekdays at 9am", "every 1d12h", "every 30s", "0 0 30 2 mon", "0 0 */2 * mon", "fri,mon at noon"} {
+	for _, seed := range []string{"*/15", "*/15 1-5", "0 2 1", "0 2 1 jan", "*/15 * * * *", "0 0 29 2 *", "@daily", "weekdays at 9am", "every 1d12h", "every 30s", "0 0 30 2 mon", "0 0 */2 * mon", "fri,mon at noon"} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, text string) {

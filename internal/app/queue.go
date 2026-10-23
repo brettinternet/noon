@@ -270,7 +270,8 @@ func ScheduleTemporary(cfg config.Config, name, text, forValue, untilValue, key,
 	if err != nil {
 		return TemporaryResult{}, err
 	}
-	value, created, status, err := state.CreateTemporarySchedule(store.TemporarySchedule{ProjectID: id, Job: name, Schedule: text, Until: until, NextAt: next, RequestedBy: requestedBy, CreatedAt: now, Key: key, Digest: job.Digest, Data: data, EventSource: source}, store.QueueRunInput{ProjectID: id, Job: name, Digest: job.Digest, JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared, JobUntil: job.Until, Now: now})
+	parsed, _ := schedule.Parse(text) // TemporaryTimes already validated the schedule.
+	value, created, status, err := state.CreateTemporarySchedule(store.TemporarySchedule{ProjectID: id, Job: name, Schedule: parsed.String(), Until: until, NextAt: next, RequestedBy: requestedBy, CreatedAt: now, Key: key, Digest: job.Digest, Data: data, EventSource: source}, store.QueueRunInput{ProjectID: id, Job: name, Digest: job.Digest, JobExists: exists, JobEnabled: job.Enabled, JobShared: job.Shared, JobUntil: job.Until, Now: now})
 	if errors.Is(err, store.ErrAlreadyScheduled) {
 		return TemporaryResult{}, &QueueError{Code: "already_scheduled", Message: fmt.Sprintf("job %q already has a temporary schedule", name), Hint: "noon cancel " + name}
 	}

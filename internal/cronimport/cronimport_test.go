@@ -73,6 +73,8 @@ func TestImportCrontab(t *testing.T) {
 			{"timezone", "TZ=UTC", "TZ"},
 			{"reserved environment", "NOON_SECRET=value", "NOON_"},
 			{"invalid schedule", "0 0 30 2 * echo impossible", "schedule"},
+			{"short cron", "*/15 echo ok", "five cron fields"},
+			{"short cron with long command", "*/15 1-5 echo one two three", "schedule"},
 			{"seconds field", "0 0 0 * * * echo seconds", "six-field"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {

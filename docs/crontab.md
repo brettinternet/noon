@@ -63,7 +63,7 @@ Noon refuses what it can't reproduce instead of approximating:
 | `SHELL` other than `/bin/sh` | Jobs run with `/bin/sh` |
 | `CRON_TZ`, `TZ` | Set the project `timezone` instead |
 | `NOON_*` variables | Reserved |
-| Malformed entries or schedules | Fields 1–5 are always the schedule; the rest is the command |
+| Malformed entries or schedules | Fields 1–5 are always the schedule; the rest is the command. Noon's shortened cron syntax is not accepted here |
 
 ```console
 $ noon import crontab cron.txt

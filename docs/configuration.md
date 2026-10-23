@@ -202,6 +202,11 @@ Unknown fields, duplicate keys, nulls, wrong types, multiple documents, whitespa
 files over 1 MiB are errors. A missing file, an empty file, and `{}` are fine. A broken file is an
 error even when a later file overrides it.
 
+Cron schedules may omit trailing fields, which default to `*`: `"*/15"` runs every quarter-hour,
+`"*/15 1-5"` runs every quarter-hour from 01:00 through 05:45, and `"0 2"` runs daily at 02:00.
+The same shorthand works in `noon add` and `noon run --schedule`; output shows all five fields.
+Quote cron schedules in YAML, including bare numbers (`"5"` means minute 5 of every hour).
+
 ### Ending jobs
 
 Set an absolute `until` on any job, including manual-only jobs:

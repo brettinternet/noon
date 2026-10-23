@@ -57,7 +57,8 @@ func (s Schedule) ShortestGap() time.Duration {
 	return min(shortest, time.Duration(first+24*60-previous)*time.Minute)
 }
 
-// Parse accepts five-field cron, macros, calendar phrases, or elapsed intervals.
+// Parse accepts cron with one to five fields (omitted trailing fields default to *),
+// macros, calendar phrases, or elapsed intervals.
 func Parse(text string) (Schedule, error) {
 	text = strings.ToLower(strings.Join(strings.Fields(text), " "))
 	switch text {
@@ -99,8 +100,11 @@ func parseCron(text string) (Schedule, error) {
 		//lint:ignore ST1005 Noon is a proper noun in the specified user-facing diagnostic.
 		return Schedule{}, fmt.Errorf("Noon uses five-field cron, without seconds")
 	}
-	if len(parts) != 5 {
-		return Schedule{}, fmt.Errorf("expected five-field cron or a schedule such as weekdays at 9am")
+	if len(parts) == 0 || len(parts) > 5 {
+		return Schedule{}, fmt.Errorf("expected one to five cron fields or a schedule such as weekdays at 9am")
+	}
+	for len(parts) < 5 {
+		parts = append(parts, "*")
 	}
 	s := Schedule{text: strings.Join(parts, " "), dayOR: !strings.HasPrefix(parts[2], "*") && !strings.HasPrefix(parts[4], "*")}
 	mins := [5]int{0, 0, 1, 1, 0}

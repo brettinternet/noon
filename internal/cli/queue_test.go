@@ -32,7 +32,7 @@ func TestTemporaryScheduleCLI(t *testing.T) {
 	if code, result := invoke(t, "enable", "--json"); code != 0 {
 		t.Fatal(result)
 	}
-	request := []string{"run", "ping", "--schedule", "*/10 * * * *", "--for", "2h", "--json"}
+	request := []string{"run", "ping", "--schedule", "*/10", "--for", "2h", "--json"}
 	code, first := invoke(t, request...)
 	if code != 0 || first["created"] != true {
 		t.Fatalf("create: %d %+v", code, first)
@@ -44,7 +44,7 @@ func TestTemporaryScheduleCLI(t *testing.T) {
 	_, list := invoke(t, "list", "--json")
 	for _, item := range list["jobs"].([]any) {
 		job := item.(map[string]any)
-		if job["name"] == "ping" && (job["next_at"] != value["next_at"] || job["temporary_schedule"].(map[string]any)["until"] != value["until"]) {
+		if job["name"] == "ping" && (job["next_at"] != value["next_at"] || job["temporary_schedule"].(map[string]any)["until"] != value["until"] || job["temporary_schedule"].(map[string]any)["schedule"] != "*/10 * * * *") {
 			t.Fatal(job)
 		}
 	}

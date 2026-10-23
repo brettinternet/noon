@@ -133,10 +133,15 @@ Accepted forms are case-insensitive and normalized for display:
 
 | Form | Examples | Meaning |
 | --- | --- | --- |
-| Cron | `0 9 * * 1-5`, `*/15 * * * *` | Five fields: lists, ranges, steps, `jan`–`dec`, `sun`–`sat`, `0` or `7` = Sunday |
+| Cron | `0 9 * * 1-5`, `*/15`, `*/15 1-5` | One to five fields; omitted trailing fields default to `*`. Lists, ranges, steps, `jan`–`dec`, `sun`–`sat`, `0` or `7` = Sunday |
 | Macro | `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`; bare `hourly`, `daily`, `weekly`, `monthly`, `yearly` | Cron equivalents |
 | Calendar | `every day at 2am`, `daily at 14:30`, `weekdays at 9:30am`, `weekends at noon`, `mon,wed at 18:00`, `every friday at 5pm` | One cron expression. One time: `H[:MM]am/pm`, `H:MM`, `noon`, or `midnight` |
 | Interval | `every 15m`, `every 6h`, `every 1d12h`, `every 2 hours` | Elapsed time, whole minutes, `1m` to `365d` |
+
+Cron fields are minute, hour, day-of-month, month, and day-of-week, in that order.
+`*/15` expands to `*/15 * * * *`; `*/15 1-5` expands to `*/15 1-5 * * *` (01:00–05:45).
+A bare `5` means minute 5 of every hour, not every five minutes. Empty schedules and more than
+five fields are rejected. Crontab import still requires all five fields before the command.
 
 Cron follows Vixie cron: when day-of-month and day-of-week are both restricted, either matching
 is enough, and a field starting with `*` (including `*/2`) counts as unrestricted. `a/n` means
@@ -154,7 +159,7 @@ Ambiguity is rejected with a suggestion, never guessed:
 | `@every 5m` | `every 5m` |
 | `@reboot` | No boot trigger |
 
-Display: cron fields lowercase; macros with `@`; calendar times as `HH:MM`; day lists as
+Display: cron expanded to five lowercase fields; macros with `@`; calendar times as `HH:MM`; day lists as
 three-letter names Monday-first, a single day as `every friday at 17:00`; intervals largest unit
 first (`every 1d12h`).
 
