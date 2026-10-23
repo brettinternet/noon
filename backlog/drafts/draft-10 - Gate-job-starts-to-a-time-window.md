@@ -4,10 +4,13 @@ title: Gate job starts to a time window
 status: Draft
 assignee: []
 created_date: '2026-10-18 06:29'
+updated_date: '2026-10-23 04:34'
 labels:
   - scheduler
   - config
 dependencies: []
+priority: low
+type: feature
 ---
 
 ## Description
@@ -34,3 +37,15 @@ Context: decision-5 (schedule grammar, missed-run policy), NOON-51 and NOON-52 (
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Refinement (2026-10-22 review):
+
+Summary: a job-level cron expression used as a window (window: "* 8-16 * * 1-5") lets a run start only in matching minutes in the project timezone, regardless of trigger. Value: a cron hour range limits only scheduled runs; webhooks, Git/agent hooks, MCP, --detach, and shell entry can start an event-driven agent job overnight (unattended PR comments, token spend). Today each script checks the clock itself, prompt jobs need a wrapper, and the check can disagree with the schedule.
+
+Split recommendation: export NOON_TIMEZONE (the effective project timezone) to jobs and hooks as a small standalone task. Do not set TZ: it would silently change existing scripts' date output, and decision-5 follows cron, which does not set it. Scripts use TZ=$NOON_TIMEZONE date. This fixes the clock-guard mismatch documented at docs/configuration.md (working hours recipe) independently of the window feature.
+
+Keep the window itself in draft until an event-driven job needs it. Hardest open question remains out-of-window handling (reject, skip/noop, or hold) and how holding interacts with the one-hour expiry of overdue queued runs.
+<!-- SECTION:NOTES:END -->

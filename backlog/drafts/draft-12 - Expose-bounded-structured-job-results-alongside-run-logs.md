@@ -4,10 +4,13 @@ title: Expose bounded structured job results alongside run logs
 status: Draft
 assignee: []
 created_date: '2026-10-18 16:09'
+updated_date: '2026-10-23 04:34'
 labels:
   - automation
   - results
 dependencies: []
+priority: medium
+type: feature
 ---
 
 ## Description
@@ -36,3 +39,17 @@ Dependencies: none; revision-aware verification can later supply provenance with
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Refinement (2026-10-22 review):
+
+Summary: a job may write a small, versioned, size-capped result (summary plus a few finding or artifact references) tied to its run, readable through history/logs, MCP, HTTP, and hooks. Value: exit codes and logs describe execution, and prompt-job logs are long transcripts. Agents asking "what did last night's review find?" scrape prose, and notification hooks can only send the log tail. A structured result gives humans, hooks, and agents one stable answer per run; it is the main missing piece for agents consuming other runs' output.
+
+Settle delivery: $NOON_RESULT_FILE, a per-run path the job writes JSON to, stored beside the run log and mirroring NOON_EVENT_FILE. Expose the same path to on_success/on_failure hooks so notification examples (examples/integrations/notifications) can send the summary; that gives the first concrete consumer. Candidate second consumer: examples/ai/pr-review or daily-standup.
+
+Guardrails unchanged: the result is the job's own claim and never changes run status (a "success" result with exit 1 is still failed; noop stays noop); Noon never follows paths or URLs in it.
+
+Ordering: rank this ahead of DRAFT-11 within the smart-repo proposals; it has a clearer consumer and smaller contract.
+<!-- SECTION:NOTES:END -->

@@ -4,12 +4,13 @@ title: Support declared inputs for explicit on-demand job invocations
 status: Draft
 assignee: []
 created_date: '2026-10-22 17:27'
-updated_date: '2026-10-22 17:28'
+updated_date: '2026-10-23 04:34'
 labels:
   - config
   - cli
   - security
 dependencies: []
+priority: medium
 type: feature
 ---
 
@@ -87,3 +88,17 @@ Critical regression risks: an input becomes a new flag/shell expression, a missi
 - [ ] #4 No test was deleted, skipped, or weakened
 - [ ] #5 README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Refinement (2026-10-22 review): intended use is one-off runs with inputs, not a task runner. Recommended first slice:
+
+- Delivery: export each validated input as an environment variable (e.g. NOON_INPUT_PR) instead of binding into argv. The motivating case becomes run: [sh, -c, 'agent-job launch review "/skill:pr-review pr:$NOON_INPUT_PR" GATE']; pattern validation plus shell quoting keeps the value one argument. This needs no exception to "payloads are files, never interpolated", so no new decision unless argv binding is added later.
+- Avoid a second interpolation syntax: {inputs.pr} would sit beside the load-time vars_file ${...} grammar, which deliberately leaves run literal.
+- Named syntax, not positional: noon run review --input pr=123 maps directly to MCP/HTTP inputs: {"pr": "123"} and cannot be confused with multi-job selection (noon run A B).
+- Required inputs only; no defaults. Defaults only matter when one job serves both scheduled and on-demand use, and they silently fill a missing value (the "missing PR becomes all PRs" risk). Use two jobs if both uses are ever needed.
+- Schedules: a job with required inputs has no caller when a schedule fires, so reject schedule and temporary schedules on such jobs at load/request time. This is a consequence of required inputs, not a separate policy.
+- Queue identity: inputs are part of the merge/cooldown identity. Identical inputs coalesce; different inputs never do.
+- Adapters: CLI (foreground and --detach) and MCP first; HTTP and webhooks reject inputs clearly until mapped.
+<!-- SECTION:NOTES:END -->
