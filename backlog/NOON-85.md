@@ -55,7 +55,7 @@ Keep this item a draft until a bounded first delivery and its contract are settl
 Provisional modified-file contract
 internal/config and noon.schema.json for declarations/validation/digests; internal/app for shared invocation rules; internal/cli for parsing and rendering; internal/runner only for argv materialization if needed; internal/store and internal/scheduler for persisted requests and dispatch; internal/mcp, internal/httpapi, and internal/tui only as required by the chosen adapter scope or explicit rejection behavior; focused tests in the affected packages and integration; docs/{configuration.md,cli.md,design.md,agents.md,triggers.md,webhooks.md}, README.md and one runnable example as applicable; a new backlog decision. Narrow this contract before promotion.
 
-Dependencies: no unfinished prerequisite task identified. Coordinate with DRAFT-18 if user-config job templates ship first; parameterized template behavior is not implicitly included here.
+Dependencies: no unfinished prerequisite task identified. Coordinate with NOON-84 if user-config job templates ship first; parameterized template behavior is not implicitly included here.
 
 Provisional verification before promotion
 Finalize executable acceptance fixtures once binding syntax and adapter scope are settled. Use temporary HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR for every direct CLI check; never invoke a real agent or network.

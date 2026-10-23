@@ -22,7 +22,7 @@ Candidate direction: an opt-in job setting that resumes the job previous recorde
 
 Promotion questions: distinguish no prior recorded ID from a recorded ID whose transcript is missing, pruned, stored under another cwd/user, or never created; decide whether each case fails or explicitly starts fresh; persist enough agent/profile/cwd identity to reject incompatible candidates after config changes rather than reusing any latest non-null ID; which run supplies the session (latest succeeded only, or any finished run); behavior after failure, timeout, cancellation, or a definition digest change; growth limits for long sessions and a reset path; concurrency with `overlap: queue` and `requests: each`; how resumption appears in history and run JSON; whether working-directory scoping of agent sessions breaks across `cwd` changes; approval digest coverage.
 
-Non-goals: Noon-managed transcripts or memory, summarization, attachable terminal sessions (draft-1), agents choosing which session to resume.
+Non-goals: Noon-managed transcripts or memory, summarization, attachable terminal sessions (NOON-71), agents choosing which session to resume.
 
 ## Definition of done
 

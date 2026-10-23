@@ -42,4 +42,4 @@ Settle delivery: $NOON_RESULT_FILE, a per-run path the job writes JSON to, store
 
 Guardrails unchanged: the result is the job's own claim and never changes run status (a "success" result with exit 1 is still failed; noop stays noop); Noon never follows paths or URLs in it.
 
-Ordering: rank this ahead of DRAFT-11 within the smart-repo proposals; it has a clearer consumer and smaller contract.
+Ordering: rank this ahead of NOON-78 within the smart-repo proposals; it has a clearer consumer and smaller contract.
