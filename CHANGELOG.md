@@ -6,6 +6,17 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- Add state-backed temporary jobs
+
+### Fixed
+
+- Keep unresolvable temporary jobs removable and isolated
+- Refuse to replace symlinked config files
+
+## [v0.12.0](https://github.com/brettinternet/noon/compare/v0.11.1...v0.12.0) - 2026-10-22
+
+### Added
+
 - Attach bounded temporary schedules to approved jobs
 - End unattended jobs at configured times
 
@@ -16,6 +27,7 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Documentation
 
+- Refresh changelog for v0.12.0
 - Add VHS demo recordings
 - Tighten README and docs
 
