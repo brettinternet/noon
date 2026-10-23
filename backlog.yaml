@@ -1,0 +1,53 @@
+version: 1
+project:
+    name: noon
+sources:
+    - id: tasks
+      type: native
+      path: backlog
+      prefix: NOON
+statuses:
+    - key: draft
+      name: Draft
+      category: backlog
+    - key: todo
+      name: To Do
+      category: todo
+    - key: in-progress
+      name: In Progress
+      category: active
+    - key: done
+      name: Done
+      category: done
+workflow:
+    start: in-progress
+    done: done
+labels:
+    - config
+    - schedule
+    - runner
+    - store
+    - scheduler
+    - cli
+    - integration
+    - mcp
+    - http
+    - ops
+    - tui
+    - security
+ready:
+    statuses:
+        - todo
+    satisfiedBy:
+        - done
+        - canceled
+    skipContainers: true
+defaults:
+    dod:
+        - task ci passes on the final commit
+        - Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+        - The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+        - No test was deleted, skipped, or weakened
+        - README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+coordination:
+    worklease: {}

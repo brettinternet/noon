@@ -73,7 +73,7 @@ See [design § Architecture](design.md#architecture) for decided dependencies.
 Adapters parse and render; rules live in `internal/app` and below. Add a package when a task
 needs it. No Go plugins or LLM SDKs. A new module dependency needs a reason in the task's
 Implementation Notes: what it replaces, whether it's maintained, and proof `CGO_ENABLED=0` still
-builds. `backlog/decisions/` holds settled decisions; [design](design.md) holds contracts.
+builds. `docs/decisions/` holds settled decisions; [design](design.md) holds contracts.
 
 ## Tests
 
@@ -180,9 +180,10 @@ mise exec worktrunk -- wt switch --create NAME --base main --no-cd --format=json
 Preparation installs tools and hooks; plain Git worktrees need `task init`. Change task state only
 in the primary checkout.
 
-`backlog/` is the only work queue; change it through the Backlog.md CLI (`backlog instructions
-overview`). Drafts are ideas, never work. A ready task has scope, non-goals, allowed files,
-dependencies, and local acceptance commands with expected results.
+`backlog/` is the only work queue; read and change tasks only through `mise exec -- bl` (CLI or
+MCP), never direct Markdown edits. Read `mise exec -- bl instructions` and
+`mise exec -- bl instructions workflow` first. Drafts are ideas, never work. A ready task has
+scope, non-goals, allowed files, dependencies, and local acceptance commands with expected results.
 
 Acceptance commands isolate Noon from your real config and state:
 
@@ -191,13 +192,17 @@ noon_ac_home=$(mktemp -d)
 env -i PATH="$PATH" HOME="$noon_ac_home" bin/noon list
 ```
 
-One task, start to finish:
+One task, start to finish, in the primary checkout with one stable session for the whole loop:
 
-1. `task backlog:next`. Read the task, then the design sections and decisions it cites. If it
-   conflicts with a decision, record that in the task notes and stop.
-2. Claim it in the primary checkout: `backlog task edit ID --status "In Progress"`. Reread it.
-3. Implement within the allowed files. Justify any expansion in Implementation Notes first.
-4. Run every acceptance command. Append `AC#N: command -> result` to Implementation Notes, and
-   check a criterion only if it passed as written.
-5. Meet the Definition of Done, stage, run `task check:staged`, and commit (Conventional Commits).
-6. Mark the task Done with a summary, or record the blocker, evidence, and unblock condition.
+1. `mise exec -- bl next --claim --start --session SESSION --json`. This picks and claims work in
+   one step; a status change is not a claim. Read the task, then the design sections and decisions
+   it cites. If it conflicts with a decision, record that in the task notes and stop.
+2. Implement within the allowed files. Justify any expansion in Implementation Notes first.
+3. Run every acceptance command. Record each criterion's command and observed result with
+   `mise exec -- bl ac ID check N --evidence TEXT`, checking a criterion only if it passed as
+   written. Renew with `mise exec -- bl heartbeat --session SESSION` at least once per half the
+   claim TTL.
+4. Meet the Definition of Done, stage, run `task check:staged`, and commit (Conventional Commits).
+5. Finish with `mise exec -- bl done ID --session SESSION`, which writes then releases before
+   returning, with a summary. If stopping incomplete, persist progress and evidence, then use
+   `mise exec -- bl release ID --session SESSION`.

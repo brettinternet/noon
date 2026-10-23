@@ -87,10 +87,10 @@ tasks:
     cmd: mise exec git-cliff -- git-cliff --output CHANGELOG.md
   backlog:
     desc: List ready, unclaimed work in delivery order
-    cmd: mise exec -- backlog task list --ready --status "To Do" --sort ordinal --plain
+    cmd: mise exec -- bl next 'claimed:none' -n 0
   backlog:next:
     desc: Show the next ready, unclaimed task
-    cmd: mise exec -- backlog task list --ready --status "To Do" --sort ordinal --limit 1 --plain
+    cmd: mise exec -- bl next 'claimed:none'
   docker:build:
     desc: Build the local noon development image
     cmd: docker build -t noon:dev .

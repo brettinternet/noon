@@ -1,6 +1,6 @@
 # Noon design
 
-Contracts and rationale. Backlog.md owns delivery order, and `backlog/decisions/` records why the
+Contracts and rationale. `bl` owns delivery order, and `docs/decisions/` records why the
 major choices were made. When a task's acceptance criteria disagree with this document, the task
 wins and updates it. User-facing behavior is documented in the [other docs](../README.md#documentation);
 this page records the rules they must keep.

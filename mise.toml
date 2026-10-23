@@ -11,4 +11,4 @@ git-cliff = "2.14.2"
 worktrunk = "0.80.0"
 staticcheck = "0.8.2"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
-"github:MrLesk/Backlog.md" = { version = "1.53.0", bin = "backlog" }
+"github:brettinternet/backlog" = "latest"
