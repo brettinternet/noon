@@ -144,6 +144,25 @@ func TestTemporaryJobs(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "noon.yaml")); !os.IsNotExist(err) {
 		t.Fatalf("shared config written: %v", err)
 	}
+	// A definition that stops resolving after a config edit must not lock the
+	// user out of cancelling or removing it.
+	if err := os.WriteFile(target, []byte("default_agent: claude\njobs:\n  ping: {run: ['true']}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := invokeText(t, "add", "lost", "every 10m", "--temporary", "--for", "1h", "--prompt", "hi"); code != 0 {
+		t.Fatalf("prompt job: %d %s", code, stderr)
+	}
+	if err := os.WriteFile(target, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := invokeText(t, "list"); code != 1 || !strings.Contains(stderr, "noon remove lost") {
+		t.Fatalf("unresolved list: %d %s", code, stderr)
+	}
+	for _, flags := range [][]string{{"cancel", "lost"}, {"remove", "lost"}, {"list"}} {
+		if code, _, stderr := invokeText(t, flags...); code != 0 {
+			t.Fatalf("%v: %d %s", flags, code, stderr)
+		}
+	}
 }
 
 // Invalid end options must not leave a job definition behind; absolute end

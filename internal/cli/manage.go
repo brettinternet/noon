@@ -13,6 +13,7 @@ import (
 	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/config"
 	"github.com/brettinternet/noon/internal/schedule"
+	"github.com/brettinternet/noon/internal/store"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -202,7 +203,8 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		}
 		fmt.Fprintf(cmd.Writer, "%s %s (%s until %s)", verb, name, scheduleText, result.Job.Until.Format("Mon 15:04"))
 		if result.Job.NextAt != nil {
-			fmt.Fprintf(cmd.Writer, " · next %s", result.Job.NextAt.Format("Mon 15:04"))
+			next := store.FormatTime(*result.Job.NextAt)
+			fmt.Fprintf(cmd.Writer, " · next %s (%s)", result.Job.NextAt.Format("Mon 15:04"), app.RelativeTime(&next, now))
 		}
 		fmt.Fprintln(cmd.Writer)
 		if result.Scheduler == "offline" {
@@ -451,8 +453,10 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	if e != nil {
 		return configError(e)
 	}
-	if err := app.MergeTemporaryJobs(&cfg, time.Now(), true); err != nil {
-		return stateError(err)
+	now := time.Now()
+	retained, e := app.TemporaryJobs(cfg, now)
+	if e != nil {
+		return stateError(e)
 	}
 	if cmd.Bool("shared") && cmd.Bool("local") {
 		return usageError("--shared and --local are mutually exclusive", "Choose the definition to remove")
@@ -472,21 +476,19 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	}
 	args = uniqueTargets(args)
 	removed := []map[string]string{}
-	for _, name := range args {
-		if _, ok := cfg.Jobs[name]; !ok {
-			return app.MissingJobError(name, "remove", cfg.Jobs)
-		}
-	}
+	// Resolve temporary jobs by name only, so one that no longer resolves can
+	// still be removed. A config definition wins and deletes its shadow.
 	var temporary []string
-	for name, job := range cfg.Jobs {
-		if job.Temporary != nil {
-			if slices.Contains(args, name) {
-				if cmd.Bool("shared") || cmd.Bool("local") {
-					return usageError("temporary jobs have no config file", "Remove without --shared or --local")
-				}
-				temporary = append(temporary, name)
+	for _, value := range retained {
+		if _, configured := cfg.Jobs[value.Name]; configured {
+			if err := app.RemoveTemporaryJob(cfg, value.Name, now); err != nil {
+				return stateError(err)
 			}
-			delete(cfg.Jobs, name)
+		} else if slices.Contains(args, value.Name) {
+			if cmd.Bool("shared") || cmd.Bool("local") {
+				return usageError("temporary jobs have no config file", "Remove without --shared or --local")
+			}
+			temporary = append(temporary, value.Name)
 		}
 	}
 	args = slices.DeleteFunc(args, func(name string) bool { return slices.Contains(temporary, name) })
@@ -559,7 +561,7 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 		prepared[file] = src
 	}
 	for _, name := range temporary {
-		if err := app.RemoveTemporaryJob(cfg, name, time.Now()); err != nil {
+		if err := app.RemoveTemporaryJob(cfg, name, now); err != nil {
 			return stateError(err)
 		}
 		removed = append(removed, map[string]string{"removed": name, "file": "temporary"})

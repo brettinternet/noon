@@ -67,6 +67,7 @@ type projectConfig struct {
 	config             *config.Config
 	webhookSecrets     map[string][]byte
 	webhookConfigError string
+	temporaryError     string
 	configSelection    string
 	stamps             []fileStamp
 	checkedAt          time.Time
@@ -356,15 +357,26 @@ func Serve(ctx context.Context, options ServeOptions) error {
 				}
 			}
 			if cached.config != nil {
+				var rows []store.TemporaryJob
+				for _, value := range snapshot.TemporaryJobs {
+					if value.ProjectID == project.ID {
+						rows = append(rows, value)
+					}
+				}
 				merged := *cached.config
-				if err := app.MergeTemporaryJobs(&merged, now, false); err != nil {
-					// A collision or new profile may reflect config newer than
-					// the 2s poll. Validate current config before deleting shadows.
+				err := app.MergeTemporaryRows(&merged, rows, now, false)
+				cached.config = &merged
+				message := ""
+				if err != nil {
+					message = err.Error()
+				}
+				if message != cached.temporaryError {
+					// A collision may reflect config newer than the 2s poll, and
+					// a changed failure must be recorded or cleared. Validate
+					// current config before deleting shadows.
 					if err := reloadProject(state, cached, options, now, &logger, true); err != nil {
 						return err
 					}
-				} else {
-					cached.config = &merged
 				}
 			}
 		}
@@ -625,10 +637,6 @@ func reloadProject(state *store.Store, cached *projectConfig, options ServeOptio
 		input.File = &file
 	}
 	loaded, err := config.Load(input)
-	if err == nil {
-		loaded.StateDir = options.StateDir
-		err = app.MergeTemporaryJobs(&loaded, now, true)
-	}
 	cached.stamps = stamps
 	cached.checkedAt = now
 	if err != nil {
@@ -638,14 +646,22 @@ func reloadProject(state *store.Store, cached *projectConfig, options ServeOptio
 		logger.event("config error project=%q error=%q", cached.project.Path, err.Error())
 		return nil
 	}
+	// A temporary job that cannot merge is skipped and recorded, never
+	// stopping the project's other jobs.
+	loaded.StateDir = options.StateDir
+	cached.temporaryError = ""
+	if err := app.MergeTemporaryJobs(&loaded, now, true); err != nil {
+		cached.temporaryError = err.Error()
+	}
 	cached.config = &loaded
 	cached.configSelection = configSelection(cached.project)
 	cached.webhookSecrets, cached.webhookConfigError = webhookSecretSnapshots(loaded, options.Environment)
-	if err := state.SetProjectConfigError(cached.project.ID, cached.webhookConfigError); err != nil {
+	recorded := strings.Join(slices.DeleteFunc([]string{cached.temporaryError, cached.webhookConfigError}, func(message string) bool { return message == "" }), "; ")
+	if err := state.SetProjectConfigError(cached.project.ID, recorded); err != nil {
 		return fmt.Errorf("record config error for %q: %w", cached.project.Path, err)
 	}
-	if cached.webhookConfigError != "" {
-		logger.event("config error project=%q error=%q", cached.project.Path, cached.webhookConfigError)
+	if recorded != "" {
+		logger.event("config error project=%q error=%q", cached.project.Path, recorded)
 	}
 	return nil
 }

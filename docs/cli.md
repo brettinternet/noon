@@ -99,7 +99,7 @@ See [Ending jobs](configuration.md#ending-jobs) for expiry and DST behavior.
 
 Queued `run` requests fail with code `ended` (exit 1, HTTP 409) if the job has ended or the
 requested due time is at or after its end. The message names the end time and the hint names the
-config source to edit. This applies to detach, delayed requests, MCP, API, webhooks, and triggers.
+config source to edit, or re-adding for a temporary job. This applies to detach, delayed requests, MCP, API, webhooks, and triggers.
 Foreground `noon run NAME` remains available after the end.
 
 ## Temporary jobs
@@ -123,7 +123,9 @@ Creation enables the project. The definition is private (`shared: false`, `appro
 job with a different/missing key fails with `exists` (exit 1). The same nonempty `--key` returns
 the existing job with `created: false`, `reason: "duplicate"`; an ended definition is replaced.
 A normal config add refuses any retained temporary name, suggesting `noon remove NAME`.
-A later hand-written config definition wins and deletes the temporary definition.
+A later hand-written config definition wins and deletes the temporary definition. If a config
+edit leaves a definition unresolvable, such as removing its agent, job commands fail with a hint to
+run `noon remove NAME`; `cancel` and `remove` still work.
 
 JSON creation returns `schema_version`, `job` (the list job object), `created`, optional `reason`,
 and `scheduler` (`running`/`offline`). Human output warns when the scheduler is offline.

@@ -240,6 +240,55 @@ func TestServeTemporaryJobs(t *testing.T) {
 			t.Fatalf("shadow: %+v %v", view, err)
 		}
 	})
+	// A config edit can leave a stored definition unresolvable. It must not
+	// stop the project's other jobs, and removal must clear the recorded error.
+	t.Run("unresolvable definition skips only itself", func(t *testing.T) {
+		f := newServeFixture(t, "jobs:\n  tick: {schedule: every 1m, run: ['true']}\n")
+		defer f.stop(t)
+		profile := filepath.Join(f.userConfig, "noon", "config.yaml")
+		if err := os.MkdirAll(filepath.Dir(profile), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(profile, []byte("agents:\n  a: {command: [sh, -c, 'true']}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f.step(t, serveTestStart)
+		input := config.Input{CWD: f.project, UserConfigDir: f.userConfig, StateDirDefault: f.stateDir}
+		cfg, err := config.Load(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		schedule, err := config.JobFromSource([]byte("jobs:\n  watch: {schedule: every 1m, agent: a, prompt: check}\n"), "watch", cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project, cfg.Timezone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		until := serveTestStart.Add(3 * time.Minute)
+		if _, err := app.AddTemporaryJob(cfg, config.Job{Name: "watch", Agent: "a", Prompt: schedule.Prompt, Schedule: schedule.Schedule, Until: &until, Enabled: true}, "", nil, serveTestStart); err != nil {
+			t.Fatal(err)
+		}
+		f.step(t, serveTestStart.Add(time.Second))
+		if err := os.WriteFile(profile, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f.step(t, serveTestStart.Add(3*time.Second))
+		if message := f.configError(t); !strings.Contains(message, "noon remove watch") {
+			t.Fatalf("unresolvable definition not recorded: %q", message)
+		}
+		f.stop(t)
+		f.start(t)
+		f.step(t, serveTestStart.Add(61*time.Second))
+		waitFor(t, func() bool {
+			runs := f.runs(t)
+			return len(runs) == 1 && runs[0].Job == "tick" && runs[0].Status == "succeeded"
+		})
+		if err := app.RemoveTemporaryJob(cfg, "watch", serveTestStart.Add(62*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		f.step(t, serveTestStart.Add(62*time.Second))
+		if message := f.configError(t); message != "" {
+			t.Fatalf("removal did not clear error: %q", message)
+		}
+	})
 }
 
 // A transaction can see creation/replacement after its config cache was

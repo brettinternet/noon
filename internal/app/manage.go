@@ -23,41 +23,57 @@ func LoadJobs(input config.Input, now time.Time) (config.Config, error) {
 // A hand-written config definition always wins. Cached callers must disable
 // shadow deletion, then reload current config before retrying a collision.
 func MergeTemporaryJobs(cfg *config.Config, now time.Time, deleteShadowed bool) error {
+	values, err := TemporaryJobs(*cfg, now)
+	if err != nil {
+		return err
+	}
+	return MergeTemporaryRows(cfg, values, now, deleteShadowed)
+}
+
+// TemporaryJobs reads retained definitions without resolving them, so remove
+// and cancel still work after a definition stops resolving.
+func TemporaryJobs(cfg config.Config, now time.Time) ([]store.TemporaryJob, error) {
+	state, err := store.OpenExisting(cfg.StateDir)
+	if errors.Is(err, store.ErrNoDatabase) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	values, err := state.TemporaryJobs(cfg.Project, now)
+	return values, errors.Join(err, state.Close())
+}
+
+// MergeTemporaryRows merges rows already read for cfg's project. A row that
+// cannot merge is skipped and reported, so the rest of cfg stays usable.
+func MergeTemporaryRows(cfg *config.Config, values []store.TemporaryJob, now time.Time, deleteShadowed bool) error {
 	cfg.Jobs = maps.Clone(cfg.Jobs)
 	for name, job := range cfg.Jobs {
 		if job.Source == "temporary" {
 			delete(cfg.Jobs, name)
 		}
 	}
-	state, err := store.OpenExisting(cfg.StateDir)
-	if errors.Is(err, store.ErrNoDatabase) {
+	if len(values) == 0 {
 		return nil
 	}
+	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
 		return err
 	}
-	values, err := state.TemporaryJobs(cfg.Project, now)
-	closeErr := state.Close()
-	if err != nil || closeErr != nil {
-		return errors.Join(err, closeErr)
-	}
+	var errs []error
 	for _, value := range values {
 		if _, exists := cfg.Jobs[value.Name]; exists {
 			if !deleteShadowed {
-				return fmt.Errorf("temporary job %q requires current config before shadow deletion", value.Name)
-			}
-			if err := RemoveTemporaryJob(*cfg, value.Name, now); err != nil {
-				return err
+				errs = append(errs, fmt.Errorf("temporary job %q requires current config before shadow deletion", value.Name))
+			} else if err := RemoveTemporaryJob(*cfg, value.Name, now); err != nil {
+				errs = append(errs, err)
 			}
 			continue
 		}
 		job, err := config.JobFromSource(value.Definition, value.Name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, false, cfg.Project, cfg.Timezone)
 		if err != nil {
-			return err
-		}
-		loc, err := time.LoadLocation(cfg.Timezone)
-		if err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("temporary job %q no longer resolves: %w; run noon remove %s", value.Name, err, value.Name))
+			continue
 		}
 		job.Source, job.Shared = "temporary", false
 		job.Temporary = &config.TemporaryJob{DefinitionDigest: value.Digest, CreatedAt: value.CreatedAt.In(loc), RequestedBy: value.RequestedBy, Key: value.Key, RemovesAt: value.End().Add(store.TemporaryJobGrace).In(loc)}
@@ -67,7 +83,7 @@ func MergeTemporaryJobs(cfg *config.Config, now time.Time, deleteShadowed bool) 
 		}
 		cfg.Jobs[value.Name] = job
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func RemoveTemporaryJob(cfg config.Config, name string, now time.Time) error {

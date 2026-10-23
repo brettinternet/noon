@@ -134,7 +134,11 @@ func queueRequestError(err error, cfg config.Config, name string, job config.Job
 		if loc == nil {
 			loc = time.Local
 		}
-		err = &QueueError{Code: "ended", Message: fmt.Sprintf("job %q %s at %s", name, tense, job.EndTime().In(loc).Format(time.RFC3339)), Hint: fmt.Sprintf("Edit until in %q", job.Source)}
+		hint := fmt.Sprintf("Edit until in %q", job.Source)
+		if job.Temporary != nil {
+			hint = fmt.Sprintf("Add it again with noon add %s --temporary", name)
+		}
+		err = &QueueError{Code: "ended", Message: fmt.Sprintf("job %q %s at %s", name, tense, job.EndTime().In(loc).Format(time.RFC3339)), Hint: hint}
 	case errors.Is(err, store.ErrJobDisabled):
 		err = &QueueError{Code: "disabled", Message: fmt.Sprintf("job %q is disabled", name), Hint: fmt.Sprintf("Enable it in %q", job.Source)}
 	case errors.Is(err, store.ErrJobPaused):

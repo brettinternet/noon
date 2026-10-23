@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -87,11 +88,20 @@ func cancelRuns(_ context.Context, cmd *urfave.Command) error {
 				return stateError(err)
 			}
 			if len(retained) == 0 {
-				configured, err := app.LoadJobs(values, time.Now())
+				configured, err := config.Load(values)
 				if err != nil {
 					return configError(err)
 				}
-				if _, ok := configured.Jobs[selector]; !ok {
+				_, ok := configured.Jobs[selector]
+				if !ok {
+					// Name-only lookup still ends a temporary job that no longer resolves.
+					temporary, err := app.TemporaryJobs(configured, time.Now())
+					if err != nil {
+						return stateError(err)
+					}
+					ok = slices.ContainsFunc(temporary, func(value store.TemporaryJob) bool { return value.Name == selector })
+				}
+				if !ok {
 					return app.MissingJobError(selector, "cancel", configured.Jobs)
 				}
 			}
