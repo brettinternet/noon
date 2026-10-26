@@ -45,10 +45,6 @@ func runQueueMode(cmd *urfave.Command) (string, error) {
 	return mode, nil
 }
 
-func queueDueAt(mode, inValue, atValue string, now time.Time, location *time.Location) (time.Time, error) {
-	return app.QueueDueAt(mode, inValue, atValue, now, location)
-}
-
 func queueError(err error) error {
 	var failure *app.QueueError
 	if errors.As(err, &failure) {

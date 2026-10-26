@@ -168,7 +168,7 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		if cmd.IsSet("at") {
 			mode = "at"
 		}
-		queueDue, err = queueDueAt(mode, inValue, atValue, now, location)
+		queueDue, err = app.QueueDueAt(mode, inValue, atValue, now, location)
 		if err != nil {
 			return usageError(err.Error(), "Use --in DURATION or --at TIME")
 		}
