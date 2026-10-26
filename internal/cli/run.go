@@ -96,7 +96,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		if queueMode == "schedule" {
 			return temporaryJobs(cmd, cfg, uniqueTargets(cmd.Args().Slice()), eventData, now, location)
 		}
-		dueAt, err := queueDueAt(queueMode, cmd.String("in"), cmd.String("at"), now, location)
+		dueAt, err := app.QueueDueAt(queueMode, cmd.String("in"), cmd.String("at"), now, location)
 		if err != nil {
 			return usageError(err.Error(), "Use --in 2h or --at '2026-10-16 09:00'")
 		}
