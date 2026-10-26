@@ -140,29 +140,15 @@ full history. It writes `CHANGELOG.md` (attached to the release) and `release-no
 body, that version only) into `dist/release/v1.2.3/`, stopping at the tag. The workflow never
 commits or moves tags.
 
-After a release is published, generate the tap formula from its real checksums only. From the Noon
-repository root:
+Within six hours of a release, the
+[Homebrew tap](https://github.com/brettinternet/homebrew-tap)'s scheduled workflow points
+`Formula/noon.rb` at it using the release's `checksums.txt`, then audits, installs, and tests the
+formula before committing. The formula's `brew test` confirms a bare invocation runs no job, creates
+no state, and installs no service. To smoke the installed formula:
 
 ```sh
-VERSION=1.2.3
-noon_release_dir="$(mktemp -d)"
-gh release view "v$VERSION" --repo brettinternet/noon
-gh release download "v$VERSION" --repo brettinternet/noon \
-  --pattern 'noon-v*.tar.gz' --pattern checksums.txt --dir "$noon_release_dir"
-(cd "$noon_release_dir" && shasum -a 256 -c checksums.txt)
-scripts/generate-homebrew-formula.sh "$VERSION" "$noon_release_dir/checksums.txt" \
-  > ../homebrew-tap/Formula/noon.rb
+task release:smoke BINARY="$(brew --prefix brettinternet/tap/noon)/bin/noon" VERSION=1.2.3
 ```
-
-Review the formula and update the tap README. Then, from a disposable Homebrew environment, run the
-tap's `.github/scripts/check-homebrew-tap.sh brettinternet/tap noon` and:
-
-```sh
-task release:smoke BINARY="$(brew --prefix brettinternet/tap/noon)/bin/noon" VERSION="$VERSION"
-```
-
-The formula's `brew test` confirms a bare invocation runs no job, creates no state, and installs no
-service. Tap publication is separate from the Noon release workflow.
 
 Release CI also installs `latest` and the pinned version through mise on all four platforms, with
 fresh mise directories, isolated HOME, an empty environment, and `MISE_MINIMUM_RELEASE_AGE=0`. It
