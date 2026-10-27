@@ -1,7 +1,7 @@
 ---
 id: NOON-87
 title: Pause jobs for a bounded or scheduled window
-status: todo
+status: done
 type: feature
 priority: medium
 labels: [scheduler, store, cli]
@@ -34,7 +34,7 @@ files:
   - docs/configuration.md
   - docs/design.md
 created: 2026-10-27T16:22:30Z
-updated: 2026-10-27T16:22:38Z
+updated: 2026-10-27T16:43:12Z
 ---
 
 Why: there is no way to say "nothing runs Saturday 22:00 to Sunday 06:00" for a maintenance window, a release freeze, or a trip. `noon pause` is open-ended, and a script guard with `noop_exit_code` only covers recurring windows (NOON-77). Chaining two temporary jobs that run `noon pause -a` and `noon resume -a` is unsafe: a resume one-shot that is more than 1h overdue (laptop asleep, scheduler down) expires, so the jobs stay paused indefinitely and silently; in the same project, `pause -a` cancels the resume run itself; and `resume -a` also resumes jobs that were paused individually before the window. NOON-68 listed "a pause that resumes later" as a non-goal; this task is that follow-up.
@@ -78,17 +78,39 @@ Modified-file contract: the files list plus this task record. Justify other path
 
 ## Acceptance criteria
 
-- [ ] After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose noon.yaml sets `timezone: America/Denver` and defines `tests` and `lint` (schedule `every 1h`, run ["true"]), after `bin/noon enable`: `bin/noon pause tests --for 2h --json` exits 0 with `changed` 1 and an `ends_at` at a whole minute no earlier than 2h and less than 2h1m after the command started; `bin/noon list --json` reports `tests` with `paused` true, `pause_ends_at`, and no `next_at`; human `bin/noon list` shows NEXT `paused until` for `tests`; `bin/noon resume tests` then reports `paused` false and no `pause_ends_at`.
-- [ ] In the same environment, `bin/noon pause tests --for 30s`, `--until "2000-01-01 00:00"`, `--for 2h --until 17:00`, `--from "2099-01-01 00:00"` alone, and `--from "2099-01-01 08:00" --until "2099-01-01 00:00"` each exit 2, and `bin/noon list --json` is unchanged afterwards.
-- [ ] In the same environment, `bin/noon pause lint --from "2099-01-01 00:00" --until "2099-01-01 08:00" --json` exits 0; `bin/noon list --json` reports `lint` with `paused` false, `pause_starts_at` "2099-01-01T00:00:00-07:00", `pause_ends_at` "2099-01-01T08:00:00-07:00", and a `next_at`; `bin/noon run lint --schedule "every 1h" --for 2h --json` exits 1 with code `paused`; foreground `bin/noon run lint` exits 0.
-- [ ] In the same environment, after `bin/noon pause tests` (open-ended), `bin/noon pause tests --for 1h --json` exits 0 with `changed` 0 and `bin/noon list --json` still reports `tests` paused with no `pause_ends_at`.
-- [ ] `task cli:test PKG=./internal/scheduler -- -count=1` exits 0 and covers, with injected time: an active window dispatches nothing and cancels a queued run; a pending window cancels nothing before it starts; after expiry no occurrence inside the window runs or catches up; with the scheduler stopped across expiry, `missed: run_once` yields one catch-up only when an occurrence fell after `resumes_at`, and none when every missed occurrence was inside the window; open-ended pause behavior is unchanged.
-- [ ] `task cli:test PKG=./internal/store -- -count=1` exits 0 and covers: a pause row written before the migration stays an open-ended active pause after upgrade; queue eligibility and temporary-schedule creation refuse during active and pending windows and accept after expiry without a scheduler. Docs in scope describe only implemented behavior. `task ci` exits 0.
+- [x] After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `mktemp -d` and a temp Git repo whose noon.yaml sets `timezone: America/Denver` and defines `tests` and `lint` (schedule `every 1h`, run ["true"]), after `bin/noon enable`: `bin/noon pause tests --for 2h --json` exits 0 with `changed` 1 and an `ends_at` at a whole minute no earlier than 2h and less than 2h1m after the command started; `bin/noon list --json` reports `tests` with `paused` true, `pause_ends_at`, and no `next_at`; human `bin/noon list` shows NEXT `paused until` for `tests`; `bin/noon resume tests` then reports `paused` false and no `pause_ends_at`.
+  Evidence: task cli:build; /tmp/noon87-ac/ac.sh: pause tests --for 2h --json exit 0, ends_at - start = 7208s on a whole minute; list --json paused true with pause_ends_at; human NEXT 'paused until Tue 12:39'; resume clears paused/pause_ends_at and restores next_at.
+- [x] In the same environment, `bin/noon pause tests --for 30s`, `--until "2000-01-01 00:00"`, `--for 2h --until 17:00`, `--from "2099-01-01 00:00"` alone, and `--from "2099-01-01 08:00" --until "2099-01-01 00:00"` each exit 2, and `bin/noon list --json` is unchanged afterwards.
+  Evidence: ac.sh AC2: --for 30s, --until past, --for+--until, --from alone, --from after --until each exit 2 with usage message (last: 'until must be after from'); list --json (minus wall-clock next_at preview) unchanged.
+- [x] In the same environment, `bin/noon pause lint --from "2099-01-01 00:00" --until "2099-01-01 08:00" --json` exits 0; `bin/noon list --json` reports `lint` with `paused` false, `pause_starts_at` "2099-01-01T00:00:00-07:00", `pause_ends_at` "2099-01-01T08:00:00-07:00", and a `next_at`; `bin/noon run lint --schedule "every 1h" --for 2h --json` exits 1 with code `paused`; foreground `bin/noon run lint` exits 0.
+  Evidence: ac.sh AC3: pause lint --from 2099-01-01 00:00 --until 08:00 exit 0 with starts_at/ends_at; list shows paused false, pause_starts_at/pause_ends_at, next_at present; run lint --schedule exits 1 code paused; foreground run lint exits 0.
+- [x] In the same environment, after `bin/noon pause tests` (open-ended), `bin/noon pause tests --for 1h --json` exits 0 with `changed` 0 and `bin/noon list --json` still reports `tests` paused with no `pause_ends_at`.
+  Evidence: ac.sh AC4: after open-ended pause, pause tests --for 1h --json -> changed 0, paused true, no pause_ends_at; human NEXT 'paused'.
+- [x] `task cli:test PKG=./internal/scheduler -- -count=1` exits 0 and covers, with injected time: an active window dispatches nothing and cancels a queued run; a pending window cancels nothing before it starts; after expiry no occurrence inside the window runs or catches up; with the scheduler stopped across expiry, `missed: run_once` yields one catch-up only when an occurrence fell after `resumes_at`, and none when every missed occurrence was inside the window; open-ended pause behavior is unchanged.
+  Evidence: task cli:test PKG=./internal/scheduler -- -count=1 -> ok. TestServePauseWindows: pending window keeps queued run at +1m, active window cancels it and dispatches nothing through +30m, first run after expiry is the +40m schedule occurrence; scheduler stopped across expiry with missed run_once: restart +35m no catch-up then +40m schedule run, restart +45m one catch_up. Open-ended pause covered by existing TestServeTemporarySchedules 'permanent removal pause'.
+- [x] `task cli:test PKG=./internal/store -- -count=1` exits 0 and covers: a pause row written before the migration stays an open-ended active pause after upgrade; queue eligibility and temporary-schedule creation refuse during active and pending windows and accept after expiry without a scheduler. Docs in scope describe only implemented behavior. `task ci` exits 0.
+  Evidence: task cli:test PKG=./internal/store -- -count=1 -> ok. TestPauseWindows: v14 pause row upgraded to open-ended active (nil bounds), timed pause does not shorten it (changed 0); QueueRun RequireUnpaused refuses ErrJobPaused in active window, accepts before pending window starts; CreateTemporarySchedule refuses in active and pending windows; both accept after expiry and Pauses omits the expired row, no scheduler. Docs (README, cli.md Pausing jobs + JSON table, configuration.md recipe + list fields, design.md pause/missed rules + v15) describe implemented behavior. task ci exit 0.
 
 ## Definition of done
 
-- [ ] task ci passes on the final commit
-- [ ] Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] No test was deleted, skipped, or weakened
-- [ ] README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] task ci passes on the final commit
+  Evidence: bl heartbeat -- task ci exit 0 (lint, tests, gitleaks, govulncheck, gofmt, smoke).
+- [x] Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+  Evidence: AC 1-6 each checked with command and observed result.
+- [x] The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+  Evidence: Out-of-contract files justified in notes: schedule/next.go, scheduler/plan.go, app/scheduler.go, cli/root.go, cli/serve_test.go, tui/tui_test.go.
+- [x] No test was deleted, skipped, or weakened
+  Evidence: No test weakened; only signature updates in existing tests plus TestPauseResume chaining WithScheduler; new TestServePauseWindows and TestPauseWindows.
+- [x] README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+  Evidence: README, docs/cli.md, docs/configuration.md, docs/design.md updated to the settled contract.
+
+## Notes
+
+Implemented in d248c88 (feat: pause jobs for a bounded or scheduled window), fast-forwarded onto main; worktree .worktrees/noon-87-pause-window and branch removed via wt remove. Not pushed.
+Deviations outside the modified-file contract: internal/schedule/next.go adds Schedule.AfterPause, the shared first-occurrence-after-window helper used by both app and scheduler (lives in schedule to avoid an app<->scheduler import cycle); internal/scheduler/plan.go seeds state from AfterPause when a pause expired this tick (JobInput.Resumed) so in-window occurrences never catch up while later offline-missed ones follow missed; internal/app/scheduler.go moves pause enrichment into WithScheduler because it needs now (pending windows, next_at skipping); internal/cli/root.go defines the --for/--until/--from flags; internal/cli/serve_test.go and internal/tui/tui_test.go only follow the ReadSchedulerSnapshot(now)/Pauses signature changes.
+Interpretation of AC6: queue eligibility refuses only during an active window (a pending window has no effect until it starts, per contract); temporary-schedule creation refuses during pending and active windows. Both accept after expiry without a scheduler.
+Review: one pass over store/scheduler/app changes; no defects found. Calendar occurrences exactly at resumes_at run; intervals restart one period after resumes_at.
+
+## Summary
+
+noon pause gains --for/--until/--from timed windows backed by nullable pauses.starts_at/resumes_at (migration 15) and one active predicate shared by all readers. The scheduler expires windows in the tick like resume and restarts from the first occurrence after the window; list/MCP/TUI show pause bounds and 'paused until DAY HH:MM'. Commit d248c88 on main (not pushed); task ci passes.
