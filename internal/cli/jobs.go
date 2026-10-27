@@ -91,7 +91,7 @@ func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide
 		} else if !job.PlatformSupported {
 			next = "other platform"
 		} else if job.Paused {
-			next = "paused"
+			next = job.PauseStatus()
 		} else if job.Approval == "needs_approval" {
 			next = "needs approval"
 		} else if !job.Enabled {
@@ -130,7 +130,7 @@ func (s humanStyle) printJobs(out io.Writer, jobs []app.Job, now time.Time, wide
 		if job.LastRun != nil {
 			lastRole = runDisplayStatus(*job.LastRun)
 		}
-		rows = append(rows, []tableCell{{job.Name, "heading"}, {scheduled, ""}, {next, next}, {lastRunCell(job.LastRun, now), lastRole}, {command, ""}})
+		rows = append(rows, []tableCell{{job.Name, "heading"}, {scheduled, ""}, {next, nextRole(job, next)}, {lastRunCell(job.LastRun, now), lastRole}, {command, ""}})
 		if job.Overrides {
 			overrides++
 		}
@@ -212,4 +212,12 @@ func cell(text string, width int) string {
 		return string(runes[:width-3]) + "..."
 	}
 	return string(runes)
+}
+
+// nextRole styles every pause status, including its end time, as paused.
+func nextRole(job app.Job, next string) string {
+	if job.Paused {
+		return "paused"
+	}
+	return next
 }

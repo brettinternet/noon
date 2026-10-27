@@ -69,7 +69,7 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 		case !job.PlatformSupported:
 			next = "other platform"
 		case job.Paused:
-			next = "paused"
+			next = job.PauseStatus()
 		case !job.Enabled:
 			next = "disabled"
 		case job.Approval == "needs_approval":
@@ -83,7 +83,7 @@ func dashboardAt(cmd *urfave.Command, now time.Time) error {
 		if job.LastRun != nil {
 			lastRole = runDisplayStatus(*job.LastRun)
 		}
-		rows = append(rows, []tableCell{{job.Name, "heading"}, {schedule, ""}, {next, next}, {lastRunCell(job.LastRun, now), lastRole}})
+		rows = append(rows, []tableCell{{job.Name, "heading"}, {schedule, ""}, {next, nextRole(job, next)}, {lastRunCell(job.LastRun, now), lastRole}})
 	}
 	style.printBoundedRows(cmd.Writer, rows, "  ", outputWidth(cmd.Writer), 0)
 	notices := slices.Clone(view.Notices[:min(3, len(view.Notices))])

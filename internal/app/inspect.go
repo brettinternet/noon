@@ -49,6 +49,8 @@ type Job struct {
 	Arch              []string                 `json:"arch,omitempty"`
 	PlatformSupported bool                     `json:"platform_supported"`
 	Paused            bool                     `json:"paused"`
+	PauseStartsAt     *time.Time               `json:"pause_starts_at,omitempty"`
+	PauseEndsAt       *time.Time               `json:"pause_ends_at,omitempty"`
 	LastRun           *Run                     `json:"last_run"`
 	Source            string                   `json:"source"`
 	Shared            bool                     `json:"shared"`
@@ -145,4 +147,15 @@ func ListJobs(input config.Input, now time.Time) (Inspection, error) {
 		return Inspection{}, StateError(err)
 	}
 	return view, nil
+}
+
+// PauseStatus is the NEXT text for an active pause, or empty.
+func (job Job) PauseStatus() string {
+	if !job.Paused {
+		return ""
+	}
+	if job.PauseEndsAt != nil {
+		return "paused until " + job.PauseEndsAt.Format("Mon 15:04")
+	}
+	return "paused"
 }

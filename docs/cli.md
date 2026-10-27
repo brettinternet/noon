@@ -150,11 +150,32 @@ create temporary definitions.
 noon pause lint tests   # atomically pause both
 noon pause -a           # every job currently in this project
 noon resume -a          # also resumes individually paused jobs
+noon pause -a --for 8h  # resume automatically
+noon pause tests --from "2026-10-24 22:00" --until "2026-10-25 06:00"
 ```
 
 Pausing cancels queued runs but leaves running ones. Jobs added later aren't paused; use
 `noon disable` for that. Resuming starts schedules from now, with no catch-up. Without names or
-`--all`, both commands only list candidates. JSON has sorted `jobs`, `paused`, and `changed`.
+`--all`, both commands only list candidates.
+
+`--for DURATION` (at least 1m, rounded up to a whole minute) and `--until TIME` (same resolution
+as `noon add --until`, in the project timezone) are mutually exclusive and end the pause. `--from
+TIME` starts it later and requires one of them; `--for` then counts from the start. The start and
+end must be after now, and the end after the start; otherwise exit 2 with nothing changed.
+
+A job is paused while `start <= now < end`. A window that hasn't started has no effect on queued
+or running work, but `run --schedule` refuses until it ends. When a window ends, the job resumes
+as with `noon resume`; occurrences inside the window never run or catch up, and later ones missed
+while the scheduler was offline follow `missed`. Foreground `noon run` always works.
+
+An open-ended pause is never shortened by a timed one (`changed` is 0). A timed pause replaces a
+timed or pending one, plain `noon pause` makes any pause open-ended, and `noon resume` ends any
+pause. Human NEXT shows `paused until DAY HH:MM` or `paused`; `next_at` skips occurrences inside a
+pending window.
+
+JSON has sorted `jobs` (or one `job`), `paused`, `changed`, and, when a timed pause changed,
+`starts_at` and `ends_at`. `list --json` and MCP add `pause_starts_at` and `pause_ends_at` to jobs
+with a timed or pending pause; `paused` is true only while the window is active.
 
 ## Multiple targets
 
@@ -166,7 +187,7 @@ failures, report them, and exit 1; completed work isn't undone. Multi-target JSO
 
 | Command | Fields |
 | --- | --- |
-| `pause` / `resume` | `jobs`, `paused`, `changed` |
+| `pause` / `resume` | `jobs`, `paused`, `changed`, optional `starts_at` / `ends_at` |
 | `history` | `runs`, merged newest-first under one `--limit` |
 | `cancel` | `runs`, `pending`, optional `ended_temporary_schedules` / `ended_temporary_jobs`, `errors` |
 | queued `run` | `results` (`run`, `created`, `scheduler`, optional `reason` / `cooldown_until`), `errors` |

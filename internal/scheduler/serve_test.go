@@ -98,7 +98,7 @@ func TestServeTemporaryJobs(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer state.Close()
-		snapshot, err := state.ReadSchedulerSnapshot()
+		snapshot, err := state.ReadSchedulerSnapshot(serveTestStart)
 		if err != nil || len(snapshot.TemporaryJobs) != 0 {
 			t.Fatalf("row not purged: %+v %v", snapshot.TemporaryJobs, err)
 		}
@@ -327,7 +327,7 @@ func TestTemporaryJobsCreatedAfterConfigCapture(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer state.Close()
-			snapshot, err := state.ReadSchedulerSnapshot()
+			snapshot, err := state.ReadSchedulerSnapshot(serveTestStart)
 			if err != nil || len(snapshot.Projects) != 1 {
 				t.Fatalf("snapshot: %+v %v", snapshot, err)
 			}
@@ -621,6 +621,84 @@ func TestFileStampsDetectPermissionChanges(t *testing.T) {
 	}
 	if sameStamps(before, statPaths([]string{path})) {
 		t.Fatal("permission change was not detected")
+	}
+}
+
+func TestServePauseWindows(t *testing.T) {
+	const manifest = "timezone: UTC\njobs:\n  tests: {schedule: every 10m, missed: run_once, run: ['true']}\n"
+	at := func(minutes int) time.Time { return serveTestStart.Add(time.Duration(minutes) * time.Minute) }
+	pause := func(t *testing.T, f *serveFixture, window store.PauseWindow) {
+		t.Helper()
+		state, err := store.Open(f.stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		if _, err := state.PauseJobs(f.project, []string{"tests"}, window, serveTestStart); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("pending then active then expired", func(t *testing.T) {
+		f := newServeFixture(t, manifest)
+		defer f.stop(t)
+		f.step(t, at(0))
+		state, err := store.Open(f.stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		queued, err := state.QueueRun(store.QueueRunInput{
+			ProjectID: f.projectID(t), Job: "tests", Digest: "test", RequestedBy: "test",
+			DueAt: at(5), Now: at(0), JobExists: true, JobEnabled: true,
+		})
+		_ = state.Close()
+		if err != nil || !queued.Created {
+			t.Fatalf("queue: %+v %v", queued, err)
+		}
+		start, end := at(2), at(30)
+		pause(t, f, store.PauseWindow{Start: &start, End: &end})
+		f.step(t, at(1))
+		if runs := f.runs(t); len(runs) != 1 || runs[0].Status != "queued" {
+			t.Fatalf("pending window cancelled work: %+v", runs)
+		}
+		for _, minutes := range []int{2, 10, 20, 30} {
+			f.step(t, at(minutes))
+		}
+		if runs := f.runs(t); len(runs) != 1 || runs[0].Status != "cancelled" {
+			t.Fatalf("active window dispatched or kept queued work: %+v", runs)
+		}
+		f.step(t, at(40))
+		runs := f.runs(t)
+		if len(runs) != 2 || runs[0].Trigger != "schedule" || runs[0].ScheduledAt.String != store.FormatTime(at(40)) {
+			t.Fatalf("after expiry: %+v", runs)
+		}
+	})
+	for _, restart := range []int{35, 45} {
+		t.Run(fmt.Sprintf("stopped across expiry restart +%dm", restart), func(t *testing.T) {
+			f := newServeFixture(t, manifest)
+			defer f.stop(t)
+			f.step(t, at(0))
+			end := at(30)
+			pause(t, f, store.PauseWindow{End: &end})
+			f.step(t, at(1))
+			f.stop(t)
+			f.start(t)
+			f.step(t, at(restart))
+			runs := f.runs(t)
+			if restart == 35 {
+				if len(runs) != 0 {
+					t.Fatalf("caught up an occurrence inside the window: %+v", runs)
+				}
+				f.step(t, at(40))
+				runs = f.runs(t)
+				if len(runs) != 1 || runs[0].Trigger != "schedule" {
+					t.Fatalf("first occurrence after window: %+v", runs)
+				}
+				return
+			}
+			if len(runs) != 1 || runs[0].Trigger != "catch_up" {
+				t.Fatalf("occurrence after window missed offline: %+v", runs)
+			}
+		})
 	}
 }
 
@@ -1525,7 +1603,7 @@ func (f *serveFixture) projectID(t *testing.T) int64 {
 		t.Fatal(err)
 	}
 	defer state.Close()
-	snapshot, err := state.ReadSchedulerSnapshot()
+	snapshot, err := state.ReadSchedulerSnapshot(serveTestStart)
 	if err != nil || len(snapshot.Projects) != 1 {
 		t.Fatalf("project snapshot: %+v %v", snapshot, err)
 	}

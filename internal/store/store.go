@@ -97,6 +97,9 @@ CREATE TABLE temporary_jobs (
 CREATE TABLE temporary_job_names (
   project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL,
   PRIMARY KEY(project_id, name));
+`, `
+ALTER TABLE pauses ADD COLUMN starts_at TEXT;
+ALTER TABLE pauses ADD COLUMN resumes_at TEXT;
 `}
 
 type Store struct {
@@ -114,6 +117,7 @@ type Store struct {
 	hasAgentSessionID  bool
 	hasTemporary       bool
 	hasTemporaryJobs   bool
+	hasPauseWindows    bool
 }
 
 type StateTooNewError struct{ Version int }
@@ -356,6 +360,7 @@ func open(dir string, create bool) (*Store, error) {
 		state.hasSchedulerCommit = version >= 12
 		state.hasTemporary = version >= 13
 		state.hasTemporaryJobs = version >= 14
+		state.hasPauseWindows = version >= 15
 		return state, nil
 	}
 	for {
@@ -401,6 +406,7 @@ func open(dir string, create bool) (*Store, error) {
 	state.hasSchedulerCommit = true
 	state.hasTemporary = true
 	state.hasTemporaryJobs = true
+	state.hasPauseWindows = true
 	if err := secureFiles(dir); err != nil {
 		return closeOnError(err)
 	}

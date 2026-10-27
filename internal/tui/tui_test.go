@@ -735,9 +735,13 @@ func readPaused(t *testing.T, stateDir, project string) map[string]bool {
 		t.Fatal(err)
 	}
 	defer state.Close()
-	paused, err := state.PausedJobs(project)
+	pauses, err := state.Pauses(project, time.Now())
 	if err != nil {
 		t.Fatal(err)
+	}
+	paused := map[string]bool{}
+	for name, pause := range pauses {
+		paused[name] = pause.Active
 	}
 	return paused
 }

@@ -124,7 +124,12 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				&urfave.StringFlag{Name: "until", Usage: "End unattended runs at `TIME`: HH:MM, YYYY-MM-DD HH:MM, or RFC 3339"},
 			}, Action: addJob},
 			{Name: "remove", Aliases: []string{"rm"}, Usage: "Remove a job definition; retain history", Description: "Without NAME, list jobs without removing anything. If both repository files define NAME, choose --shared or --local. With --user, remove edits the user config.yaml.\n\nExample:\n  noon remove tests --local\n  noon --user remove digest", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "shared", Usage: "Remove from shared noon.yaml"}, &urfave.BoolFlag{Name: "local", Usage: "Remove from private .git/noon.yaml"}}, Action: removeJob},
-			{Name: "pause", Usage: "Pause background runs of jobs", ArgsUsage: "[NAME... | --all]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "Pause all currently configured jobs in the selected project"}}, Action: pauseJob},
+			{Name: "pause", Usage: "Pause background runs of jobs", ArgsUsage: "[NAME... | --all]", Flags: []urfave.Flag{
+				&urfave.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "Pause all currently configured jobs in the selected project"},
+				&urfave.StringFlag{Name: "for", Usage: "Resume after `DURATION` (at least 1m; rounded up to a minute)"},
+				&urfave.StringFlag{Name: "until", Usage: "Resume at `TIME`: HH:MM, YYYY-MM-DD HH:MM, or RFC 3339"},
+				&urfave.StringFlag{Name: "from", Usage: "Start the pause at `TIME` instead of now; requires --for or --until"},
+			}, Action: pauseJob},
 			{Name: "resume", Usage: "Resume background runs of jobs", ArgsUsage: "[NAME... | --all]", Flags: []urfave.Flag{&urfave.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "Resume all currently configured jobs in the selected project"}}, Action: resumeJob},
 			{Name: "import", Usage: "Preview or import jobs from another scheduler", Action: importers, Commands: []*urfave.Command{
 				{Name: "crontab", Usage: "Preview or import a user crontab", ArgsUsage: "FILE|-", Flags: []urfave.Flag{

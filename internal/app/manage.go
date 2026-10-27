@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/brettinternet/noon/internal/config"
@@ -211,6 +212,22 @@ func SetPaused(stateDir, project, name string, paused bool, now time.Time) error
 }
 
 func SetJobsPaused(stateDir, project string, names []string, paused bool, now time.Time) (int, error) {
+	if paused {
+		return PauseJobs(stateDir, project, names, store.PauseWindow{}, now)
+	}
+	return withPauses(stateDir, project, names, now, func(state *store.Store) (int, error) {
+		return state.SetJobsPaused(project, names, false, now)
+	})
+}
+
+// PauseJobs records a validated window; the zero window is open-ended.
+func PauseJobs(stateDir, project string, names []string, window store.PauseWindow, now time.Time) (int, error) {
+	return withPauses(stateDir, project, names, now, func(state *store.Store) (int, error) {
+		return state.PauseJobs(project, names, window, now)
+	})
+}
+
+func withPauses(stateDir, project string, names []string, now time.Time, change func(*store.Store) (int, error)) (int, error) {
 	if len(names) == 0 {
 		return 0, nil
 	}
@@ -222,5 +239,44 @@ func SetJobsPaused(stateDir, project string, names []string, paused bool, now ti
 	if _, err := state.RegisterProject(project, now); err != nil {
 		return 0, err
 	}
-	return state.SetJobsPaused(project, names, paused, now)
+	return change(state)
+}
+
+// ResolvePauseWindow resolves pause times once in loc. For and until are
+// exclusive, from requires one of them, and for counts from the start. Empty
+// values mean an open-ended pause that starts now.
+func ResolvePauseWindow(fromValue, forValue, untilValue string, now time.Time, loc *time.Location) (store.PauseWindow, error) {
+	var window store.PauseWindow
+	hint := `Use --for 8h, or --from "2026-11-07 22:00" --until "2026-11-08 06:00"`
+	switch {
+	case forValue != "" && untilValue != "":
+		return window, UsageError("cannot combine --for with --until", hint)
+	case forValue == "" && untilValue == "":
+		if fromValue != "" {
+			return window, UsageError("--from requires --for or --until", hint)
+		}
+		return window, nil
+	}
+	base := now
+	if fromValue != "" {
+		start, err := ResolveTime(fromValue, now, loc)
+		if err != nil {
+			return window, UsageError(fmt.Sprintf("invalid from time %q: use HH:MM, YYYY-MM-DD HH:MM, or RFC 3339", fromValue), hint)
+		}
+		if !start.After(now) {
+			return window, UsageError("from must be after now", hint)
+		}
+		start = start.In(loc)
+		window.Start, base = &start, start
+	}
+	end, err := ResolveEnd(forValue, untilValue, base, loc)
+	if err != nil {
+		message := err.Error()
+		if window.Start != nil {
+			message = strings.Replace(message, "after now", "after from", 1)
+		}
+		return window, UsageError(message, hint)
+	}
+	window.End = &end
+	return window, nil
 }

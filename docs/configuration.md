@@ -522,13 +522,14 @@ noon add check-ci --in 2h --agent claude --prompt "Check CI"  # queue a first ru
 noon remove tests                                      # alias rm; history stays
 noon pause tests                                       # stop background runs
 noon resume tests                                      # restart from now, no catch-up
+noon pause -a --for 8h                                 # resume automatically
 ```
 
 `add` writes `.git/noon.yaml` by default, editing in place and keeping comments. It enables the
 project when the job is scheduled or queued, and approves only that job. `add`, `remove`, and
 `import --write` refuse `--config` files, symlinked config files, and unusual `jobs` layouts;
-edit a link's target by hand. Paused jobs still run with
-`noon run`.
+edit a link's target by hand. Paused jobs still run with `noon run`; see
+[Pausing jobs](cli.md#pausing-jobs) for timed windows.
 
 ## Listing jobs
 
@@ -544,7 +545,8 @@ tests  weekdays at 09:00  Mon 09:00 (in 64h)  never  "go" "version"
 Times use the project timezone. Intervals preview `now + interval` until the scheduler records
 their phase. `--json` adds `source`, `shared`, `overrides`, `digest`, `approval` (`not_required`,
 `approved`, `needs_approval`), `env_file`, `env_keys`, `agent_args`, `os`, `arch`,
-`platform_supported`, and `webhook_path`. Environment values are never printed, but keep secrets
+`platform_supported`, `webhook_path`, `paused`, and, for timed pauses, `pause_starts_at` and
+`pause_ends_at`. Environment values are never printed, but keep secrets
 out of commands and descriptions.
 
 ## Approval

@@ -25,8 +25,9 @@ type JobInput struct {
 	Until       *time.Time
 	Location    *time.Location
 	Active      bool
-	Missed      string // run_once | skip
-	Overlap     string // skip | queue
+	Missed      string    // run_once | skip
+	Resumed     time.Time // end of a pause that expired with no schedule state; zero otherwise
+	Overlap     string    // skip | queue
 }
 
 type JobState struct {
@@ -77,16 +78,23 @@ func Due(now time.Time, jobs []JobInput, states []JobState, runs []Run) (upsert 
 		}
 		key := schedule.StateKey(job.Schedule.String(), loc.String(), job.ProjectPath, job.Key.Job, job.Splay, job.Jitter)
 		state, exists := previous[job.Key]
+		seeded := false
 		if !exists || state.ScheduleKey != key {
-			nominal, _ := job.Schedule.NextEffective(now, loc, job.ProjectPath, job.Key.Job, job.Splay, job.Jitter, time.Time{})
-			upsert = append(upsert, JobState{job.Key, key, nominal})
-			continue
+			if job.Resumed.IsZero() || !job.Resumed.Before(now) {
+				nominal, _ := job.Schedule.NextEffective(now, loc, job.ProjectPath, job.Key.Job, job.Splay, job.Jitter, time.Time{})
+				upsert = append(upsert, JobState{job.Key, key, nominal})
+				continue
+			}
+			// Occurrences inside an expired pause never count as missed; later
+			// ones missed while the scheduler was offline follow the missed policy.
+			nominal, _ := job.Schedule.AfterPause(job.Resumed, loc, job.ProjectPath, job.Key.Job, job.Splay, job.Jitter)
+			state, seeded = JobState{job.Key, key, nominal}, true
 		}
 		effective := schedule.EffectiveStart(job.ProjectPath, job.Key.Job, state.NextAt, job.Splay, job.Jitter)
-		if job.Until != nil && !effective.Before(*job.Until) {
-			continue
-		}
-		if effective.After(now) {
+		if effective.After(now) || (job.Until != nil && !effective.Before(*job.Until)) {
+			if seeded {
+				upsert = append(upsert, state)
+			}
 			continue
 		}
 		run := NewRun{job.Key, "queued", "schedule", state.NextAt, effective}

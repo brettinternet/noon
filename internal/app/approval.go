@@ -65,15 +65,10 @@ func WithApprovals(view Inspection) (Inspection, error) {
 	if err != nil {
 		return Inspection{}, err
 	}
-	paused, err := state.PausedJobs(view.Project.Path)
-	if err != nil {
-		return Inspection{}, err
-	}
 	view.Project.ID = approval.ID
 	view.Project.Enabled = approval.Enabled
 	for i := range view.Jobs {
 		job := &view.Jobs[i]
-		job.Paused = paused[job.Name]
 		if job.HasWebhook && approval.ID > 0 {
 			job.WebhookPath = fmt.Sprintf("/hooks/%d/%s", approval.ID, job.Name)
 		}

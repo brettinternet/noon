@@ -14,6 +14,8 @@ type EnabledProject struct {
 	ConfigFile sql.NullString
 	Approvals  map[string]string
 	Paused     map[string]bool
+	// Resumed holds the ends of pauses that expired in this tick, by job.
+	Resumed map[string]time.Time
 }
 
 type ProjectRecord struct {
@@ -119,7 +121,7 @@ func (s *Store) ProjectRecords() ([]ProjectRecord, error) {
 }
 
 // ReadSchedulerSnapshot returns a consistent view for reload and test setup.
-func (s *Store) ReadSchedulerSnapshot() (SchedulerSnapshot, error) {
+func (s *Store) ReadSchedulerSnapshot(now time.Time) (SchedulerSnapshot, error) {
 	if !s.hasScheduler {
 		return SchedulerSnapshot{}, nil
 	}
@@ -128,7 +130,7 @@ func (s *Store) ReadSchedulerSnapshot() (SchedulerSnapshot, error) {
 		return SchedulerSnapshot{}, err
 	}
 	defer tx.Rollback()
-	return schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary, s.hasTemporaryJobs)
+	return s.schedulerSnapshot(tx, now)
 }
 
 // SchedulerInfo returns the last scheduler heartbeat, or no record for old state
@@ -234,9 +236,24 @@ func (s *Store) ScheduleTick(now time.Time, pid int, identity string,
 	if n, _ := result.RowsAffected(); n != 1 {
 		return nil, errors.New("scheduler ownership was lost")
 	}
-	snapshot, err := schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary, s.hasTemporaryJobs)
+	resumed, err := s.expirePauses(tx, now)
 	if err != nil {
 		return nil, err
+	}
+	snapshot, err := s.schedulerSnapshot(tx, now)
+	if err != nil {
+		return nil, err
+	}
+	for i := range snapshot.Projects {
+		project := &snapshot.Projects[i]
+		for key, at := range resumed {
+			if key.ProjectID == project.ID {
+				if project.Resumed == nil {
+					project.Resumed = map[string]time.Time{}
+				}
+				project.Resumed[key.Job] = at
+			}
+		}
 	}
 	changes, err := plan(snapshot)
 	if err != nil {
@@ -313,7 +330,7 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, ru
 			}
 		}
 	}
-	snapshot, err = schedulerSnapshot(tx, s.hasPauses, s.hasAgentSessionID, s.hasTemporary, s.hasTemporaryJobs)
+	snapshot, err = s.schedulerSnapshot(tx, now)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +398,46 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ProjectID, run.Job, run.Status, ru
 	return started, nil
 }
 
-func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID, hasTemporary, hasTemporaryJobs bool) (SchedulerSnapshot, error) {
+// expirePauses deletes ended pause windows and their schedule state, returning
+// each window's end so the planner restarts the schedule there.
+func (s *Store) expirePauses(tx *sql.Tx, now time.Time) (map[JobStateKey]time.Time, error) {
+	if !s.hasPauseWindows {
+		return nil, nil
+	}
+	rows, err := tx.Query(`SELECT project_id, job, resumes_at FROM pauses WHERE resumes_at<=?`, FormatTime(now))
+	if err != nil {
+		return nil, fmt.Errorf("read expired pauses: %w", err)
+	}
+	expired := map[JobStateKey]time.Time{}
+	for rows.Next() {
+		var key JobStateKey
+		var text string
+		if err := rows.Scan(&key.ProjectID, &key.Job, &text); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		at, err := time.Parse(TimestampLayout, text)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		expired[key] = at
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+	for key := range expired {
+		if _, err := tx.Exec(`DELETE FROM pauses WHERE project_id=? AND job=?`, key.ProjectID, key.Job); err != nil {
+			return nil, fmt.Errorf("expire pause: %w", err)
+		}
+		if _, err := tx.Exec(`DELETE FROM job_state WHERE project_id=? AND job=?`, key.ProjectID, key.Job); err != nil {
+			return nil, fmt.Errorf("reset resumed schedule state: %w", err)
+		}
+	}
+	return expired, nil
+}
+
+func (s *Store) schedulerSnapshot(tx *sql.Tx, now time.Time) (SchedulerSnapshot, error) {
 	var snapshot SchedulerSnapshot
 	projects, err := tx.Query(`SELECT p.id, p.path, p.config_file, a.job, a.digest FROM projects p LEFT JOIN approvals a ON a.project_id=p.id WHERE p.enabled=1 ORDER BY p.id, a.job`)
 	if err != nil {
@@ -409,8 +465,9 @@ func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID, hasTemporary, h
 	if err := errors.Join(projects.Err(), projects.Close()); err != nil {
 		return snapshot, err
 	}
-	if hasPauses {
-		pauses, err := tx.Query(`SELECT project_id, job FROM pauses`)
+	if s.hasPauses {
+		where, args := s.pausePredicate(now, false)
+		pauses, err := tx.Query(`SELECT project_id, job FROM pauses WHERE `+where, args...)
 		if err != nil {
 			return snapshot, err
 		}
@@ -448,7 +505,7 @@ func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID, hasTemporary, h
 		return snapshot, err
 	}
 	runColumns := `id, project_id, job, status, trigger, digest, scheduled_at, due_at`
-	if hasAgentSessionID {
+	if s.hasAgentSessionID {
 		runColumns += `, agent_session_id`
 	} else {
 		runColumns += `, NULL`
@@ -468,13 +525,13 @@ func schedulerSnapshot(tx *sql.Tx, hasPauses, hasAgentSessionID, hasTemporary, h
 	if err := errors.Join(runs.Err(), runs.Close()); err != nil {
 		return snapshot, err
 	}
-	if hasTemporaryJobs {
+	if s.hasTemporaryJobs {
 		snapshot.TemporaryJobs, err = readTemporaryJobs(tx, "")
 		if err != nil {
 			return snapshot, err
 		}
 	}
-	if hasTemporary {
+	if s.hasTemporary {
 		snapshot.Temporary, err = readTemporary(tx, "")
 		if err != nil {
 			return snapshot, err

@@ -218,6 +218,14 @@ jobs lose their state.
 - First sight of a job, a schedule change, enabling, approving a changed job, re-adding, and
   resuming all start from now: no catch-up. These commands clear schedule state, so this holds
   even when the scheduler wasn't running.
+- A pause row has optional `starts_at` and `resumes_at`; every reader treats it as active while
+  `starts_at <= now < resumes_at`, with a NULL bound unbounded. Pending windows change nothing
+  until they start, except that temporary-schedule creation refuses any unexpired pause. Readers
+  ignore expired rows without a scheduler. The tick transaction deletes them and their schedule
+  state like resume, then seeds state from the first occurrence after `resumes_at` (calendar
+  occurrences at exactly `resumes_at` run; intervals restart one period later). Occurrences inside
+  the window never run or count as missed; a later one missed while the scheduler was offline
+  follows the `missed` policy.
 - An occurrence noticed within 60s of its effective start is on time. Later, it was missed:
   `missed: run_once` (default) runs once as `catch_up`, never a burst; `missed: skip` records one
   `missed` run. Both record the first missed occurrence. After an on-time occurrence, state advances
@@ -465,6 +473,7 @@ worktrees, and lets one scheduler see every enabled project.
   (project/name primary key, one-job config definition, digest, until, created_at, requested_by,
   optional key, ended_at) and `temporary_job_names` (project/name only, retained for empty history
   resolution after removal). Temporary schedules and job definitions are separate tables.
+  Version 15 adds nullable pause `starts_at` and `resumes_at`; existing rows stay open-ended.
   Older binaries refuse the newer database.
 - Run `status`: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`,
   `interrupted`, `skipped`, `missed`, `expired`. `noop` is a terminal run status, distinct from

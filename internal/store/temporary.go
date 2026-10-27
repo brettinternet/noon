@@ -315,7 +315,8 @@ func (s *Store) CreateTemporarySchedule(value TemporarySchedule, input QueueRunI
 		return value, false, "", err
 	}
 	defer tx.Rollback()
-	input.RequireUnpaused = true
+	// A pending pause would delete the schedule when it starts, so refuse it now.
+	input.RequireUnpaused, input.RefusePendingPause = true, true
 	if err := s.checkQueueEligibility(tx, input); err != nil {
 		return value, false, "", err
 	}

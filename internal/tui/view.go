@@ -472,7 +472,7 @@ func (m *Model) nextCell(job app.Job, now time.Time) []span {
 	case !job.Enabled:
 		return []span{{"disabled", t.faint}}
 	case job.Paused:
-		return []span{{"paused", t.warning}}
+		return []span{{job.PauseStatus(), t.warning}}
 	case job.Schedule != nil && !m.dashboard.Project.Enabled:
 		return []span{{"not enabled", t.warning}}
 	case job.Approval == "needs_approval":

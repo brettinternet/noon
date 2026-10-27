@@ -1,6 +1,9 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,7 +28,7 @@ func TestBulkPauseAtomicity(t *testing.T) {
 	if n, err := state.SetJobsPaused(project, []string{"a", "b"}, true, now); err == nil || n != 0 {
 		t.Fatalf("expected rollback: %d %v", n, err)
 	}
-	paused, err := state.PausedJobs(project)
+	paused, err := state.Pauses(project, now)
 	if err != nil || len(paused) != 0 {
 		t.Fatalf("partial pause: %v %v", paused, err)
 	}
@@ -218,3 +221,90 @@ func TestEnableAddedJobIsSelectiveAndResetsState(t *testing.T) {
 		t.Fatalf("re-enable kept %d stale job state rows", existing)
 	}
 }
+
+// Pre-migration pauses stay open-ended; timed windows gate manual queueing and
+// temporary schedules by time alone, without a scheduler to expire them.
+func TestPauseWindows(t *testing.T) {
+	dir := t.TempDir()
+	legacy, err := sql.Open("sqlite", filepath.Join(dir, databaseName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, migration := range migrations[:14] {
+		if _, err := legacy.Exec(migration); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := legacy.Exec(fmt.Sprintf("PRAGMA user_version=%d", i+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, statement := range []string{
+		"INSERT INTO projects(path,created_at,enabled) VALUES('/paused','2026-10-16T00:00:00.000Z',1)",
+		"INSERT INTO pauses(project_id,job,paused_at) VALUES(1,'probe','2026-10-16T00:00:00.000Z')",
+	} {
+		if _, err := legacy.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	now := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+	pauses, err := state.Pauses("/paused", now.Add(24*time.Hour))
+	if pause := pauses["probe"]; err != nil || !pause.Active || pause.StartsAt != nil || pause.EndsAt != nil {
+		t.Fatalf("upgraded pause: %+v %v", pauses, err)
+	}
+	if n, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{End: ptr(now.Add(time.Hour))}, now); err != nil || n != 0 {
+		t.Fatalf("timed pause shortened open-ended pause: %d %v", n, err)
+	}
+	if n, err := state.SetJobsPaused("/paused", []string{"probe"}, false, now); err != nil || n != 1 {
+		t.Fatalf("resume: %d %v", n, err)
+	}
+
+	queue := func(at time.Time) error {
+		_, err := state.QueueRun(QueueRunInput{ProjectID: 1, Job: "probe", Digest: "d", RequestedBy: "cli", DueAt: at, Now: at, JobExists: true, JobEnabled: true, RequireUnpaused: true})
+		return err
+	}
+	temporary := func(at time.Time) error {
+		_, _, _, err := state.CreateTemporarySchedule(TemporarySchedule{ProjectID: 1, Job: "probe", Schedule: "every 1m", Until: at.Add(time.Hour), NextAt: at.Add(time.Minute), CreatedAt: at, Key: "k", Digest: "d", RequestedBy: "cli", EventSource: "cli"}, QueueRunInput{ProjectID: 1, Job: "probe", JobExists: true, JobEnabled: true, Now: at})
+		return err
+	}
+	if _, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{End: ptr(now.Add(time.Hour))}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue(now); !errors.Is(err, ErrJobPaused) {
+		t.Fatalf("queue during active window: %v", err)
+	}
+	if err := temporary(now); !errors.Is(err, ErrJobPaused) {
+		t.Fatalf("temporary schedule during active window: %v", err)
+	}
+	if _, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{Start: ptr(now.Add(2 * time.Hour)), End: ptr(now.Add(3 * time.Hour))}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue(now); err != nil {
+		t.Fatalf("queue before pending window: %v", err)
+	}
+	if err := temporary(now); !errors.Is(err, ErrJobPaused) {
+		t.Fatalf("temporary schedule during pending window: %v", err)
+	}
+	if err := queue(now.Add(2 * time.Hour)); !errors.Is(err, ErrJobPaused) {
+		t.Fatalf("queue once window started: %v", err)
+	}
+	expired := now.Add(3 * time.Hour)
+	if err := queue(expired); err != nil {
+		t.Fatalf("queue after expiry: %v", err)
+	}
+	if err := temporary(expired); err != nil {
+		t.Fatalf("temporary schedule after expiry: %v", err)
+	}
+	if pauses, err := state.Pauses("/paused", expired); err != nil || len(pauses) != 0 {
+		t.Fatalf("expired pause listed: %+v %v", pauses, err)
+	}
+}
+
+func ptr(value time.Time) *time.Time { return &value }

@@ -795,6 +795,9 @@ func TestPauseResume(t *testing.T) {
 			t.Fatal(err)
 		}
 		listed, err = app.WithApprovals(listed)
+		if err == nil {
+			listed, err = app.WithScheduler(listed, fixtureStart.Add(time.Minute))
+		}
 		if err != nil {
 			t.Fatal(err)
 		}

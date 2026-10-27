@@ -107,7 +107,7 @@ func TestListUsesPersistedIntervalPhase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer state.Close()
-	snapshot, err := state.ReadSchedulerSnapshot()
+	snapshot, err := state.ReadSchedulerSnapshot(time.Now())
 	if err != nil || len(snapshot.Projects) != 1 {
 		t.Fatalf("project snapshot: %+v %v", snapshot, err)
 	}

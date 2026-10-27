@@ -205,3 +205,13 @@ func ResolveWall(w time.Time, loc *time.Location) time.Time {
 	}
 	return u
 }
+
+// AfterPause returns the first occurrence once a pause ending at end expires.
+// A calendar occurrence at end runs; an interval restarts one period after end,
+// as it does on resume.
+func (s Schedule) AfterPause(end time.Time, loc *time.Location, project, name string, splay, jitter time.Duration) (nominal, effective time.Time) {
+	if _, interval := s.Interval(); !interval {
+		end = end.Add(-time.Nanosecond)
+	}
+	return s.NextEffective(end, loc, project, name, splay, jitter, time.Time{})
+}

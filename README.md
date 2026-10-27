@@ -144,7 +144,7 @@ and [examples/local-dev/housekeeping](examples/local-dev/housekeeping/).
 | `noon run NAME` | Run now; returns 0 when `noop_exit_code` matches |
 | `noon run NAME... --detach` | Queue jobs for the scheduler (`--in 2h`, `--at 17:00`, `--key`, `--data`); `--schedule S --for 2h` repeats approved jobs |
 | `noon cancel RUN\|NAME...` | Cancel selected runs or end temporary jobs/schedules and their active work |
-| `noon pause NAME...` / `resume NAME...` | Stop or restart background runs; `-a` for all jobs |
+| `noon pause NAME...` / `resume NAME...` | Stop or restart background runs; `-a` for all jobs, `--for`/`--until` to resume automatically, `--from` to schedule the window |
 | `noon history [NAME...]` | Recent runs (`--status failed`) |
 | `noon logs [NAME\|RUN]` | Read, search, page, or `--follow` a run log (`-t` for timestamps) |
 | `noon enable` / `disable` | Opt this checkout in or out of background runs |

@@ -626,9 +626,51 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 	if e != nil {
 		return e
 	}
-	cfg, e := app.LoadJobs(values, time.Now())
+	now := time.Now()
+	cfg, e := app.LoadJobs(values, now)
 	if e != nil {
 		return configError(e)
+	}
+	var window store.PauseWindow
+	if paused {
+		loc, err := time.LoadLocation(cfg.Timezone)
+		if err != nil {
+			return configError(err)
+		}
+		if window, err = app.ResolvePauseWindow(cmd.String("from"), cmd.String("for"), cmd.String("until"), now, loc); err != nil {
+			return err
+		}
+	}
+	set := func(names []string) (int, error) {
+		if paused {
+			return app.PauseJobs(cfg.StateDir, cfg.Project, names, window, now)
+		}
+		return app.SetJobsPaused(cfg.StateDir, cfg.Project, names, false, now)
+	}
+	result := func(fields map[string]any, changed int) map[string]any {
+		fields["paused"], fields["changed"] = paused, changed
+		if changed == 0 {
+			return fields
+		}
+		if window.Start != nil {
+			fields["starts_at"] = *window.Start
+		}
+		if window.End != nil {
+			fields["ends_at"] = *window.End
+		}
+		return fields
+	}
+	// windowText describes the pause of subject in the project timezone.
+	windowText := func(subject string, changed int) string {
+		switch {
+		case window.End != nil && changed == 0:
+			return fmt.Sprintf("Paused %s until resumed; an open-ended pause is not shortened.", subject)
+		case window.Start != nil:
+			return fmt.Sprintf("Pauses %s %s – %s.", subject, window.Start.Format("Mon 15:04"), window.End.Format("Mon 15:04"))
+		case window.End != nil:
+			return fmt.Sprintf("Paused %s until %s. Queued runs cancelled; running work continues.", subject, window.End.Format("Mon 15:04"))
+		}
+		return fmt.Sprintf("Paused %s. Queued runs cancelled; running work continues.", subject)
 	}
 	if len(args) == 0 {
 		names := make([]string, 0, len(cfg.Jobs))
@@ -637,15 +679,15 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 		}
 		slices.Sort(names)
 		if cmd.Bool("all") {
-			changed, err := app.SetJobsPaused(cfg.StateDir, cfg.Project, names, paused, time.Now())
+			changed, err := set(names)
 			if err != nil {
 				return stateError(err)
 			}
 			if cmd.Bool("json") {
-				return emit(cmd, map[string]any{"jobs": names, "paused": paused, "changed": changed})
+				return emit(cmd, result(map[string]any{"jobs": names}, changed))
 			}
 			if paused {
-				fmt.Fprintf(cmd.Writer, "Paused %d jobs (%d configured). Queued runs cancelled; running work continues.\n", changed, len(names))
+				fmt.Fprintln(cmd.Writer, windowText(fmt.Sprintf("%d jobs (%d configured)", changed, len(names)), changed))
 			} else {
 				fmt.Fprintf(cmd.Writer, "Resumed %d jobs (%d configured). Schedules start from now.\n", changed, len(names))
 			}
@@ -663,24 +705,31 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 			return &Error{Code: "not_found", Message: fmt.Sprintf("job %q not found", name), Hint: "Run noon " + cmd.Name + " to list jobs"}
 		}
 	}
-	changed, e := app.SetJobsPaused(cfg.StateDir, cfg.Project, args, paused, time.Now())
+	changed, e := set(args)
 	if e != nil {
 		return stateError(e)
 	}
 	if cmd.Args().Len() > 1 {
 		if cmd.Bool("json") {
 			slices.Sort(args)
-			return emit(cmd, map[string]any{"jobs": args, "paused": paused, "changed": changed})
+			return emit(cmd, result(map[string]any{"jobs": args}, changed))
+		}
+		if paused && window.End != nil {
+			fmt.Fprintf(cmd.Writer, "%s (%d changed)\n", windowText(strings.Join(args, ", "), changed), changed)
+			return nil
 		}
 		fmt.Fprintf(cmd.Writer, "%s: %s (%d changed).\n", cmd.Name, strings.Join(args, ", "), changed)
 		return nil
 	}
 	if cmd.Bool("json") {
-		return emit(cmd, map[string]any{"job": args[0], "paused": paused})
+		return emit(cmd, result(map[string]any{"job": args[0]}, changed))
 	}
-	if paused {
+	switch {
+	case paused && window.End != nil:
+		fmt.Fprintln(cmd.Writer, windowText(args[0], changed))
+	case paused:
 		fmt.Fprint(cmd.Writer, guidance(cmd, fmt.Sprintf("Paused %s. Background runs stop until noon resume %s.\n", args[0], args[0])))
-	} else {
+	default:
 		fmt.Fprintf(cmd.Writer, "Resumed %s. Its schedule starts from now.\n", args[0])
 	}
 	return nil

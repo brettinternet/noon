@@ -170,7 +170,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 
 	logger := schedulerLogger{writer: options.Logger, now: options.Now}
 	configs := map[int64]*projectConfig{}
-	initial, err := state.ReadSchedulerSnapshot()
+	initial, err := state.ReadSchedulerSnapshot(start)
 	if err != nil {
 		return err
 	}
@@ -328,7 +328,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		if err := state.PurgeTemporaryJobs(now); err != nil {
 			return err
 		}
-		snapshot, err := state.ReadSchedulerSnapshot()
+		snapshot, err := state.ReadSchedulerSnapshot(now)
 		if err != nil {
 			return err
 		}
@@ -923,7 +923,7 @@ func makeJobInputs(snapshot store.SchedulerSnapshot, configs map[int64]*projectC
 				}
 			}
 			active := job.Enabled && job.MatchesPlatform(cached.config.Platform) && !project.Paused[name] && (!job.Shared || project.Approvals[name] == job.Digest)
-			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, ProjectPath: project.Path, Splay: job.Splay, Jitter: job.Jitter, Until: job.EndTime(), Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap})
+			jobs = append(jobs, JobInput{Key: JobKey{Project: project.ID, Job: name}, Schedule: job.Schedule, ProjectPath: project.Path, Splay: job.Splay, Jitter: job.Jitter, Until: job.EndTime(), Location: location, Active: active, Missed: job.Missed, Overlap: job.Overlap, Resumed: project.Resumed[name]})
 		}
 	}
 	return jobs, nil

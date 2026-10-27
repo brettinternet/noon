@@ -67,6 +67,43 @@ func WithScheduler(view Inspection, now time.Time) (Inspection, error) {
 			}
 		}
 	}
+	pauses, err := state.Pauses(view.Project.Path, now)
+	if err != nil {
+		return Inspection{}, err
+	}
+	for i := range view.Jobs {
+		job := &view.Jobs[i]
+		pause, ok := pauses[job.Name]
+		if !ok {
+			continue
+		}
+		job.Paused = pause.Active
+		if pause.StartsAt != nil {
+			at := pause.StartsAt.In(location)
+			job.PauseStartsAt = &at
+		}
+		if pause.EndsAt != nil {
+			at := pause.EndsAt.In(location)
+			job.PauseEndsAt = &at
+		}
+		if pause.Active {
+			job.NextAt = nil
+		} else if job.NextAt != nil && !job.NextAt.Before(*job.PauseStartsAt) && job.NextAt.Before(*job.PauseEndsAt) {
+			// The scheduler skips occurrences inside a pending window.
+			parsed, err := schedule.Parse(*job.Schedule)
+			if err != nil {
+				return Inspection{}, err
+			}
+			splay, _ := schedule.ParseDuration(job.Splay)
+			jitter, _ := schedule.ParseDuration(job.Jitter)
+			_, next := parsed.AfterPause(*pause.EndsAt, location, view.Project.Path, job.Name, splay, jitter)
+			next = next.In(location)
+			job.NextAt = nil
+			if !next.IsZero() && (job.Until == nil || next.Before(*job.Until)) {
+				job.NextAt = &next
+			}
+		}
+	}
 	temporary, err := state.TemporarySchedules(view.Project.Path)
 	if err != nil {
 		return Inspection{}, err
