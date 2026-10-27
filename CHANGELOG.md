@@ -6,12 +6,32 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- Pause jobs for a bounded or scheduled window
+- **cli:** Add ui alias and suggest the TUI at a terminal
+- **schedule:** Allow omitted trailing cron fields
+
+### Changed
+
+- **cli:** Remove queue-time forwarding helper (#5)
+
+### Documentation
+
+- Let the Homebrew tap maintain the formula
+
+## [v0.13.0](https://github.com/brettinternet/noon/compare/v0.12.0...v0.13.0) - 2026-10-23
+
+### Added
+
 - Add state-backed temporary jobs
 
 ### Fixed
 
 - Keep unresolvable temporary jobs removable and isolated
 - Refuse to replace symlinked config files
+
+### Documentation
+
+- Refresh changelog for v0.13.0
 
 ## [v0.12.0](https://github.com/brettinternet/noon/compare/v0.11.1...v0.12.0) - 2026-10-22
 
