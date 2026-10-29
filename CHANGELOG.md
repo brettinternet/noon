@@ -6,6 +6,12 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- **config:** Compose private jobs from .git/noon.d fragments
+
+## [v0.14.0](https://github.com/brettinternet/noon/compare/v0.13.0...v0.14.0) - 2026-10-27
+
+### Added
+
 - Pause jobs for a bounded or scheduled window
 - **cli:** Add ui alias and suggest the TUI at a terminal
 - **schedule:** Allow omitted trailing cron fields
@@ -16,6 +22,7 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Documentation
 
+- Refresh changelog for v0.14.0
 - Let the Homebrew tap maintain the formula
 
 ## [v0.13.0](https://github.com/brettinternet/noon/compare/v0.12.0...v0.13.0) - 2026-10-23
