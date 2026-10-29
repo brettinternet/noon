@@ -382,7 +382,7 @@ func TestPrivateFragments(t *testing.T) {
 	put(t, filepath.Join(main, ".git", "worktrees", "feature", "commondir"), "../..\n")
 	put(t, filepath.Join(worktree, ".git"), "gitdir: ../../.git/worktrees/feature\n")
 	fragments := filepath.Join(main, ".git", "noon.d")
-	put(t, filepath.Join(home, "dotfiles", "a.yaml"), "vars_file: ~/vars\njobs:\n  alpha: {schedule: '${SCHED}', cwd: '~', prompt_file: ~/a.md, agent: claude}\n")
+	put(t, filepath.Join(home, "dotfiles", "a.yaml"), "vars_file: ~/vars\njobs:\n  alpha: {schedule: '${SCHED}', cwd: '~', prompt_file: ~/a.md, env_file: [~/a.env], agent: claude}\n")
 	put(t, filepath.Join(fragments, "b.yaml"), "jobs: {beta: {run: private}}\n")
 	if err := os.Symlink(filepath.Join(home, "dotfiles", "a.yaml"), filepath.Join(fragments, "a.yaml")); err != nil {
 		t.Fatal(err)
@@ -396,7 +396,7 @@ func TestPrivateFragments(t *testing.T) {
 			t.Fatal(err)
 		}
 		alpha, beta, gamma := cfg.Jobs["alpha"], cfg.Jobs["beta"], cfg.Jobs["gamma"]
-		if alpha.Shared || alpha.Source != filepath.Join(fragments, "a.yaml") || alpha.CWD != home || *alpha.PromptFile != filepath.Join(home, "a.md") || alpha.Schedule.String() != "every 2h" {
+		if alpha.Shared || alpha.Source != filepath.Join(fragments, "a.yaml") || alpha.CWD != home || *alpha.PromptFile != filepath.Join(home, "a.md") || alpha.EnvFile[0] != filepath.Join(home, "a.env") || alpha.Schedule.String() != "every 2h" {
 			t.Fatalf("fragment job from %s: %+v", project, alpha)
 		}
 		if beta.Shared || !beta.Overrides || beta.Run != "private" || gamma.CWD != filepath.Join(project, "~", "w") {
