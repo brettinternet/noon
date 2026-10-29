@@ -4,9 +4,10 @@ title: Reuse user-config job templates from private project config
 status: draft
 type: feature
 priority: low
+related: [NOON-88]
 rank: aee23b88ee23b88a0
 created: 2026-10-20T20:42:00Z
-updated: 2026-10-20T20:42:00Z
+updated: 2026-10-29T17:11:33Z
 ---
 
 Outcome: one job set defined once in user config can run in many repositories without copying or symlinking .git/noon.yaml, and without weakening the approval model.
@@ -52,3 +53,7 @@ Dependencies: none.
 - [ ] The diff stays within the modified-file contract, or Implementation Notes justify each deviation
 - [ ] No test was deleted, skipped, or weakened
 - [ ] README, docs, and command help describe only implemented behavior; docs/design.md and a backlog decision record the settled template contract
+
+## Notes
+
+Superseded proposal: NOON-88 composes private jobs from symlinked .git/noon.d fragments instead of user-config templates and use:. Cancel this task if NOON-88 lands.
