@@ -273,21 +273,25 @@ func (cfg *Config) applyJobs(file, kind string, node *yaml.Node) error {
 			if err != nil {
 				return err
 			}
-			if !exists || !previous.Shared {
-				return jobError(file, jobs[name], path, "enabled-only override requires a shared job")
+			if !exists {
+				return jobError(file, jobs[name], path, "enabled-only override requires a shared or .git/noon.d job")
 			}
-			// The execution definition remains shared and requires its original approval.
+			// The execution definition keeps its source's approval rules.
 			previous.Enabled, previous.Source, previous.Overrides = enabled, file, true
 			cfg.Jobs[name] = previous
 			continue
 		}
-		job, err := parseJob(file, path, name, jobs[name], fields, cfg.OnSuccess, cfg.OnFailure, kind == "explicit")
+		// Private files never shadow each other: the winner would depend on file names.
+		if (kind == "local" || kind == "fragment") && exists && !previous.Shared {
+			return jobError(file, jobs[name], path, fmt.Sprintf("also defined in %q; private job names must be unique", previous.Source))
+		}
+		job, err := parseJob(file, path, name, jobs[name], fields, cfg.OnSuccess, cfg.OnFailure, kind == "explicit", kind == "user" || kind == "local" || kind == "fragment")
 		if err != nil {
 			return err
 		}
 		job.CWD = resolvePath(cfg.Project, job.CWD)
 		job.Shared = kind == "shared" || kind == "explicit"
-		job.Overrides = kind == "local" && exists && previous.Shared
+		job.Overrides = (kind == "local" || kind == "fragment") && exists && previous.Shared
 		cfg.Jobs[name] = job
 	}
 	return nil
@@ -491,7 +495,7 @@ func agentNames(profiles map[string]AgentProfile) []string {
 // Inherited hook defaults join the digest only when they come from the same
 // approval-gated explicit file; user-config defaults are the user's own and
 // must not revoke shared-job approvals when they change.
-func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node, defaultSuccess, defaultFailure any, digestDefaults bool) (Job, error) {
+func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node, defaultSuccess, defaultFailure any, digestDefaults, private bool) (Job, error) {
 	job := Job{Name: name, CWD: ".", Env: map[string]string{}, Timeout: "1h", Requests: "merge", Overlap: "skip", Missed: "run_once", Enabled: true, Source: file, OnSuccess: defaultSuccess, OnFailure: defaultFailure}
 	execution := make(map[string]any)
 	job.execution = execution
@@ -555,7 +559,7 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 			if err != nil {
 				return Job{}, err
 			}
-			if strings.TrimSpace(text) == "" || filepath.IsAbs(text) {
+			if strings.TrimSpace(text) == "" || filepath.IsAbs(text) && !private { // Absolute only via ~ in private files.
 				return Job{}, jobError(file, value, field, "must be a non-empty path relative to the project root")
 			}
 			job.PromptFile, execution[key] = &text, text

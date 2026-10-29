@@ -42,7 +42,8 @@ With the user's authorization to create a new follow-up, use a temporary job:
 noon add watch-pr-42 "every 2h" --temporary --for 3d --agent claude --prompt "Check PR 42 CI; fix failures" --key pr-42 --json
 ```
 
-This writes state, not config, and works with a symlinked `.git/noon.yaml`. It enables the
+This writes state, not config, and works with a symlinked `.git/noon.yaml` or `.git/noon.d`
+fragments. It enables the
 project and creates a private job. Require exactly one of `--for`/`--until`, ending within 7 days
 including minute rounding, with a schedule or `--in`/`--at` first run before the end. Same-key
 retries return the existing active job; other name collisions fail. Creation is not a passed run.

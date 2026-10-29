@@ -190,12 +190,9 @@ func JobNames(src []byte) ([]string, error) {
 // JobFromSource validates one raw definition, even when another file shadows it.
 // A relative vars_file in src resolves from project, matching Load. A nonempty
 // timezone (the effective one after overrides) wins over the timezone in src.
-func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool, project, timezone string) (Job, error) {
+// Private sources expand a leading ~ in path fields, as Load does.
+func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defaultAgent string, defaultSuccess, defaultFailure any, digestDefaults bool, project, timezone string, private bool) (Job, error) {
 	values, err := parse(src)
-	if err != nil {
-		return Job{}, err
-	}
-	varsFile, vars, err := resolveDocumentVars("<edited>", project, values)
 	if err != nil {
 		return Job{}, err
 	}
@@ -203,7 +200,7 @@ func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defa
 	if jobs == nil || jobs.Kind != yaml.MappingNode || jobs.Style&yaml.FlowStyle != 0 {
 		return Job{}, fmt.Errorf("config_edit: jobs must be a block mapping")
 	}
-	if err := expandJobValues("<edited>", jobs, vars, varsFile.Configured); err != nil {
+	if _, err := expandDocument("<edited>", project, values, private); err != nil {
 		return Job{}, err
 	}
 	for i := 0; i < len(jobs.Content); i += 2 {
@@ -215,7 +212,7 @@ func JobFromSource(src []byte, name string, agents map[string]AgentProfile, defa
 		if err != nil {
 			return Job{}, err
 		}
-		parsed, err := parseJob("<edited>", "jobs."+name, name, node, fields, defaultSuccess, defaultFailure, digestDefaults)
+		parsed, err := parseJob("<edited>", "jobs."+name, name, node, fields, defaultSuccess, defaultFailure, digestDefaults, private)
 		if err != nil {
 			return Job{}, err
 		}
@@ -256,7 +253,7 @@ func DigestJobDefinition(job Job, agents map[string]AgentProfile, defaultAgent s
 	if err != nil {
 		return "", err
 	}
-	parsed, err := parseJob("<requested>", "jobs."+job.Name, job.Name, root, mapping, nil, nil, false)
+	parsed, err := parseJob("<requested>", "jobs."+job.Name, job.Name, root, mapping, nil, nil, false, false)
 	if err != nil {
 		return "", err
 	}

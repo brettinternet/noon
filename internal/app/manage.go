@@ -71,7 +71,7 @@ func MergeTemporaryRows(cfg *config.Config, values []store.TemporaryJob, now tim
 			}
 			continue
 		}
-		job, err := config.JobFromSource(value.Definition, value.Name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, false, cfg.Project, cfg.Timezone)
+		job, err := config.JobFromSource(value.Definition, value.Name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, false, cfg.Project, cfg.Timezone, true)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("temporary job %q no longer resolves: %w; run noon remove %s", value.Name, err, value.Name))
 			continue
@@ -128,7 +128,7 @@ func AddTemporaryJob(cfg config.Config, requested config.Job, key string, due *t
 	if err != nil {
 		return fail(err.Error())
 	}
-	job, err := config.JobFromSource(src, requested.Name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, false, cfg.Project, cfg.Timezone)
+	job, err := config.JobFromSource(src, requested.Name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, false, cfg.Project, cfg.Timezone, true)
 	if err != nil {
 		return fail(err.Error())
 	}

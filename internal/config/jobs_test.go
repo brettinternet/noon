@@ -267,7 +267,7 @@ func TestEnvFileDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roundTrip, err := config.JobFromSource(encoded, "tests", config.BuiltInAgents(), "", nil, nil, false, "", "")
+	roundTrip, err := config.JobFromSource(encoded, "tests", config.BuiltInAgents(), "", nil, nil, false, "", "", false)
 	if err != nil || roundTrip.Digest != ordered.Digest {
 		t.Fatalf("round trip lost paths: %s %v", encoded, err)
 	}
@@ -433,7 +433,7 @@ func TestLoadJobs(t *testing.T) {
 				t.Fatalf("toggle lost execution provenance: %+v", j)
 			}
 		}},
-		{name: "orphan toggle", local: "jobs: {tests: {enabled: false}}", want: "enabled-only override requires a shared job"},
+		{name: "orphan toggle", local: "jobs: {tests: {enabled: false}}", want: "enabled-only override requires a shared or .git/noon.d job"},
 		{name: "user jobs are validated but not imported", user: "jobs: {tests: {run: hi}}", check: func(t *testing.T, c config.Config) {
 			if _, exists := c.Jobs["tests"]; exists {
 				t.Fatalf("user job leaked into regular project: %+v", c.Jobs)

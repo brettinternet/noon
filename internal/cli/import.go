@@ -146,7 +146,7 @@ func writeImportedJobs(values config.Input, before config.Config, jobs []cronimp
 	if !sameNames(newNames, wantNames) {
 		return "", editVerificationError("edited job names do not match the requested import")
 	}
-	if err := verifyRawJobsUnchanged(source, after, oldNames, "", before); err != nil {
+	if err := verifyRawJobsUnchanged(source, after, oldNames, "", before, true); err != nil {
 		return "", editVerificationError(err.Error())
 	}
 	candidate, err := config.LoadWithFileOverride(values, file, after)

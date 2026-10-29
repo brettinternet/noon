@@ -7,9 +7,10 @@ For repository projects, later sources override earlier ones, one setting at a t
 1. Built-in defaults
 2. User settings: `$XDG_CONFIG_HOME/noon/config.yaml`, else `~/.config/noon/config.yaml`
 3. `noon.yaml` in the project (shared, committed)
-4. `.git/noon.yaml` in the project's Git directory (private, can't be committed)
-5. Environment variables
-6. CLI flags
+4. `.git/noon.d/*.yaml` fragments, in name order (private)
+5. `.git/noon.yaml` in the project's Git directory (private, can't be committed)
+6. Environment variables
+7. CLI flags
 
 User config contributes settings, not jobs; its `jobs:` belong to the separate
 [user project](#user-project).
@@ -35,10 +36,10 @@ CLI flags override environment variables; both override files.
 ```sh
 NOON_TIMEZONE=UTC noon config
 noon -C ../other-repo list                 # select another project
-noon --config ./deploy.yaml config check   # replace all three files, e.g. for CI
+noon --config ./deploy.yaml config check   # replace the config files, e.g. for CI
 ```
 
-`--config FILE` (or `NOON_CONFIG`) must exist and replaces the three files above; defaults,
+`--config FILE` (or `NOON_CONFIG`) must exist and replaces the config files above; defaults,
 environment, and flags still apply. It doesn't select the project.
 
 `noon init` creates `noon.yaml`; `noon init --local` creates `.git/noon.yaml` (mode 0600). Neither
@@ -58,6 +59,39 @@ reach: `noon.yaml` inside the Git directory. Git refuses to commit or check out 
 Noon reads `.git` and `commondir` itself; it never runs `git`. An in-tree `.noon.yaml` is ignored,
 even untracked, because a commit could supply it.
 
+### Fragments
+
+Each `*.yaml` file in `.git/noon.d/` adds private jobs, so you can link reusable jobs from dotfiles
+into the repositories that want them. `.git/noon.yaml` is optional.
+
+```sh
+mkdir -p .git/noon.d
+ln -s ~/dotfiles/noon/review.yaml .git/noon.d/review.yaml
+```
+
+```yaml
+# ~/dotfiles/noon/review.yaml
+vars_file: .noon.vars            # per repository, from the project root
+jobs:
+  review:
+    schedule: ${REVIEW_SCHEDULE:-weekdays at 9am}
+    agent: claude
+    prompt_file: ~/dotfiles/noon/prompts/review.md
+```
+
+- Fragments load in name order, after `noon.yaml` and before `.git/noon.yaml`. Names starting with
+  `.` and other extensions (including `.yml`) are skipped.
+- A fragment may define `version`, `vars_file`, `definitions`, and `jobs`. Put `timezone` and
+  `default_agent` in `.git/noon.yaml`.
+- A fragment job replaces a shared job of the same name, like a [local override](#local-overrides).
+  Two private files defining one name is an error naming both.
+- Linked worktrees share the main checkout's `noon.d`.
+- A fragment, the `noon.d` directory, or `.git/noon.yaml` that resolves into the working tree is
+  an error, so a link can't turn repository content into private config.
+- `noon serve` picks up added, removed, and edited fragments and link targets.
+- `add` never writes a fragment or reuses its job names. `remove` refuses fragment jobs; turn one
+  off with the toggle in `.git/noon.yaml` instead.
+
 ## Editor schema
 
 The [JSON Schema](../noon.schema.json) gives editors completion and structural checks for shared
@@ -74,12 +108,12 @@ timezones, or agent resolution; run `noon config check` for those.
 
 ## Where keys are allowed
 
-| Key | User config | `noon.yaml` | `.git/noon.yaml` |
-| --- | --- | --- | --- |
-| `version`, `timezone`, `vars_file` | yes | yes | yes |
-| `jobs` | yes | yes | yes |
-| `default_agent` | yes | no | yes |
-| `state_dir`, `agents`, `on_success`, `on_failure` | yes | no | no |
+| Key | User config | `noon.yaml` | `.git/noon.d/*.yaml` | `.git/noon.yaml` |
+| --- | --- | --- | --- | --- |
+| `version`, `vars_file`, `jobs` | yes | yes | yes | yes |
+| `timezone` | yes | yes | no | yes |
+| `default_agent` | yes | no | no | yes |
+| `state_dir`, `agents`, `on_success`, `on_failure` | yes | no | no | no |
 
 A `--config` file accepts every key. A key in the wrong file is an error naming the right one.
 
@@ -90,7 +124,7 @@ A `--config` file accepts every key. A key in the wrong file is an error naming 
 | `timezone` | `Local` | `NOON_TIMEZONE` | `--timezone` |
 | `state_dir` | `$XDG_STATE_HOME/noon`, else `~/.local/state/noon` | `NOON_STATE_DIR` | `--state-dir` |
 | Project | discovery | `NOON_PROJECT` | `-C`, `--project` |
-| Config file | the three files above | `NOON_CONFIG` | `--config` |
+| Config file | the config files above | `NOON_CONFIG` | `--config` |
 
 Timezones are `Local`, `UTC`, or IANA names like `America/Chicago`; data is built in. An empty
 `NOON_*` variable is an error; unset it instead.
@@ -98,11 +132,14 @@ Timezones are `Local`, `UTC`, or IANA names like `America/Chicago`; data is buil
 | Path in | Relative to |
 | --- | --- |
 | A YAML setting (`state_dir`) | That file's directory |
-| Job `cwd`, `env_file`, `prompt_file`; `vars_file` | Project root, even in `.git/noon.yaml` |
+| Job `cwd`, `env_file`, `prompt_file`; `vars_file` | Project root, even in private files |
 | A flag or environment variable | Where you ran the command |
 
-YAML never expands `~`, and keeps `$` literal outside the [config-time variable](#config-time-variables)
-fields. `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` must be absolute.
+Private files (user config, fragments, `.git/noon.yaml`) expand a leading `~` or `~/` in those job
+paths and `vars_file`, after config-time variables; `~user` stays literal. Shared `noon.yaml` and
+`--config` files never expand `~`. YAML keeps `$` literal outside the
+[config-time variable](#config-time-variables) fields. `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME`
+must be absolute.
 
 ## User project
 
@@ -408,8 +445,8 @@ crontab import refuse to edit files that use anchors; edit those by hand.
 
 ### Local overrides
 
-A job in `.git/noon.yaml` replaces the shared job of the same name entirely; fields don't merge.
-The exception turns a shared job off without copying it:
+A job in `.git/noon.yaml` or a fragment replaces the shared job of the same name entirely; fields
+don't merge. The exception turns a shared or fragment job off without copying it:
 
 ```yaml
 # .git/noon.yaml
@@ -417,7 +454,7 @@ jobs:
   tests: {enabled: false}
 ```
 
-`noon list` counts both as overrides.
+`noon list` counts both as overrides. The toggle needs a job to turn off; alone it's an error.
 
 ### Working hours
 

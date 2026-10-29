@@ -17,6 +17,75 @@ type VarsFile struct {
 	Present    bool
 }
 
+// expandDocument fills config-time variables in a parsed document. Private
+// documents also expand a leading ~ in vars_file and job path fields, after
+// variables, so ${DIR:-~/x} works; shared files keep ~ literal.
+func expandDocument(file, project string, values map[string]*yaml.Node, private bool) (VarsFile, error) {
+	if node := values["vars_file"]; private && node != nil {
+		if err := expandHomeNode(file, "vars_file", node); err != nil {
+			return VarsFile{}, err
+		}
+	}
+	varsFile, vars, err := resolveDocumentVars(file, project, values)
+	if err != nil {
+		return VarsFile{}, err
+	}
+	jobs := values["jobs"]
+	if err := expandJobValues(file, jobs, vars, varsFile.Configured); err != nil {
+		return VarsFile{}, err
+	}
+	if !private || jobs == nil || jobs.Kind != yaml.MappingNode {
+		return varsFile, nil
+	}
+	for i := 0; i+1 < len(jobs.Content); i += 2 {
+		name, job := jobs.Content[i].Value, jobs.Content[i+1]
+		if job.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(job.Content); j += 2 {
+			field, value := job.Content[j].Value, job.Content[j+1]
+			if field != "cwd" && field != "env_file" && field != "prompt_file" {
+				continue
+			}
+			nodes := []*yaml.Node{value}
+			if value.Kind == yaml.SequenceNode {
+				nodes = value.Content
+			}
+			for _, node := range nodes {
+				if err := expandHomeNode(file, "jobs."+name+"."+field, node); err != nil {
+					return VarsFile{}, err
+				}
+			}
+		}
+	}
+	return varsFile, nil
+}
+
+// expandHomeNode replaces a leading "~" or "~/" with the home directory.
+// Other ~ forms, such as ~user, stay literal.
+func expandHomeNode(file, path string, node *yaml.Node) error {
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
+		return nil
+	}
+	value, err := expandHome(node.Value)
+	if err != nil {
+		return jobError(file, node, path, err.Error())
+	}
+	node.Value = value
+	return nil
+}
+
+func expandHome(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(home) {
+		return "", errors.New("~ needs an absolute HOME")
+	}
+	return filepath.Join(home, path[1:]), nil
+}
+
 func resolveDocumentVars(file, project string, values map[string]*yaml.Node) (VarsFile, map[string]string, error) {
 	node, ok := values["vars_file"]
 	if !ok {
@@ -187,6 +256,7 @@ func VarsFilePaths(input Input) []string {
 		return nil
 	}
 	var configPaths []string
+	shared := map[string]bool{}
 	if IsUserProject(project, input.UserConfigDir) {
 		configPaths = append(configPaths, filepath.Join(project, "config.yaml"))
 	} else {
@@ -196,9 +266,14 @@ func VarsFilePaths(input Input) []string {
 		if input.File != nil {
 			if *input.File != "" {
 				configPaths = append(configPaths, resolvePath(input.CWD, *input.File))
+				shared[configPaths[len(configPaths)-1]] = true
 			}
 		} else {
 			configPaths = append(configPaths, filepath.Join(project, "noon.yaml"))
+			shared[configPaths[len(configPaths)-1]] = true
+			if _, fragments, err := FragmentPaths(project); err == nil {
+				configPaths = append(configPaths, fragments...)
+			}
 			if local, localErr := LocalPath(project); localErr == nil && local != "" {
 				configPaths = append(configPaths, local)
 			}
@@ -221,6 +296,11 @@ func VarsFilePaths(input Input) []string {
 		configured := varsPathFromDocument(data)
 		if configured == "" {
 			continue
+		}
+		if !shared[configPath] {
+			if configured, err = expandHome(configured); err != nil {
+				continue
+			}
 		}
 		path := configured
 		if !filepath.IsAbs(path) {

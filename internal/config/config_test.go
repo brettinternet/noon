@@ -371,6 +371,82 @@ func TestUserProjectReadOnlySelectionDoesNotCreateConfig(t *testing.T) {
 	}
 }
 
+// Fragments are approval-free, so their names must never shadow each other and
+// their content must never come from the working tree.
+func TestPrivateFragments(t *testing.T) {
+	home := canonical(t, t.TempDir())
+	t.Setenv("HOME", home)
+	put(t, filepath.Join(home, "vars"), "SCHED=every 2h\n")
+	root := canonical(t, t.TempDir())
+	main, worktree := filepath.Join(root, "main"), filepath.Join(root, "main", ".worktrees", "feature")
+	put(t, filepath.Join(main, ".git", "worktrees", "feature", "commondir"), "../..\n")
+	put(t, filepath.Join(worktree, ".git"), "gitdir: ../../.git/worktrees/feature\n")
+	fragments := filepath.Join(main, ".git", "noon.d")
+	put(t, filepath.Join(home, "dotfiles", "a.yaml"), "vars_file: ~/vars\njobs:\n  alpha: {schedule: '${SCHED}', cwd: '~', prompt_file: ~/a.md, agent: claude}\n")
+	put(t, filepath.Join(fragments, "b.yaml"), "jobs: {beta: {run: private}}\n")
+	if err := os.Symlink(filepath.Join(home, "dotfiles", "a.yaml"), filepath.Join(fragments, "a.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(fragments, ".c.yaml"), "not: [valid\n")
+	put(t, filepath.Join(fragments, "d.yml"), "not: [valid\n")
+	for _, project := range []string{main, worktree} {
+		put(t, filepath.Join(project, "noon.yaml"), "jobs: {beta: {run: shared}, gamma: {run: hi, cwd: ~/w}}\n")
+		cfg, err := config.Load(config.Input{CWD: project})
+		if err != nil {
+			t.Fatal(err)
+		}
+		alpha, beta, gamma := cfg.Jobs["alpha"], cfg.Jobs["beta"], cfg.Jobs["gamma"]
+		if alpha.Shared || alpha.Source != filepath.Join(fragments, "a.yaml") || alpha.CWD != home || *alpha.PromptFile != filepath.Join(home, "a.md") || alpha.Schedule.String() != "every 2h" {
+			t.Fatalf("fragment job from %s: %+v", project, alpha)
+		}
+		if beta.Shared || !beta.Overrides || beta.Run != "private" || gamma.CWD != filepath.Join(project, "~", "w") {
+			t.Fatalf("fragment override or literal shared ~ from %s: %+v %+v", project, beta, gamma)
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		links map[string]string
+		check func(config.Config) bool
+		want  string
+	}{
+		{name: "fragment collision", files: map[string]string{".git/noon.d/a.yaml": "jobs: {x: {run: a}}", ".git/noon.d/b.yaml": "jobs: {x: {run: b}}"}, want: `noon.d/b.yaml:1: jobs.x: also defined in "`},
+		{name: "local collision", files: map[string]string{".git/noon.d/a.yaml": "jobs: {x: {run: a}}", ".git/noon.yaml": "jobs: {x: {run: b}}"}, want: "noon.yaml:1: jobs.x: also defined in"},
+		{name: "toggle", files: map[string]string{".git/noon.d/a.yaml": "jobs: {x: {run: a}}", ".git/noon.yaml": "jobs: {x: {enabled: false}}"}, check: func(c config.Config) bool { return !c.Jobs["x"].Enabled && c.Jobs["x"].Run == "a" }},
+		{name: "settings", files: map[string]string{".git/noon.d/a.yaml": "timezone: UTC"}, want: "timezone: not allowed in .git/noon.d fragments; set it in .git/noon.yaml"},
+		{name: "fragment into tree", files: map[string]string{"jobs.yaml": "jobs: {x: {run: a}}"}, links: map[string]string{".git/noon.d/a.yaml": "jobs.yaml"}, want: "inside the working tree"},
+		{name: "directory into tree", files: map[string]string{"ci/a.yaml": "jobs: {x: {run: a}}"}, links: map[string]string{".git/noon.d": "ci"}, want: "inside the working tree"},
+		{name: "local into tree", files: map[string]string{"jobs.yaml": "jobs: {x: {run: a}}"}, links: map[string]string{".git/noon.yaml": "jobs.yaml"}, want: "inside the working tree"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			project := canonical(t, t.TempDir())
+			put(t, filepath.Join(project, ".git", "HEAD"), "")
+			for name, data := range tc.files {
+				put(t, filepath.Join(project, name), data)
+			}
+			for link, target := range tc.links {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(project, link)), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(project, target), filepath.Join(project, link)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg, err := config.Load(config.Input{CWD: project})
+			if tc.want != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("want %q, got %v", tc.want, err)
+				}
+				return
+			}
+			if err != nil || !tc.check(cfg) {
+				t.Fatalf("%+v %v", cfg.Jobs, err)
+			}
+		})
+	}
+}
+
 func TestLoadDoesNotIgnoreBrokenConfigLink(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -396,7 +396,7 @@ func TestVarsFileDigestParityAcrossLoadOverrideAndJobSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	job, err := config.JobFromSource(source, "probe", config.BuiltInAgents(), "", nil, nil, false, root, "")
+	job, err := config.JobFromSource(source, "probe", config.BuiltInAgents(), "", nil, nil, false, root, "", false)
 	if err != nil || job.Digest != load.Jobs["probe"].Digest {
 		t.Fatalf("JobFromSource parity: job=%+v err=%v load=%+v", job, err, load.Jobs["probe"])
 	}
@@ -406,7 +406,7 @@ func TestVarsFileDigestParityAcrossLoadOverrideAndJobSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	job, err = config.JobFromSource(rewritten, "probe", config.BuiltInAgents(), "", nil, nil, false, root, "")
+	job, err = config.JobFromSource(rewritten, "probe", config.BuiltInAgents(), "", nil, nil, false, root, "", false)
 	if err != nil || job.Digest != same.Jobs["probe"].Digest || job.Digest != load.Jobs["probe"].Digest {
 		t.Fatalf("expression-only rewrite changed resolution: job=%+v err=%v", job, err)
 	}
@@ -419,7 +419,7 @@ func TestVarsFileDigestParityAcrossLoadOverrideAndJobSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	job, err = config.JobFromSource(rewritten, "probe", config.BuiltInAgents(), "", nil, nil, false, root, "")
+	job, err = config.JobFromSource(rewritten, "probe", config.BuiltInAgents(), "", nil, nil, false, root, "", false)
 	if err != nil || job.Digest != changed.Jobs["probe"].Digest || job.Digest != candidate.Jobs["probe"].Digest || job.Digest == load.Jobs["probe"].Digest {
 		t.Fatalf("changed vars-file resolution diverged: job=%+v err=%v", job, err)
 	}

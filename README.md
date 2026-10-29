@@ -101,7 +101,7 @@ Enabled /home/me/app · 1 jobs · approved 1 shared jobs
 | Job source | Background runs need |
 | --- | --- |
 | `noon.yaml` (shared) | `noon enable`, again after a pull changes the job |
-| `.git/noon.yaml` (private) | `noon enable` once; no approval |
+| `.git/noon.yaml`, `.git/noon.d/*.yaml` (private) | `noon enable` once; no approval |
 | `noon add --temporary` (private state) | creation enables the project; no approval |
 | `noon run NAME` (foreground) | nothing |
 

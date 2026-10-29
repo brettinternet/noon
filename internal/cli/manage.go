@@ -253,9 +253,12 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return &Error{Code: "config_edit", Message: err.Error(), Hint: "Edit the file by hand"}
 	}
-	_, overrides := cfg.Jobs[name]
+	existing, overrides := cfg.Jobs[name]
 	if slices.Contains(oldTargetNames, name) {
 		return &Error{Code: "exists", Message: fmt.Sprintf("job %q already exists", name), Hint: "Run noon remove " + name}
+	}
+	if overrides && kind == "private" && !existing.Shared && existing.Temporary == nil {
+		return &Error{Code: "exists", Message: fmt.Sprintf("job %q is already defined in %s", name, displayPath(cfg.Project, existing.Source)), Hint: "Choose another name"}
 	}
 	after, err := config.AddJob(src, name, job)
 	if err != nil {
@@ -280,16 +283,16 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		if err != nil {
 			return usageError(err.Error(), "")
 		}
-		rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project, "")
+		rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project, "", kind != "shared")
 		if err != nil || rawAddedJob.Digest != requestedDigest {
 			return editVerificationError("added job digest differs from the requested definition")
 		}
 	}
-	addedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil, cfg.Project, cfg.Timezone)
+	addedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil, cfg.Project, cfg.Timezone, kind != "shared")
 	if err != nil {
 		return editVerificationError("added job could not inherit configured hook defaults")
 	}
-	if err := verifyRawJobsUnchanged(src, after, oldTargetNames, name, cfg); err != nil {
+	if err := verifyRawJobsUnchanged(src, after, oldTargetNames, name, cfg, kind != "shared"); err != nil {
 		return editVerificationError(err.Error())
 	}
 	if err := verifyConfigUnchanged(cfg, candidate, name); err != nil {
@@ -419,9 +422,10 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	return nil
 }
 
+// jobHasInterpolation reports fields that loading rewrites: variables, and ~ in private files.
 func jobHasInterpolation(job config.Job) bool {
 	return job.ScheduleExpression != "" || strings.Contains(job.Timeout, "$") ||
-		job.PromptFile != nil && strings.Contains(*job.PromptFile, "$")
+		job.PromptFile != nil && (strings.Contains(*job.PromptFile, "$") || strings.HasPrefix(*job.PromptFile, "~"))
 }
 
 func removeJob(_ context.Context, cmd *urfave.Command) error {
@@ -465,10 +469,12 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 	if userProject && (cmd.Bool("shared") || cmd.Bool("local")) {
 		return usageError("user jobs do not use --shared or --local", "Select the user project with --user")
 	}
-	sharedFile, localFile := filepath.Join(cfg.Project, "noon.yaml"), ""
+	sharedFile, localFile, fragments := filepath.Join(cfg.Project, "noon.yaml"), "", []string(nil)
 	if userProject {
 		sharedFile = filepath.Join(cfg.Project, "config.yaml")
 	} else if localFile, e = config.LocalPath(cfg.Project); e != nil {
+		return configError(e)
+	} else if _, fragments, e = config.FragmentPaths(cfg.Project); e != nil {
 		return configError(e)
 	}
 	if cmd.Bool("local") && localFile == "" {
@@ -510,6 +516,9 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 		if cmd.Bool("local") {
 			file = localFile
 		}
+		if slices.Contains(fragments, file) {
+			return &Error{Code: "config_edit", Message: fmt.Sprintf("job %q is defined in fragment %s; Noon does not edit fragments", name, displayPath(cfg.Project, file)), Hint: "Remove the fragment or its link, or add " + name + ": {enabled: false} to .git/noon.yaml"}
+		}
 		if _, ok := byFile[file]; !ok {
 			files = append(files, file)
 		}
@@ -550,7 +559,7 @@ func removeJob(_ context.Context, cmd *urfave.Command) error {
 			if !sameNames(newNames, want) {
 				return editVerificationError("edited job names do not match the requested removal")
 			}
-			if err := verifyRawJobsUnchanged(src, after, oldNames, name, before); err != nil {
+			if err := verifyRawJobsUnchanged(src, after, oldNames, name, before, file != filepath.Join(cfg.Project, "noon.yaml")); err != nil {
 				return editVerificationError(err.Error())
 			}
 			if err := verifyConfigUnchanged(before, candidate, name); err != nil {

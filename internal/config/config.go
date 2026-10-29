@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -152,11 +154,15 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 			paths = append(paths, userFile)
 		}
 		paths = append(paths, filepath.Join(project, "noon.yaml"))
-		local := ""
+		local, fragments := "", []string(nil)
 		if !stateOnly {
 			if local, err = LocalPath(project); err != nil {
 				return Config{}, err
 			}
+			if _, fragments, err = FragmentPaths(project); err != nil {
+				return Config{}, err
+			}
+			paths = append(paths, fragments...)
 			if local != "" {
 				paths = append(paths, local)
 			}
@@ -167,9 +173,16 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 				kind = "user"
 			} else if path == local {
 				kind = "local"
+			} else if slices.Contains(fragments, path) {
+				kind = "fragment"
 			}
 			if stateOnly && kind != "user" {
 				continue
+			}
+			if kind == "local" || kind == "fragment" {
+				if err := refuseWorkTreeTarget(path, project); err != nil {
+					return Config{}, err
+				}
 			}
 			includeJobs := kind != "user"
 			if err := cfg.applyFile(path, true, kind, userFile, stateOnly, override, includeJobs); err != nil {
@@ -365,16 +378,23 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 		if kind == "user" {
 			varsProject = filepath.Dir(userConfigPath)
 		}
-		varsFile, vars, err := resolveDocumentVars(path, varsProject, values)
+		varsFile, err := expandDocument(path, varsProject, values, kind == "user" || kind == "local" || kind == "fragment")
 		if err != nil {
 			return err
 		}
 		if varsFile.Configured != "" {
 			cfg.VarsFiles = append(cfg.VarsFiles, varsFile)
 		}
-		if jobs, ok := values["jobs"]; ok {
-			if err := expandJobValues(path, jobs, vars, varsFile.Configured); err != nil {
-				return err
+	}
+	if kind == "fragment" {
+		for _, key := range slices.Sorted(maps.Keys(values)) {
+			node := values[key]
+			switch key {
+			case "version", "vars_file", "definitions", "jobs":
+			case "timezone", "default_agent":
+				return jobError(path, node, key, "not allowed in .git/noon.d fragments; set it in .git/noon.yaml")
+			default:
+				return jobError(path, node, key, "not allowed in .git/noon.d fragments; set it in user config "+userConfigPath)
 			}
 		}
 	}
@@ -548,6 +568,77 @@ func validTimezone(value string) error {
 // cannot supply private, approval-free jobs. Only .git and commondir are read;
 // git never runs.
 func LocalPath(project string) (string, error) {
+	common, err := gitCommonDir(project)
+	if err != nil || common == "" {
+		return "", err
+	}
+	return filepath.Join(common, "noon.yaml"), nil
+}
+
+// FragmentPaths returns the private fragment directory beside LocalPath and its
+// *.yaml entries in load (lexical) order. Hidden entries, other names, and
+// subdirectories are ignored; a missing directory has no fragments.
+func FragmentPaths(project string) (string, []string, error) {
+	common, err := gitCommonDir(project)
+	if err != nil || common == "" {
+		return "", nil, err
+	}
+	dir := filepath.Join(common, "noon.d")
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return dir, nil, nil
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("config %s: %w", dir, err)
+	}
+	var files []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".yaml") {
+			continue
+		}
+		files = append(files, filepath.Join(dir, name))
+	}
+	return dir, files, nil
+}
+
+// refuseWorkTreeTarget keeps committed content from becoming approval-free
+// private config through a symlinked file or directory.
+func refuseWorkTreeTarget(path, project string) error {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil // Absent files are optional; dangling links fail when read.
+	}
+	common, err := gitCommonDir(project)
+	if err != nil || common == "" {
+		return err
+	}
+	if real, err := filepath.EvalSymlinks(common); err == nil {
+		common = real
+	}
+	if within(resolved, common) {
+		return nil
+	}
+	roots := []string{project}
+	if filepath.Base(common) == ".git" {
+		roots = append(roots, filepath.Dir(common)) // The main checkout of a linked worktree.
+	}
+	for _, root := range roots {
+		if within(resolved, root) {
+			return fmt.Errorf("config %s: resolves to %s inside the working tree; private config must not come from repository content", path, resolved)
+		}
+	}
+	return nil
+}
+
+func within(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// gitCommonDir returns the Git directory that linked worktrees share, or ""
+// when the project has no .git.
+func gitCommonDir(project string) (string, error) {
 	marker := filepath.Join(project, ".git")
 	info, err := os.Stat(marker)
 	if errors.Is(err, os.ErrNotExist) {
@@ -571,7 +662,7 @@ func LocalPath(project string) (string, error) {
 	// Linked worktrees name the shared directory in commondir; others are it.
 	common, err := readGitPointer(filepath.Join(gitDir, "commondir"))
 	if errors.Is(err, os.ErrNotExist) {
-		return filepath.Join(gitDir, "noon.yaml"), nil
+		return gitDir, nil
 	}
 	if err == nil && common == "" {
 		err = errors.New("empty")
@@ -579,7 +670,7 @@ func LocalPath(project string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("git directory %s: commondir: %w", gitDir, err)
 	}
-	return filepath.Join(resolvePath(gitDir, common), "noon.yaml"), nil
+	return resolvePath(gitDir, common), nil
 }
 
 func readGitPointer(path string) (string, error) {

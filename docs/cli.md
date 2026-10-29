@@ -274,8 +274,9 @@ noon remove tests           # history stays: noon history tests
 noon remove tests --shared  # pick noon.yaml when both files define tests
 ```
 
-`--shared` selects `noon.yaml`, `--local` `.git/noon.yaml`. Everything is checked before any file
-is written. JSON is `{removed, file}`.
+`--shared` selects `noon.yaml`, `--local` `.git/noon.yaml`. Jobs from `.git/noon.d` fragments are
+refused; remove the fragment or add `NAME: {enabled: false}` to `.git/noon.yaml`. Everything is
+checked before any file is written. JSON is `{removed, file}`.
 
 ## Run now
 

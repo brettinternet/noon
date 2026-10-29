@@ -40,8 +40,12 @@ func RunSpec(project string, job config.Job, inherited []string) (runner.Spec, e
 		if job.Prompt != nil {
 			prompt = []byte(*job.Prompt)
 		} else {
+			path := *job.PromptFile
+			if !filepath.IsAbs(path) { // Private files may use ~ paths.
+				path = filepath.Join(project, path)
+			}
 			// Nonblocking open prevents a FIFO from hanging before runner cancellation.
-			file, err := os.OpenFile(filepath.Join(project, *job.PromptFile), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+			file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 			if err != nil {
 				return runner.Spec{}, fmt.Errorf("prompt_file %q: %w", *job.PromptFile, err)
 			}

@@ -20,16 +20,16 @@ func editVerificationError(message string) error {
 	return &Error{Code: "config_edit", Message: message, Hint: "Edit the file by hand"}
 }
 
-func verifyRawJobsUnchanged(before, after []byte, names []string, editedName string, cfg config.Config) error {
+func verifyRawJobsUnchanged(before, after []byte, names []string, editedName string, cfg config.Config, private bool) error {
 	for _, name := range names {
 		if name == editedName {
 			continue
 		}
-		oldJob, err := config.JobFromSource(before, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil, cfg.Project, cfg.Timezone)
+		oldJob, err := config.JobFromSource(before, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil, cfg.Project, cfg.Timezone, private)
 		if err != nil {
 			return err
 		}
-		newJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil, cfg.Project, cfg.Timezone)
+		newJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil, cfg.Project, cfg.Timezone, private)
 		if err != nil {
 			return err
 		}

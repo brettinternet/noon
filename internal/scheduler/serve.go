@@ -789,6 +789,10 @@ func configPaths(project store.EnabledProject, userConfigDir string) []string {
 			filepath.Join(project.Path, "noon.yaml"),
 		)
 		// A broken .git fails the reload itself, so it needs no stamp here.
+		// The directory stamp catches added and removed fragments.
+		if dir, fragments, err := config.FragmentPaths(project.Path); err == nil && dir != "" {
+			paths = append(append(paths, dir), fragments...)
+		}
 		if local, err := config.LocalPath(project.Path); err == nil && local != "" {
 			paths = append(paths, local)
 		}

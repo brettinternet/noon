@@ -86,8 +86,10 @@ digests are in [Configuration](configuration.md).
   never punctuation.
 - `noop_exit_code` is an optional integer from 1–124 on `run` jobs only, and is included in the
   execution digest. Without it, every nonzero exit fails as usual.
-- A private `.git/noon.yaml` job replaces the shared job wholesale. `{enabled: false}` alone toggles it off.
-  There is no field-level merge.
+- A private `.git/noon.yaml` or `.git/noon.d/*.yaml` job replaces the shared job wholesale.
+  `{enabled: false}` alone toggles a shared or fragment job off. There is no field-level merge.
+  Private job names are unique across private files, so a name collision is an error rather than a
+  silent override that depends on file order.
 - Optional `os` and `arch` lists constrain execution to supported Go platforms (`darwin`/`linux`,
   `amd64`/`arm64`). Both fields participate in approval digests. A nonmatching job stays visible but
   is inert: it has no schedule or dispatch eligibility, and foreground and queued requests fail
@@ -361,11 +363,12 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
 - `noon --user enable` opts in the personal project. Its jobs are the user's own and need no approval;
   a scheduled or queued `noon --user add` enables it automatically. The ordinary `noon serve` runs it
   with other enabled projects.
-- Private `.git/noon.yaml` jobs need no approval. Jobs from `noon.yaml` or `--config` run
+- Private `.git/noon.yaml` and `.git/noon.d/*.yaml` jobs need no approval. Jobs from `noon.yaml` or `--config` run
   unattended only while their digest matches the approved one; a changed job shows `needs approval`.
 - Privacy needs a file repository content can't supply. Git refuses paths inside its directory, so
-  a branch can't add or replace `.git/noon.yaml`. A filename in the tree is never private: a commit
-  can add `.noon.yaml` despite ignore rules, so Noon never loads it.
+  a branch can't add or replace `.git/noon.yaml` or `.git/noon.d`. A filename in the tree is never
+  private: a commit can add `.noon.yaml` despite ignore rules, so Noon never loads it. For the same
+  reason, a private file or `noon.d` that resolves through a link into the working tree is an error.
 - The digest covers what runs and when (resolved schedule, splay, jitter, until (canonical absolute instant), action, agent, cwd, env, ordered env_file paths, timeout, overlap, missed,
   cooldown, hooks, webhook, `os`, `arch`, and `requests` when explicitly set), not the description or vars-file contents. A vars-file edit needs approval only when it changes an effective allowlisted value; expression rewrites with the same result and unused variables do not. Omitting `requests` preserves existing job digests. A prompt job's
   digest also covers its agent profile when that profile comes from the same `--config` file;
@@ -550,7 +553,7 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 
 | Input | Trust | Consequence |
 | --- | --- | --- |
-| User project `config.yaml`, `.git/noon.yaml` | Yours: user config is outside the repository; Git cannot commit `.git` paths | Runs unattended once the project is enabled |
+| User project `config.yaml`, `.git/noon.yaml`, `.git/noon.d/*.yaml` | Yours: user config is outside the repository; Git cannot commit `.git` paths | Runs unattended once the project is enabled |
 | Temporary jobs (`noon add --temporary`) | Created through the user's shell, private and approval-free; creation enables the project | Definitions normally live in config; this is the only state-backed exception, CLI-only, ending within 7 days and removed after 24h grace |
 | In-tree `.noon.yaml` | Repository content: commits can add it | Never loaded |
 | `noon.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
