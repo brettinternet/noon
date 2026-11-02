@@ -6,7 +6,17 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- **scheduler:** Add parallel job option
+
+## [v0.15.0](https://github.com/brettinternet/noon/compare/v0.14.0...v0.15.0) - 2026-10-29
+
+### Added
+
 - **config:** Compose private jobs from .git/noon.d fragments
+
+### Documentation
+
+- Refresh changelog
 
 ## [v0.14.0](https://github.com/brettinternet/noon/compare/v0.13.0...v0.14.0) - 2026-10-27
 
