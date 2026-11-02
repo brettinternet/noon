@@ -43,6 +43,7 @@ type Job struct {
 	Timeout           string                   `json:"timeout"`
 	NoopExitCode      int                      `json:"noop_exit_code,omitempty"`
 	Overlap           string                   `json:"overlap"`
+	Parallel          bool                     `json:"parallel,omitempty"`
 	Missed            string                   `json:"missed"`
 	Enabled           bool                     `json:"enabled"`
 	OS                []string                 `json:"os,omitempty"`
@@ -91,7 +92,7 @@ func inspectConfig(cfg config.Config, now time.Time) (Inspection, error) {
 	slices.Sort(names)
 	for _, name := range names {
 		job := cfg.Jobs[name]
-		view := Job{Temporary: job.Temporary, Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, EnvFile: job.EnvFile, Agent: job.Agent, AgentArgs: job.AgentArgs, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, NoopExitCode: job.NoopExitCode, Overlap: job.Overlap, Missed: job.Missed, Enabled: job.Enabled, OS: job.OS, Arch: job.Arch, PlatformSupported: job.MatchesPlatform(cfg.Platform), Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
+		view := Job{Temporary: job.Temporary, Name: name, Description: job.Description, Run: job.Run, Prompt: job.Prompt, PromptFile: job.PromptFile, EnvFile: job.EnvFile, Agent: job.Agent, AgentArgs: job.AgentArgs, CWD: job.CWD, EnvKeys: []string{}, Timeout: job.Timeout, NoopExitCode: job.NoopExitCode, Overlap: job.Overlap, Parallel: job.Parallel, Missed: job.Missed, Enabled: job.Enabled, OS: job.OS, Arch: job.Arch, PlatformSupported: job.MatchesPlatform(cfg.Platform), Source: job.Source, Shared: job.Shared, Overrides: job.Overrides, Digest: job.Digest, HasWebhook: job.Webhook != nil}
 		view.Ended = job.Ended(now)
 		if job.Until != nil {
 			until := job.Until.In(loc)

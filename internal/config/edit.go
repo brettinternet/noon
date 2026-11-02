@@ -318,6 +318,9 @@ func jobFields(job Job) map[string]any {
 		if job.Overlap != "" && job.Overlap != "skip" {
 			fields["overlap"] = job.Overlap
 		}
+		if job.Parallel {
+			fields["parallel"] = true
+		}
 		if job.Missed != "" && job.Missed != "run_once" {
 			fields["missed"] = job.Missed
 		}

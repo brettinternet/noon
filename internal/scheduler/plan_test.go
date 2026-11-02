@@ -382,7 +382,8 @@ func TestPlanDispatch(t *testing.T) {
 	now := time.Date(2026, 10, 1, 14, 30, 0, 0, time.UTC)
 	a, b, c, d, e := JobKey{1, "a"}, JobKey{2, "b"}, JobKey{3, "c"}, JobKey{4, "d"}, JobKey{5, "e"}
 	other := JobKey{1, "other"}
-	jobs := []JobInput{{Key: a, Active: true}, {Key: b, Active: true}, {Key: c, Active: true}, {Key: d, Active: true}, {Key: e, Active: true}, {Key: other, Active: true}, {Key: JobKey{6, "inactive"}}}
+	pa, pb := JobKey{1, "pa"}, JobKey{1, "pb"}
+	jobs := []JobInput{{Key: a, Active: true}, {Key: b, Active: true}, {Key: c, Active: true}, {Key: d, Active: true}, {Key: e, Active: true}, {Key: other, Active: true}, {Key: pa, Active: true, Parallel: true}, {Key: pb, Active: true, Parallel: true}, {Key: JobKey{6, "inactive"}}}
 	run := func(id int64, key JobKey, status string, offset time.Duration) Run {
 		return Run{ID: id, Key: key, Status: status, DueAt: now.Add(offset)}
 	}
@@ -402,6 +403,10 @@ func TestPlanDispatch(t *testing.T) {
 		{name: "future waits", runs: []Run{run(1, a, "queued", time.Nanosecond)}},
 		{name: "removed running job still blocks project", runs: []Run{run(9, JobKey{1, "gone"}, "running", -2*time.Hour), run(1, a, "queued", 0)}},
 		{name: "terminal runs consume no capacity", runs: []Run{run(9, a, "succeeded", 0), run(1, a, "queued", 0)}, start: []int64{1}},
+		{name: "parallel jobs share a project", runs: []Run{run(1, pa, "queued", 0), run(2, pb, "queued", 0), run(3, pa, "queued", 0)}, start: []int64{1, 2}},
+		{name: "exclusive run blocks parallel", runs: []Run{run(9, a, "running", 0), run(1, pa, "queued", 0)}},
+		{name: "waiting exclusive run holds back later parallel", runs: []Run{run(9, pa, "running", 0), run(1, a, "queued", 0), run(2, pb, "queued", 0)}},
+		{name: "parallel before waiting exclusive starts", runs: []Run{run(9, pa, "running", 0), run(1, pb, "queued", 0), run(2, a, "queued", 0)}, start: []int64{1}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

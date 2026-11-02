@@ -73,6 +73,7 @@ type Job struct {
 	Cooldown           time.Duration
 	Requests           string
 	Overlap            string
+	Parallel           bool
 	Missed             string
 	Enabled            bool
 	OS                 []string
@@ -510,6 +511,15 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				return Job{}, err
 			}
 			job.Enabled = enabled
+		case "parallel":
+			parallel, err := jobEnabled(file, field, value)
+			if err != nil {
+				return Job{}, err
+			}
+			job.Parallel = parallel
+			if parallel {
+				execution[key] = true
+			}
 		case "run":
 			actions++
 			run, err := parseCommand(file, field, value, false)

@@ -37,9 +37,9 @@ Inspect idle polls with `noon history inbox --status noop`; no agent is invoked.
 
 Things to know:
 
-- **One run per project at a time.** Noon's scheduler starts at most one run per project, so a 40
-  minute agent run delays this project's other scheduled jobs. If that matters, put agent jobs in
-  their own small Noon project and point `cwd` at the repository's absolute path.
+- **This job runs alone in its project.** It edits the checkout, so it isn't `parallel: true`, and a
+  40 minute agent run delays the project's other jobs unless they are parallel. Mark read-only jobs
+  parallel, or put agent jobs in their own small Noon project with `cwd` pointing at the repository.
 - The sandbox flag is the agent's own isolation. Approval (`noon enable`) is not a sandbox; the
   agent runs with your account's permissions. Keep `OPEN_PR` off until you trust the output.
 - Inbox task files are untracked inputs, not part of the approved job definition. Anyone who can

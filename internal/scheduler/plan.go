@@ -28,6 +28,7 @@ type JobInput struct {
 	Missed      string    // run_once | skip
 	Resumed     time.Time // end of a pause that expired with no schedule state; zero otherwise
 	Overlap     string    // skip | queue
+	Parallel    bool      // may run beside other jobs in its project
 }
 
 type JobState struct {
@@ -133,19 +134,33 @@ func Due(now time.Time, jobs []JobInput, states []JobState, runs []Run) (upsert 
 // in (DueAt, ID) order. All running work counts, including foreground runs and
 // runs whose jobs have since been removed or disabled. Cancellation takes
 // precedence over expiry; neither operation stops an already-running process.
+//
+// A project runs either one exclusive job or any number of parallel jobs, each
+// job at most once. A waiting exclusive run holds back later runs in its project
+// so a stream of parallel work cannot starve it.
 func Dispatch(now time.Time, jobs []JobInput, runs []Run) (start, expire, cancel []int64) {
 	active := make(map[JobKey]bool, len(jobs))
+	parallel := make(map[JobKey]bool, len(jobs))
 	for _, job := range jobs {
 		active[job.Key] = job.Active && (job.Until == nil || now.Before(*job.Until))
+		parallel[job.Key] = job.Parallel
 	}
-	projects := map[int64]bool{}
+	busy := map[int64]int{}          // running runs per project
+	exclusive := map[int64]bool{}    // an exclusive run is running
+	barrier := map[int64]bool{}      // an exclusive run is waiting
+	runningJobs := map[JobKey]bool{} // jobs with a running run
 	running := 0
+	begin := func(key JobKey) {
+		busy[key.Project]++
+		exclusive[key.Project] = exclusive[key.Project] || !parallel[key]
+		runningJobs[key] = true
+		running++
+	}
 	var pending []Run
 	for _, run := range runs {
 		switch run.Status {
 		case "running":
-			projects[run.Key.Project] = true
-			running++
+			begin(run.Key)
 		case "queued":
 			pending = append(pending, run)
 		}
@@ -162,10 +177,17 @@ func Dispatch(now time.Time, jobs []JobInput, runs []Run) (start, expire, cancel
 			cancel = append(cancel, run.ID)
 		case now.Sub(run.DueAt) > time.Hour:
 			expire = append(expire, run.ID)
-		case !run.DueAt.After(now) && !projects[run.Key.Project] && running < 4:
+		case run.DueAt.After(now) || barrier[run.Key.Project]:
+		case parallel[run.Key]:
+			if !exclusive[run.Key.Project] && !runningJobs[run.Key] && running < 4 {
+				start = append(start, run.ID)
+				begin(run.Key)
+			}
+		case busy[run.Key.Project] == 0 && running < 4:
 			start = append(start, run.ID)
-			projects[run.Key.Project] = true
-			running++
+			begin(run.Key)
+		default:
+			barrier[run.Key.Project] = true
 		}
 	}
 	return

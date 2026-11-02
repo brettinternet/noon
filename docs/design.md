@@ -239,9 +239,11 @@ jobs lose their state.
   Overlap also applies at the effective start.
 - `overlap: skip` (default) records a `skipped` run when the job is already running.
   `overlap: queue` keeps at most one pending run.
-- The scheduler starts a run only while fewer than one run is active in its project and fewer than
-  four overall, counting foreground runs. The rest wait FIFO as `queued`. Foreground runs ignore
-  the caps but never overlap the same job.
+- The scheduler starts at most four runs overall, counting foreground runs. Within a project it
+  runs either one job or any number of `parallel: true` jobs, each job at most once. Mark a job
+  parallel only when it doesn't write to the shared checkout. The rest wait FIFO as `queued`; a
+  waiting non-parallel run holds back later runs in its project so parallel work can't starve it.
+  Foreground runs ignore the caps but never overlap the same job.
 - A due-now request (`--detach`, MCP, triggers, webhooks) defaults to merging into the job's
   existing due queued run; the new payload and event file are discarded. `requests: each` instead
   creates a separate run up to a per-job cap of 20 queued runs, counting due and future runs. The

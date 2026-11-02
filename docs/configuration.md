@@ -209,6 +209,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `env` | — | String values (quote numbers). `NOON_*` is reserved. Values are never printed |
 | `timeout` | `1h` | `30s`, `10m`, `1h30m`, `2d` (≥ 1s), or `none` |
 | `overlap` | `skip` | `skip` or `queue` (at most one pending) |
+| `parallel` | `false` | `true` lets background runs share the project with other jobs ([Concurrency](design.md#missed-runs-overlap-and-concurrency)) |
 | `requests` | `merge` | `merge` due-now requests or queue `each` as a separate run ([Triggers](triggers.md)) |
 | `missed` | `run_once` | `run_once` or `skip`: what to do after sleep or downtime |
 | `enabled` | `true` | `false` disables the job |
@@ -594,7 +595,7 @@ change that.
 
 | In the digest | Not in the digest |
 | --- | --- |
-| schedule, action, agent, `agent_args`, cwd, env, `env_file` paths and order, timeout, `noop_exit_code`, splay, jitter, until, overlap, missed, cooldown, hooks, webhook, `os`, `arch`, `requests` (only when set) | description; contents of scripts, prompt files, env files, and vars files; built-in and user-config profiles and hook defaults |
+| schedule, action, agent, `agent_args`, cwd, env, `env_file` paths and order, timeout, `noop_exit_code`, splay, jitter, until, overlap, parallel, missed, cooldown, hooks, webhook, `os`, `arch`, `requests` (only when set) | description; contents of scripts, prompt files, env files, and vars files; built-in and user-config profiles and hook defaults |
 
 A profile defined in the same `--config` file is digested with its jobs.
 

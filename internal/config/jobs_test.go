@@ -337,6 +337,14 @@ func TestLoadJobs(t *testing.T) {
 				t.Fatalf("jitter round trip: %s, %v", digest, err)
 			}
 		}},
+		{name: "parallel joins digest", shared: "jobs: {tests: {run: 'true', parallel: true}, other: {run: 'true', parallel: false}}", check: func(t *testing.T, c config.Config) {
+			job := c.Jobs["tests"]
+			digest, err := config.DigestJobDefinition(job, c.Agents, c.DefaultAgent)
+			if !job.Parallel || err != nil || digest != job.Digest || job.Digest == c.Jobs["other"].Digest {
+				t.Fatalf("parallel %v digest %s round trip %s other %s: %v", job.Parallel, job.Digest, digest, c.Jobs["other"].Digest, err)
+			}
+		}},
+		{name: "parallel not boolean", shared: "jobs: {tests: {run: hi, parallel: 'yes'}}", want: "noon.yaml:1: jobs.tests.parallel: must be a boolean"},
 		{name: "jitter cron maximum", shared: "jobs: {tests: {run: hi, schedule: '*/15 * * * *', jitter: 7m30s}}"},
 		{name: "jitter exact interval maximum", shared: "jobs: {tests: {run: hi, schedule: every 1h, jitter: 30m}}"},
 		{name: "jitter exact midnight wrap maximum", shared: "jobs: {tests: {run: hi, schedule: '0 0,23 * * *', jitter: 30m}}"},
