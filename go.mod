@@ -11,7 +11,7 @@ require (
 	github.com/mattn/go-isatty v0.0.24
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/urfave/cli/v3 v3.14.0
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.61.0
 )
