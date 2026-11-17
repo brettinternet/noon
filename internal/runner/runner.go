@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -81,25 +82,38 @@ func Run(ctx context.Context, spec Spec) (result Result) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = grace
 	// Own the pipes: Cmd.Wait must observe leader exit independently of EOF.
-	outR, outW, err := os.Pipe()
-	if err != nil {
-		return fail(err, 125)
+	// One shared destination gets one pipe as fd 1 and fd 2 so the child's
+	// write order survives; separate destinations keep separate pipes.
+	type stream struct {
+		r, w *os.File
+		dst  io.Writer
 	}
-	defer outR.Close()
-	defer outW.Close()
-	errR, errW, err := os.Pipe()
-	if err != nil {
-		return fail(err, 125)
+	var streams []stream
+	defer func() {
+		for _, s := range streams {
+			_ = s.r.Close()
+			_ = s.w.Close()
+		}
+	}()
+	dests := []io.Writer{spec.Stdout, spec.Stderr}
+	if sameWriter(spec.Stdout, spec.Stderr) {
+		dests = dests[:1]
 	}
-	defer errR.Close()
-	defer errW.Close()
-	cmd.Stdout, cmd.Stderr = outW, errW
+	for _, dst := range dests {
+		r, w, err := os.Pipe()
+		if err != nil {
+			return fail(err, 125)
+		}
+		streams = append(streams, stream{r, w, outputWriter(dst, spec.Log)})
+	}
+	cmd.Stdout, cmd.Stderr = streams[0].w, streams[len(streams)-1].w
 	if err := cmd.Start(); err != nil {
 		return fail(err, startCode(err))
 	}
 	result.PID, result.PGID = cmd.Process.Pid, cmd.Process.Pid
-	_ = outW.Close()
-	_ = errW.Close()
+	for _, s := range streams {
+		_ = s.w.Close()
+	}
 	identity, _ := ProcessStartIdentity(result.PID)
 	if spec.OnStart != nil {
 		if err := spec.OnStart(result.PID, result.PGID, identity); err != nil {
@@ -110,10 +124,7 @@ func Run(ctx context.Context, spec Spec) (result Result) {
 	}
 	var writes sync.Mutex
 	var copies sync.WaitGroup
-	for _, stream := range []struct {
-		r *os.File
-		w io.Writer
-	}{{outR, outputWriter(spec.Stdout, spec.Log)}, {errR, outputWriter(spec.Stderr, spec.Log)}} {
+	for _, s := range streams {
 		copies.Add(1)
 		go func(r *os.File, w io.Writer) {
 			defer copies.Done()
@@ -123,7 +134,7 @@ func Run(ctx context.Context, spec Spec) (result Result) {
 			_, _ = io.Copy(lockedWriter{&writes, w}, r)
 			// A failed destination must not block the child on a full pipe.
 			_, _ = io.Copy(io.Discard, r)
-		}(stream.r, stream.w)
+		}(s.r, s.dst)
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- cmd.Wait() }()
@@ -192,11 +203,21 @@ cleanup:
 	select {
 	case <-drained:
 	case <-drainTimer.C:
-		_ = outR.Close()
-		_ = errR.Close()
+		for _, s := range streams {
+			_ = s.r.Close()
+		}
 		<-drained
 	}
 	return result
+}
+
+// sameWriter reports whether both streams go to one destination, without
+// panicking on writers whose dynamic type is not comparable.
+func sameWriter(a, b io.Writer) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return reflect.TypeOf(a) == reflect.TypeOf(b) && reflect.TypeOf(a).Comparable() && a == b
 }
 
 func outputWriter(stream, log io.Writer) io.Writer {

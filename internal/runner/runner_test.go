@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -87,6 +88,41 @@ func TestRunner(t *testing.T) {
 		if got, want := log.String(), strings.Repeat("abcdefghij", 10000); got != want {
 			t.Fatalf("durable log has %d bytes, want %d", len(got), len(want))
 		}
+	})
+	t.Run("stdout and stderr order", func(t *testing.T) {
+		script := `i=0; while [ "$i" -lt 200 ]; do echo "out $i"; echo "err $i" >&2; i=$((i + 1)); done`
+		var want strings.Builder
+		for i := range 200 {
+			fmt.Fprintf(&want, "out %d\nerr %d\n", i, i)
+		}
+		var shared bytes.Buffer
+		for name, w := range map[string]*bytes.Buffer{"nil writers": nil, "shared writer": &shared} {
+			t.Run(name, func(t *testing.T) {
+				var log bytes.Buffer
+				spec := base("/bin/sh", "-c", script)
+				spec.Log = &log
+				if w != nil {
+					spec.Stdout, spec.Stderr = w, w
+				}
+				if result := runner.Run(context.Background(), spec); result.ExitCode != 0 {
+					t.Fatalf("%+v", result)
+				}
+				if log.String() != want.String() || (w != nil && w.String() != want.String()) {
+					t.Fatalf("order lost:\nlog %q", log.String()[:min(80, log.Len())])
+				}
+			})
+		}
+		t.Run("distinct writers", func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			spec := base("/bin/sh", "-c", script)
+			spec.Stdout, spec.Stderr = &out, &errOut
+			if result := runner.Run(context.Background(), spec); result.ExitCode != 0 {
+				t.Fatalf("%+v", result)
+			}
+			if strings.Contains(out.String(), "err") || strings.Contains(errOut.String(), "out") || strings.Count(out.String(), "\n") != 200 || strings.Count(errOut.String(), "\n") != 200 {
+				t.Fatalf("streams mixed: out %d bytes, err %d bytes", out.Len(), errOut.Len())
+			}
+		})
 	})
 	t.Run("job PATH and relative executable", func(t *testing.T) {
 		if err := os.Mkdir(filepath.Join(root, "tools"), 0700); err != nil {

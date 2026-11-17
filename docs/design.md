@@ -405,7 +405,11 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   failure are never noops. Noops retain their log, duration, and actual exit code. Foreground `noon
   run` treats a noop as a successful command exit (0), while its summary says `noop` and JSON reports
   the actual exit code.
-- The log interleaves stdout and stderr. The first 1 MiB is written live; after that the last 1 MiB
+- The log keeps the child's stdout and stderr write order when both go to one destination: the
+  scheduler, hooks, and a foreground `noon run` whose stdout and stderr are the same open file (a
+  shared terminal or `>file 2>&1`). The child then gets one pipe as fd 1 and fd 2, never a pty.
+  When foreground stdout and stderr differ, each stream still reaches its own destination and
+  cross-stream order in the log is best-effort. The first 1 MiB is written live; after that the last 1 MiB
   is kept in memory and appended after an omission marker at exit, so `--follow` sees the head live
   and the tail at the end.
 - Environment: inherited (the scheduler's or your shell's), then runtime `env_file` values in list order

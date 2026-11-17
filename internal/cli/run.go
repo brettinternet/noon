@@ -260,7 +260,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	spec.OnStart = func(_ int, pgid int, leaderStart string) error {
 		return state.SetProcessIdentity(run.ID, pgid, leaderStart)
 	}
-	if cmd.Bool("json") {
+	if cmd.Bool("json") || sameFile(cmd.Writer, cmd.ErrWriter) {
 		spec.Stdout = cmd.ErrWriter
 	}
 	command := ""
@@ -438,3 +438,22 @@ func setRunEnv(env []string, key, value string) []string {
 }
 
 func stateError(err error) error { return app.StateError(err) }
+
+// sameFile reports whether stdout and stderr are one open file, such as a
+// shared terminal or `>file 2>&1`, so the child can share one ordered pipe.
+func sameFile(a, b io.Writer) bool {
+	fa, ok := a.(*os.File)
+	if !ok {
+		return false
+	}
+	fb, ok := b.(*os.File)
+	if !ok {
+		return false
+	}
+	ia, err := fa.Stat()
+	if err != nil {
+		return false
+	}
+	ib, err := fb.Stat()
+	return err == nil && os.SameFile(ia, ib)
+}
