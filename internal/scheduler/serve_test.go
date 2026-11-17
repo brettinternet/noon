@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -975,6 +976,59 @@ func TestServeConfigSelectionRecovery(t *testing.T) {
 	fixture.stop(t)
 	if runs := fixture.runs(t); len(runs) != 2 {
 		t.Fatalf("restored checkout runs with last-good config: %+v", runs)
+	}
+}
+
+// A persistent config error must be logged once per distinct message, and a
+// project that never loaded must not reload (and log) on every tick.
+func TestServeLogsPersistentConfigErrorOnce(t *testing.T) {
+	fixture := newServeFixture(t, scheduledManifest("every 1m", "true"))
+	fixture.stop(t)
+	countErrors := func(log *bytes.Buffer) int { return strings.Count(log.String(), "config error") }
+	ticks := func(from time.Time) {
+		for i := range 6 {
+			fixture.step(t, from.Add(time.Duration(i)*time.Second))
+		}
+	}
+
+	running := &bytes.Buffer{}
+	fixture.logger = running
+	fixture.start(t)
+	fixture.step(t, serveTestStart)
+	fixture.writeConfig(t, "jobs: {tests: {schedule: every 1m, runn: ['true']}}\n")
+	ticks(serveTestStart.Add(2 * time.Second))
+	fixture.writeConfig(t, "jobs: [invalid\n")
+	ticks(serveTestStart.Add(10 * time.Second))
+	fixture.step(t, serveTestStart.Add(time.Minute))
+	waitFor(t, func() bool {
+		runs := fixture.runs(t)
+		return len(runs) == 1 && runs[0].Status == "succeeded"
+	})
+	fixture.stop(t)
+	if got := countErrors(running); got != 2 {
+		t.Fatalf("config error lines across two distinct errors = %d; want 2\n%s", got, running)
+	}
+
+	restarted := &bytes.Buffer{}
+	fixture.logger = restarted
+	fixture.start(t)
+	fixture.step(t, serveTestStart.Add(2*time.Minute))
+	// Clearing the recorded error exposes any reload, which records it again.
+	state, err := store.Open(fixture.stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetProjectConfigError(fixture.projectID(t), ""); err != nil {
+		t.Fatal(err)
+	}
+	_ = state.Close()
+	ticks(serveTestStart.Add(2*time.Minute + time.Second))
+	if message := fixture.configError(t); message != "" {
+		t.Fatalf("never-loaded project reloaded on an unchanged tick: %q", message)
+	}
+	fixture.stop(t)
+	if got := countErrors(restarted); got != 1 {
+		t.Fatalf("config error lines after restart = %d; want 1\n%s", got, restarted)
 	}
 }
 

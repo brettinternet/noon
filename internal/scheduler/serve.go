@@ -68,7 +68,13 @@ type projectConfig struct {
 	webhookSecrets     map[string][]byte
 	webhookConfigError string
 	temporaryError     string
+	// configSelection names the last valid config's selection, which keeps
+	// running while a later attempt fails; attemptedSelection names the last
+	// load attempt's, so a failing selection is retried only when it changes.
+	// loggedError is the last config error logged, so each is logged once.
 	configSelection    string
+	attemptedSelection string
+	loggedError        string
 	stamps             []fileStamp
 	checkedAt          time.Time
 }
@@ -341,7 +347,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 				configs[project.ID] = cached
 			}
 			selection := configSelection(project)
-			selectionChanged := cached.configSelection != selection
+			selectionChanged := cached.attemptedSelection != selection
 			cached.project = project
 			if selectionChanged {
 				if err := reloadProject(state, cached, options, now, &logger, true); err != nil {
@@ -639,11 +645,12 @@ func reloadProject(state *store.Store, cached *projectConfig, options ServeOptio
 	loaded, err := config.Load(input)
 	cached.stamps = stamps
 	cached.checkedAt = now
+	cached.attemptedSelection = configSelection(cached.project)
 	if err != nil {
 		if setErr := state.SetProjectConfigError(cached.project.ID, err.Error()); setErr != nil {
 			return fmt.Errorf("record config error for %q: %w", cached.project.Path, setErr)
 		}
-		logger.event("config error project=%q error=%q", cached.project.Path, err.Error())
+		cached.logConfigError(logger, err.Error())
 		return nil
 	}
 	// A temporary job that cannot merge is skipped and recorded, never
@@ -660,10 +667,20 @@ func reloadProject(state *store.Store, cached *projectConfig, options ServeOptio
 	if err := state.SetProjectConfigError(cached.project.ID, recorded); err != nil {
 		return fmt.Errorf("record config error for %q: %w", cached.project.Path, err)
 	}
-	if recorded != "" {
-		logger.event("config error project=%q error=%q", cached.project.Path, recorded)
-	}
+	cached.logConfigError(logger, recorded)
 	return nil
+}
+
+// logConfigError logs a project's config error only when it differs from the
+// last one logged; an empty message records recovery without logging.
+func (cached *projectConfig) logConfigError(logger *schedulerLogger, message string) {
+	if message == cached.loggedError {
+		return
+	}
+	cached.loggedError = message
+	if message != "" {
+		logger.event("config error project=%q error=%q", cached.project.Path, message)
+	}
 }
 
 func webhookSecretSnapshots(cfg config.Config, environment []string) (map[string][]byte, string) {
