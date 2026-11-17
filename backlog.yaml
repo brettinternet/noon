@@ -35,6 +35,7 @@ labels:
     - ops
     - tui
     - security
+    - delight
 ready:
     statuses:
         - todo
