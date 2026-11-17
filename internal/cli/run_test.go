@@ -1235,19 +1235,18 @@ wait
 		code := cli.Run(context.Background(), []string{"noon", "--json", "run", "hook_timeout"}, config.BuildOpts{}, &out, &stderr)
 		timeoutDone <- runResult{code: code, out: out.String(), err: stderr.String()}
 	}()
+	// The shell creates the file before writing the PID; wait for the PID itself.
+	var childPID int
 	deadline = time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(childPIDFile); err == nil {
+	for {
+		data, readErr := os.ReadFile(childPIDFile)
+		if childPID, err = strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
 			break
 		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("timeout hook did not record its child PID: read %v, parse %v", readErr, err)
+		}
 		time.Sleep(10 * time.Millisecond)
-	}
-	if _, err := os.Stat(childPIDFile); err != nil {
-		t.Fatalf("timeout hook did not start its child: %v", err)
-	}
-	childPID, err := strconv.Atoi(strings.TrimSpace(mustRead(t, childPIDFile)))
-	if err != nil {
-		t.Fatal(err)
 	}
 	childIdentity, err := runner.ProcessStartIdentity(childPID)
 	if err != nil {
