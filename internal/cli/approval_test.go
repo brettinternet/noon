@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -180,5 +181,52 @@ func TestEnableApproval(t *testing.T) {
 	check(true, map[string]string{"review": "approved"})
 	if code, result := invoke(t, "run", "review", "--detach", "--json"); code != 0 {
 		t.Fatalf("reapproved agent_args did not queue: exit=%d result=%+v", code, result)
+	}
+
+	// A moved checkout is disabled by its old, uncanonicalized path; nothing else is.
+	parent := t.TempDir()
+	other := filepath.Join(parent, "other")
+	if err := os.MkdirAll(filepath.Join(other, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "noon.yaml"), []byte(base), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	enable("-C", other)
+	canonicalOther, err := filepath.EvalSymlinks(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(other, other+"-moved"); err != nil {
+		t.Fatal(err)
+	}
+	recordOf := func(path string) store.ProjectApproval {
+		t.Helper()
+		state, err := store.OpenExisting(stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer state.Close()
+		result, err := state.ApprovalForProject(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	kept := snapshot()
+	if code, result := invoke(t, "-C", filepath.Join(parent, "never"), "disable", "--json"); code == 0 || !strings.Contains(fmt.Sprint(result["error"]), "no such file") {
+		t.Fatalf("unknown missing path: %d %+v", code, result)
+	}
+	if !recordOf(canonicalOther).Enabled || !reflect.DeepEqual(snapshot(), kept) {
+		t.Fatal("unknown missing path changed state")
+	}
+	if code, result := invoke(t, "-C", other, "disable", "--json"); code != 0 || result["project"].(map[string]any)["path"] != canonicalOther {
+		t.Fatalf("moved disable: %d %+v", code, result)
+	}
+	if got := recordOf(canonicalOther); got.Enabled || len(got.Approvals) != 0 {
+		t.Fatalf("moved record still enabled: %+v", got)
+	}
+	if !reflect.DeepEqual(snapshot(), kept) {
+		t.Fatal("moved disable changed another project")
 	}
 }

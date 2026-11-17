@@ -46,7 +46,19 @@ func disableProject(_ context.Context, cmd *urfave.Command) error {
 	}
 	cfg, err := config.LoadForDisable(values)
 	if err != nil {
-		return configError(err)
+		// A moved or deleted checkout is still disabled by its exact recorded path.
+		missing, ok, missingErr := config.LoadForMissingProject(values)
+		if missingErr != nil || !ok {
+			return configError(err)
+		}
+		enabled, enabledErr := app.Enabled(missing)
+		if enabledErr != nil {
+			return stateError(enabledErr)
+		}
+		if !enabled {
+			return configError(err)
+		}
+		cfg = missing
 	}
 	project, err := app.Disable(cfg, time.Now())
 	if err != nil {

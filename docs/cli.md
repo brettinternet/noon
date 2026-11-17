@@ -278,6 +278,20 @@ noon remove tests --shared  # pick noon.yaml when both files define tests
 refused; remove the fragment or add `NAME: {enabled: false}` to `.git/noon.yaml`. Everything is
 checked before any file is written. JSON is `{removed, file}`.
 
+### Disable
+
+`noon disable` revokes approvals, cancels queued runs, ends temporary schedules, and keeps history.
+A moved or deleted checkout is disabled by its old path:
+
+```console
+$ mv ~/src/app ~/src/app-old
+$ noon -C ~/src/app disable
+Disabled /Users/me/src/app · history kept
+```
+
+A missing path must match an enabled project's recorded path exactly; otherwise it fails as any
+missing directory does.
+
 ## Run now
 
 `noon run NAME` runs in the foreground with no scheduler or approval. Job stdout and stderr pass

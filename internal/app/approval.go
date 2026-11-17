@@ -51,6 +51,20 @@ func Disable(cfg config.Config, now time.Time) (Project, error) {
 	return project, state.DisableProject(cfg.Project, now)
 }
 
+// Enabled reports whether state records cfg.Project as enabled, without creating state.
+func Enabled(cfg config.Config) (bool, error) {
+	state, err := store.OpenExisting(cfg.StateDir)
+	if errors.Is(err, store.ErrNoDatabase) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer state.Close()
+	approval, err := state.ApprovalForProject(cfg.Project)
+	return approval.Enabled, err
+}
+
 // WithApprovals enriches an inspection without creating or migrating state.
 func WithApprovals(view Inspection) (Inspection, error) {
 	state, err := store.OpenExisting(view.StateDir)

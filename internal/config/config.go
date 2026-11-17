@@ -84,6 +84,41 @@ func LoadWithFileOverride(input Input, path string, data []byte) (Config, error)
 // An explicit state-dir also permits recovery from a broken explicit/user file.
 func LoadForDisable(input Input) (Config, error) { return load(input, true, nil) }
 
+// LoadForMissingProject is LoadForDisable for an explicit project directory that no
+// longer exists. The project is the deepest existing ancestor with symlinks resolved
+// plus the missing elements, matching the canonical path recorded at enable time.
+// ok is false when the directory exists or is not explicit.
+func LoadForMissingProject(input Input) (cfg Config, ok bool, err error) {
+	if input.User || input.Project == nil || *input.Project == "" {
+		return Config{}, false, nil
+	}
+	path, err := filepath.Abs(resolvePath(input.CWD, *input.Project))
+	if err != nil {
+		return Config{}, false, err
+	}
+	dir, missing := path, []string(nil)
+	for {
+		if _, err := os.Lstat(dir); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return Config{}, false, err
+		}
+		if filepath.Dir(dir) == dir {
+			return Config{}, false, nil
+		}
+		missing = append([]string{filepath.Base(dir)}, missing...)
+		dir = filepath.Dir(dir)
+	}
+	if len(missing) == 0 {
+		return Config{}, false, nil
+	}
+	if dir, err = filepath.EvalSymlinks(dir); err != nil {
+		return Config{}, false, err
+	}
+	cfg, err = loadProject(input, filepath.Join(append([]string{dir}, missing...)...), true, nil)
+	return cfg, err == nil, err
+}
+
 type fileOverride struct {
 	path string
 	data []byte
@@ -94,6 +129,11 @@ func load(input Input, stateOnly bool, override *fileOverride) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	return loadProject(input, project, stateOnly, override)
+}
+
+func loadProject(input Input, project string, stateOnly bool, override *fileOverride) (Config, error) {
+	var err error
 	userProject := IsUserProject(project, input.UserConfigDir)
 	if userProject && input.File != nil {
 		return Config{}, errors.New("the user project cannot use an explicit --config file")
