@@ -251,6 +251,10 @@ func projectsAt(cmd *urfave.Command, now time.Time) error {
 		if rest, ok := abbreviate(view.NextProject); human && ok {
 			project = "~/" + shellArgument(rest)
 		}
+		// Check the same recorded config the row reflects.
+		if view.NextConfig != "" {
+			project += " --config " + shellArgument(view.NextConfig)
+		}
 		command := "noon -C " + project + strings.TrimPrefix(view.Next, "noon")
 		// NOON_STATE_DIR carries over to the suggested command; a differing flag does not.
 		if stateDir := setting(cmd, "state-dir"); stateDir != nil && *stateDir != os.Getenv("NOON_STATE_DIR") {

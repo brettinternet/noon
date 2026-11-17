@@ -521,6 +521,8 @@ STATE is the first that applies: `missing checkout`, `config error`, `JOB failin
 | Scheduler offline | `noon service install` (or `noon serve` if installed) |
 | Failing job | `noon -C PATH logs JOB -s failed` |
 
+The config check and logs suggestions add `--config FILE` when the project was enabled with one.
+
 JSON has `projects` (`id`, `name`, `path`, `state` of `ok`, `missing`, `config_error`, or
 `failing`, optional `config_error`, `failing` job names, and `next_at`) and `next` when there is a
 suggestion. It exits 0 whenever state can be read.

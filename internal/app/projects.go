@@ -148,14 +148,18 @@ type ProjectStatus struct {
 	ConfigError string     `json:"config_error,omitempty"`
 	Failing     []string   `json:"failing,omitempty"`
 	NextAt      *time.Time `json:"next_at,omitempty"`
+	// configFile is the --config FILE recorded at enable time, if any.
+	configFile string
 }
 
 // ProjectStatusView holds every enabled project and one suggested command.
-// NextProject, when set, is the path Next must target; adapters render it.
+// NextProject, when set, is the path Next must target, and NextConfig the config
+// file it was enabled with; adapters render them.
 type ProjectStatusView struct {
 	Projects    []ProjectStatus
 	Next        string
 	NextProject string
+	NextConfig  string
 }
 
 // ProjectStatuses reads every enabled project's dashboard without creating
@@ -185,6 +189,9 @@ func ProjectStatuses(input config.Input, now time.Time) (ProjectStatusView, erro
 		values, err := EnabledProjectInput(input, stateDir, project.ID)
 		if err != nil {
 			return ProjectStatusView{}, err
+		}
+		if values.File != nil {
+			row.configFile = *values.File
 		}
 		view, err := Dashboard(values, now)
 		var configuration *DashboardConfigError
@@ -226,7 +233,7 @@ func ProjectStatuses(input config.Input, now time.Time) (ProjectStatusView, erro
 	if project := first("missing"); project != nil {
 		result.Next, result.NextProject = "noon disable", project.Path
 	} else if project := first("config_error"); project != nil {
-		result.Next, result.NextProject = "noon config check", project.Path
+		result.Next, result.NextProject, result.NextConfig = "noon config check", project.Path, project.configFile
 	} else if offline {
 		options, err := service.CurrentConfig(stateDir)
 		if err != nil {
@@ -241,7 +248,7 @@ func ProjectStatuses(input config.Input, now time.Time) (ProjectStatusView, erro
 			result.Next = "noon serve"
 		}
 	} else if project := first("failing"); project != nil {
-		result.Next, result.NextProject = "noon logs "+project.Failing[0]+" -s failed", project.Path
+		result.Next, result.NextProject, result.NextConfig = "noon logs "+project.Failing[0]+" -s failed", project.Path, project.configFile
 	}
 	return result, nil
 }

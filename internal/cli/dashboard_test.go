@@ -612,4 +612,29 @@ func TestProjects(t *testing.T) {
 	if code, out := projects(); code != 0 || !strings.Contains(out, "missing checkout") || !strings.HasSuffix(out, "Suggested action: noon -C ~/old disable\n") {
 		t.Fatalf("human: %d %s", code, out)
 	}
+	// The suggestion must check the --config file recorded at enable, not noon.yaml.
+	app, custom := filepath.Join(canonical, "app"), filepath.Join(canonical, "app", "custom.yaml")
+	if err := os.WriteFile(custom, []byte("jobs:\n  tests:\n    run: ['true']\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"-C", old, "disable"}, {"-C", app, "--config", custom, "enable"}} {
+		var out bytes.Buffer
+		if code := Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &out); code != 0 {
+			t.Fatalf("%v: %s", args, &out)
+		}
+	}
+	if err := os.WriteFile(custom, []byte("jobs: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out = projects("--json"); code != 0 {
+		t.Fatalf("config error: %d %s", code, out)
+	}
+	view.Next = ""
+	if err := json.Unmarshal([]byte(out), &view); err != nil || view.Next != "noon -C "+app+" --config "+custom+" config check" {
+		t.Fatalf("config next: %v %s", err, out)
+	}
+	var checkOut bytes.Buffer
+	if code := Run(context.Background(), strings.Fields(view.Next), config.BuildOpts{}, &checkOut, &checkOut); code != 1 {
+		t.Fatalf("suggested check passed: %d %s", code, &checkOut)
+	}
 }
