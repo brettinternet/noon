@@ -318,6 +318,9 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		detail = fmt.Sprintf(" (%s)", strconv.Quote(result.StartError.Error()))
 	}
 	fmt.Fprintf(cmd.ErrWriter, "%s%s%s\n", summary, elapsed.Round(time.Millisecond), detail)
+	if result.StartError == nil && !cmd.Bool("json") {
+		_ = printAgentResume(cmd.ErrWriter, job, run.AgentSessionID.String)
+	}
 	logBytes, logTruncated, logErr := log.Close()
 	outcomeError := ""
 	if result.StartError != nil {

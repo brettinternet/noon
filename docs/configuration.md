@@ -500,25 +500,27 @@ agents:
   claude:
     command: [claude, -p, --permission-prompts, none, --permission-mode, acceptEdits]
     session_id_flag: --session-id   # overrides don't inherit built-in fields
+    resume_flag: --resume
   reviewer:
     command: [my-agent]
     prompt: argument
     prompt_args: [--quiet]
 ```
 
-| Built-in | Command | Prompt delivery | `prompt_args` | Session ID flag |
-| --- | --- | --- | --- | --- |
-| `claude` | `claude -p --permission-prompts none` | stdin | — | `--session-id` |
-| `codex` | `codex exec` | stdin | `-` | — |
-| `gemini` | `gemini` | Final argument | `-p` | — |
-| `opencode` | `opencode run` | Final argument | `--` | — |
-| `pi` | `pi --print` | stdin | — | `--session-id` |
+| Built-in | Command | Prompt delivery | `prompt_args` | Session ID flag | Resume flag |
+| --- | --- | --- | --- | --- | --- |
+| `claude` | `claude -p --permission-prompts none` | stdin | — | `--session-id` | `--resume` |
+| `codex` | `codex exec` | stdin | `-` | — | — |
+| `gemini` | `gemini` | Final argument | `-p` | — | — |
+| `opencode` | `opencode run` | Final argument | `--` | — | — |
+| `pi` | `pi --print` | stdin | — | `--session-id` | `--session-id` |
 
 | Field | Effect |
 | --- | --- |
 | `command` | Argv prefix |
 | `prompt` | `stdin` (default) or `argument` (appended last); bytes are never templated or trimmed |
 | `session_id_flag` | Pass a fresh UUID per run as `FLAG UUID` and set `NOON_AGENT_SESSION_ID` |
+| `resume_flag` | Print `Resume: [cd DIR && ]EXE FLAG UUID` after foreground `noon run` and `noon logs`; not part of approval |
 | `prompt_args` | Trailing arguments placed after the job's `agent_args` |
 
 `agent_args` is literal argv, never expanded, and needs an explicit `agent`:

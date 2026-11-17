@@ -5,11 +5,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/brettinternet/noon/internal/app"
+	"github.com/brettinternet/noon/internal/config"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -252,9 +255,38 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if hasSelection {
-		_, err = fmt.Fprintln(cmd.ErrWriter, "Continue: "+resume)
+		if _, err = fmt.Fprintln(cmd.ErrWriter, "Continue: "+resume); err != nil {
+			return err
+		}
+	}
+	if job, ok := cfg.Jobs[run.Job]; ok && run.Project == cfg.Project && run.AgentSessionID != nil {
+		err = printAgentResume(cmd.ErrWriter, job, *run.AgentSessionID)
 	}
 	return err
+}
+
+// printAgentResume prints the command that continues an agent run's session, if the profile can resume.
+func printAgentResume(out io.Writer, job config.Job, sessionID string) error {
+	if job.AgentResumeFlag == "" || sessionID == "" || len(job.AgentCommand) == 0 {
+		return nil
+	}
+	command := shellArgument(job.AgentCommand[0]) + " " + shellArgument(job.AgentResumeFlag) + " " + shellArgument(sessionID)
+	if job.CWD != "" && !sameDirectory(job.CWD) {
+		command = "cd " + shellArgument(job.CWD) + " && " + command
+	}
+	_, err := fmt.Fprintln(out, "Resume: "+command)
+	return err
+}
+
+// sameDirectory reports whether dir is the invocation directory, comparing resolved paths.
+func sameDirectory(dir string) bool {
+	wd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	resolvedDir, dirErr := filepath.EvalSymlinks(dir)
+	resolvedWD, wdErr := filepath.EvalSymlinks(wd)
+	return dirErr == nil && wdErr == nil && resolvedDir == resolvedWD
 }
 
 func writeTimestampedLog(out io.Writer, selection app.LogSelection, matching bool) error {

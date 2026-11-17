@@ -356,6 +356,10 @@ agents:
     command: [record-agent, stdin-session-base]
     session_id_flag: --session-id
     prompt_args: [--profile-tail, stdin-tail]
+  resumable:
+    command: [record-agent, resumable-base]
+    session_id_flag: --session-id
+    resume_flag: --resume
 `
 	if err := os.MkdirAll(filepath.Join(root, "user", "noon"), 0o700); err != nil {
 		t.Fatal(err)
@@ -402,6 +406,10 @@ agents:
     prompt: "stdin profile prompt\n"
     agent: stdin_session
     agent_args: [--model, haiku, '', --effort, low]
+  resume_run:
+    prompt: "resume prompt"
+    agent: resumable
+    cwd: has space
   builtin_gemini:
     prompt: "built-in gemini prompt"
     agent: gemini
@@ -543,6 +551,27 @@ agents:
 	runs := history["runs"].([]any)
 	if len(runs) != 2 || runs[0].(map[string]any)["agent_session_id"] != sessionIDs[1] || runs[1].(map[string]any)["agent_session_id"] != sessionIDs[0] {
 		t.Fatalf("session history IDs = %+v", runs)
+	}
+	// Resume: quotes a cwd with a space and appears only for profiles with resume_flag.
+	if err := os.Mkdir(filepath.Join(root, "has space"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var resumeOut, resumeErr bytes.Buffer
+	if code := cli.Run(context.Background(), []string{"noon", "run", "resume_run"}, config.BuildOpts{}, &resumeOut, &resumeErr); code != 0 {
+		t.Fatalf("resume run exit=%d stdout=%s stderr=%s", code, &resumeOut, &resumeErr)
+	}
+	resumeLine := regexp.MustCompile(`(?m)^Resume: cd '[^']*/has space' && record-agent --resume ` + regexp.QuoteMeta(mustRead(t, filepath.Join(root, "session"))) + `$`)
+	if got := resumeLine.FindAllString(resumeErr.String(), -1); len(got) != 1 {
+		t.Fatalf("run stderr = %q, want one resume line", resumeErr.String())
+	}
+	for _, job := range []string{"resume_run", "session_run"} {
+		var logsOut, logsErr bytes.Buffer
+		if code := cli.Run(context.Background(), []string{"noon", "logs", job}, config.BuildOpts{}, &logsOut, &logsErr); code != 0 {
+			t.Fatalf("logs %s exit=%d stderr=%s", job, code, &logsErr)
+		}
+		if want := job == "resume_run"; resumeLine.MatchString(logsErr.String()) != want || (!want && strings.Contains(logsErr.String(), "Resume:")) {
+			t.Fatalf("logs %s stderr = %q, want resume line %v", job, logsErr.String(), want)
+		}
 	}
 	for _, name := range []string{"missing_file", "oversized_file", "fifo_file"} {
 		t.Run(name, func(t *testing.T) {

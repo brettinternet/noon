@@ -25,6 +25,7 @@ type AgentProfile struct {
 	Prompt        string
 	PromptArgs    []string
 	SessionIDFlag string
+	ResumeFlag    string
 	// shared marks a profile from an approval-gated --config file; its fields join prompt-job digests.
 	shared bool
 }
@@ -65,6 +66,7 @@ type Job struct {
 	AgentPromptArgs    []string
 	PromptMode         string
 	AgentSessionIDFlag string
+	AgentResumeFlag    string
 	CWD                string
 	EnvFile            []string
 	Env                map[string]string `json:"-"`
@@ -322,11 +324,11 @@ func jobNoopExitCode(file, path string, node *yaml.Node) (int, error) {
 
 func BuiltInAgents() map[string]AgentProfile {
 	return map[string]AgentProfile{
-		"claude":   {Command: []string{"claude", "-p", "--permission-prompts", "none"}, Prompt: "stdin", SessionIDFlag: "--session-id"},
+		"claude":   {Command: []string{"claude", "-p", "--permission-prompts", "none"}, Prompt: "stdin", SessionIDFlag: "--session-id", ResumeFlag: "--resume"},
 		"codex":    {Command: []string{"codex", "exec"}, Prompt: "stdin", PromptArgs: []string{"-"}},
 		"gemini":   {Command: []string{"gemini"}, Prompt: "argument", PromptArgs: []string{"-p"}},
 		"opencode": {Command: []string{"opencode", "run"}, Prompt: "argument", PromptArgs: []string{"--"}},
-		"pi":       {Command: []string{"pi", "--print"}, Prompt: "stdin", SessionIDFlag: "--session-id"},
+		"pi":       {Command: []string{"pi", "--print"}, Prompt: "stdin", SessionIDFlag: "--session-id", ResumeFlag: "--session-id"},
 	}
 }
 
@@ -383,7 +385,7 @@ func (cfg *Config) applyAgents(file string, node *yaml.Node, shared bool) error 
 					}
 					profile.PromptArgs = append(profile.PromptArgs, text)
 				}
-			case "session_id_flag":
+			case "session_id_flag", "resume_flag":
 				text, err := jobString(file, field, fieldValue)
 				if err != nil {
 					return err
@@ -391,7 +393,11 @@ func (cfg *Config) applyAgents(file string, node *yaml.Node, shared bool) error 
 				if !validSessionIDFlag(text) {
 					return jobError(file, fieldValue, field, "must be one flag token starting with - (not - or --), with no whitespace or NUL")
 				}
-				profile.SessionIDFlag = text
+				if fieldNode.Value == "resume_flag" {
+					profile.ResumeFlag = text
+				} else {
+					profile.SessionIDFlag = text
+				}
 			default:
 				return jobError(file, fieldNode, field, "unknown field")
 			}
@@ -467,6 +473,7 @@ func (cfg *Config) resolveJobs() error {
 		job.AgentPromptArgs = append([]string(nil), profile.PromptArgs...)
 		job.PromptMode = profile.Prompt
 		job.AgentSessionIDFlag = profile.SessionIDFlag
+		job.AgentResumeFlag = profile.ResumeFlag // display-only, so outside the digest
 		job.execution["agent"] = job.Agent
 		digested := job.execution
 		if profile.shared {

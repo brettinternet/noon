@@ -154,6 +154,9 @@ func TestEnableApproval(t *testing.T) {
 		write("explicit.yaml", strings.Replace(profiles, "{command: [cat]}", change, 1))
 		check(true, map[string]string{"p": "needs_approval", "r": "approved"}, "--config", "explicit.yaml")
 	}
+	// resume_flag only shapes the printed Resume: hint, so it must not re-gate approved jobs.
+	write("explicit.yaml", strings.Replace(profiles, "{command: [cat]}", "{command: [cat], resume_flag: --resume}", 1))
+	check(true, map[string]string{"p": "approved", "r": "approved"}, "--config", "explicit.yaml")
 	write("explicit.yaml", "jobs: {t: {run: 'true', invalid: field}}\n")
 	if code, result := invoke(t, "disable", "--config", "explicit.yaml", "--json"); code != 0 {
 		t.Fatalf("disable invalid explicit job: %d %+v", code, result)

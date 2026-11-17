@@ -221,15 +221,21 @@ jobs:
 
 ### Resume a prompt run
 
-The `claude` and `pi` profiles request a fresh session ID per run. Read it from
-`noon history JOB --json` (`runs[].agent_session_id`) or MCP `get_run` (`run.agent_session_id`):
+The `claude` and `pi` profiles request a fresh session ID per run. Foreground `noon run` and
+`noon logs` print the command to continue it on stderr, with `cd` when the job's `cwd` differs from
+the current directory:
 
-```sh
-claude --resume SESSION_ID
-pi --session-id SESSION_ID
+```console
+$ noon logs review
+...
+Resume: cd ~/src/app && claude --resume 0b9c1e5e-...
 ```
 
-Resume from the job's `cwd` with the same agent install, OS user, and session storage. Noon only
+Custom profiles get the line by setting `resume_flag` alongside `session_id_flag`. `--json` output
+omits it; read `runs[].agent_session_id` from `noon history JOB --json` or MCP `get_run`
+(`run.agent_session_id`) instead.
+
+Resume with the same agent install, OS user, and session storage. Noon only
 requests the ID; it doesn't verify the agent honored it or store transcripts. Pi starts a new
 session when the ID doesn't match, so an empty conversation means the resume failed.
 
