@@ -2,6 +2,28 @@
 
 Notable changes to noon are documented here. This file is generated from conventional commits by [git-cliff](https://git-cliff.org/).
 
+## Unreleased
+
+### Added
+
+- **schedule:** Accept every weekday and every weekend
+- Preview upcoming run times with noon next
+- Print resume command for agent runs
+- Add noon projects to show every enabled project
+- Check job commands against the scheduler's PATH in add and doctor
+- Surface failing jobs on the dashboard
+
+### Fixed
+
+- Keep recorded --config in noon projects suggestions
+- **runner:** Preserve stdout and stderr order in run logs
+- Disable a moved or deleted checkout by its recorded path
+- **scheduler:** Log persistent config errors once
+
+### Documentation
+
+- Refresh changelog
+
 ## [v0.16.1](https://github.com/brettinternet/noon/compare/v0.16.0...v0.16.1) - 2026-11-17
 
 ### Documentation
