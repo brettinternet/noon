@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -212,6 +213,92 @@ func doctorAt(ctx context.Context, cmd *urfave.Command, now time.Time, build con
 	}
 	if !result.OK {
 		return runExit(1)
+	}
+	return nil
+}
+
+func listProjects(_ context.Context, cmd *urfave.Command) error { return projectsAt(cmd, time.Now()) }
+
+// projectsAt ignores -C: it lists every enabled project in the selected state.
+func projectsAt(cmd *urfave.Command, now time.Time) error {
+	if err := noArgs(cmd); err != nil {
+		return err
+	}
+	values, err := input(cmd)
+	if err != nil {
+		return err
+	}
+	view, err := app.ProjectStatuses(values, now)
+	if err != nil {
+		return err
+	}
+	home, _ := os.UserHomeDir()
+	canonicalHome, _ := filepath.EvalSymlinks(home)
+	// Abbreviate $HOME for people; a path elsewhere stays absolute.
+	abbreviate := func(path string) (string, bool) {
+		for _, prefix := range []string{home, canonicalHome} {
+			if prefix != "" && prefix != "/" && strings.HasPrefix(path, prefix+string(filepath.Separator)) {
+				return strings.TrimPrefix(path, prefix+string(filepath.Separator)), true
+			}
+		}
+		return path, false
+	}
+	next := func(human bool) string {
+		if view.NextProject == "" {
+			return guidance(cmd, view.Next)
+		}
+		project := shellArgument(view.NextProject)
+		if rest, ok := abbreviate(view.NextProject); human && ok {
+			project = "~/" + shellArgument(rest)
+		}
+		command := "noon -C " + project + strings.TrimPrefix(view.Next, "noon")
+		// NOON_STATE_DIR carries over to the suggested command; a differing flag does not.
+		if stateDir := setting(cmd, "state-dir"); stateDir != nil && *stateDir != os.Getenv("NOON_STATE_DIR") {
+			if absolute, err := filepath.Abs(*stateDir); err == nil {
+				command += " --state-dir " + shellArgument(absolute)
+			}
+		}
+		return command
+	}
+	if cmd.Bool("json") {
+		result := map[string]any{"projects": view.Projects}
+		if view.Next != "" {
+			result["next"] = next(false)
+		}
+		return emit(cmd, result)
+	}
+	if len(view.Projects) == 0 {
+		fmt.Fprintln(cmd.Writer, "No enabled projects.")
+		return nil
+	}
+	style := styleFor(cmd, cmd.Writer)
+	rows := [][]tableCell{{{"PROJECT", "heading"}, {"PATH", "heading"}, {"STATE", "heading"}, {"NEXT", "heading"}}}
+	for _, project := range view.Projects {
+		path, ok := abbreviate(project.Path)
+		if ok {
+			path = "~/" + path
+		}
+		state, role := "ok", "ok"
+		switch project.State {
+		case "missing":
+			state, role = "missing checkout", "failed"
+		case "config_error":
+			state, role = "config error", "config_error"
+		case "failing":
+			state, role = project.Failing[0]+" failing", "failed"
+			if len(project.Failing) > 1 {
+				state = fmt.Sprintf("%d jobs failing", len(project.Failing))
+			}
+		}
+		nextAt := "-"
+		if project.NextAt != nil {
+			nextAt = project.NextAt.Format("Mon 15:04")
+		}
+		rows = append(rows, []tableCell{{project.Name, "heading"}, {path, ""}, {state, role}, {nextAt, ""}})
+	}
+	style.printBoundedRows(cmd.Writer, rows, "  ", outputWidth(cmd.Writer), 0, 1)
+	if view.Next != "" {
+		fmt.Fprintln(cmd.Writer, "Suggested action: "+style.render(humanText(next(true)), "heading"))
 	}
 	return nil
 }

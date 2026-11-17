@@ -551,3 +551,65 @@ func fileNames(files map[string]string) []string {
 	}
 	return names
 }
+
+func TestProjects(t *testing.T) {
+	root := diagnosticSandbox(t)
+	stateDir := filepath.Join(root, "state", "noon")
+	projects := func(args ...string) (int, string) {
+		t.Helper()
+		var out, stderr bytes.Buffer
+		code := Run(context.Background(), append([]string{"noon", "projects"}, args...), config.BuildOpts{}, &out, &stderr)
+		if stderr.Len() != 0 {
+			t.Fatalf("unexpected stderr: %s", &stderr)
+		}
+		return code, out.String()
+	}
+	if code, out := projects(); code != 0 || out != "No enabled projects.\n" {
+		t.Fatalf("empty: %d %q", code, out)
+	}
+	if _, err := os.Stat(stateDir); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("projects created state: %v", err)
+	}
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"app", "old"} {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "noon.yaml"), []byte("jobs:\n  tests:\n    schedule: every 1h\n    run: ['true']\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if code := Run(context.Background(), []string{"noon", "-C", dir, "enable"}, config.BuildOpts{}, &out, &out); code != 0 {
+			t.Fatalf("enable %s: %s", name, &out)
+		}
+	}
+	if err := os.RemoveAll(filepath.Join(root, "old")); err != nil {
+		t.Fatal(err)
+	}
+	code, out := projects("--json")
+	var view struct {
+		Projects []struct {
+			Name, Path, State string
+			NextAt            *time.Time `json:"next_at"`
+		}
+		Next string
+	}
+	if err := json.Unmarshal([]byte(out), &view); err != nil || code != 0 {
+		t.Fatalf("json: %d %v %s", code, err, out)
+	}
+	old := filepath.Join(canonical, "old")
+	if len(view.Projects) != 2 || view.Projects[0].Name != "app" || view.Projects[0].State != "ok" || view.Projects[0].NextAt == nil ||
+		view.Projects[1].Path != old || view.Projects[1].State != "missing" || view.Projects[1].NextAt != nil {
+		t.Fatalf("projects: %+v", view.Projects)
+	}
+	if view.Next != "noon -C "+old+" disable" {
+		t.Fatalf("next: %q", view.Next)
+	}
+	if code, out := projects(); code != 0 || !strings.Contains(out, "missing checkout") || !strings.HasSuffix(out, "Suggested action: noon -C ~/old disable\n") {
+		t.Fatalf("human: %d %s", code, out)
+	}
+}

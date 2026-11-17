@@ -497,6 +497,34 @@ ok job tests command: go
 Warnings exit 0; failures exit 1. JSON has `ok` and `checks` (`name`, `status`, `message`,
 `hint`). Doctor never fixes, runs, migrates, or creates anything.
 
+## Projects
+
+`noon projects` lists every enabled project the scheduler serves, sorted by path. It ignores `-C`,
+takes no arguments, and creates no state; with none it prints `No enabled projects.`
+
+```console
+$ noon projects
+PROJECT  PATH        STATE             NEXT
+app      ~/src/app   tests failing     Tue 02:00
+site     ~/src/site  ok                Tue 09:00
+old      ~/src/old   missing checkout  -
+Suggested action: noon -C ~/src/old disable
+```
+
+STATE is the first that applies: `missing checkout`, `config error`, `JOB failing` or
+`N jobs failing`, `ok`. It matches what `noon -C PATH` shows. NEXT is the earliest next run.
+
+| Condition | Suggested action |
+| --- | --- |
+| Missing checkout | `noon -C PATH disable` |
+| Config error | `noon -C PATH config check` |
+| Scheduler offline | `noon service install` (or `noon serve` if installed) |
+| Failing job | `noon -C PATH logs JOB -s failed` |
+
+JSON has `projects` (`id`, `name`, `path`, `state` of `ok`, `missing`, `config_error`, or
+`failing`, optional `config_error`, `failing` job names, and `next_at`) and `next` when there is a
+suggestion. It exits 0 whenever state can be read.
+
 ## Service restart and upgrades
 
 ```sh

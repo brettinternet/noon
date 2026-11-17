@@ -104,6 +104,7 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 				{Name: "uninstall", Usage: "Stop and remove the per-user scheduler service", Action: uninstallService},
 			}},
 			{Name: "status", Usage: "Show the project dashboard without running anything", Action: status},
+			{Name: "projects", Usage: "Show every enabled project the scheduler serves; ignores -C", Action: listProjects},
 			{Name: "doctor", Usage: "Diagnose setup with read-only checks; exit 1 if a check fails", Action: func(ctx context.Context, cmd *urfave.Command) error { return doctorAt(ctx, cmd, time.Now(), build) }},
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "wide", Usage: "Show complete names, schedules, and commands without truncation"},

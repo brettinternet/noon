@@ -42,6 +42,8 @@ The CLI is the product.
 - Bare `noon` is a dashboard for the current project. It never starts a service or the TUI.
 - Commands without a target inspect, list candidates, or print examples. A missing target never
   means "all". `noon serve` runs all enabled projects; `enable` and `disable` act on the current one.
+  `noon projects` lists every enabled project with its dashboard state (`missing checkout`,
+  `config error`, failing jobs, or `ok`) and one suggested action targeting it with `-C PATH`.
 - Human output is compact, uses the project timezone with relative hints ("in 14h"), and ends with
   at most one `Suggested action:` line. Errors are one `noon: MESSAGE` line on stderr, optionally followed by
   `Hint: …`.
