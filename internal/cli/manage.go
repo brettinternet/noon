@@ -86,9 +86,9 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		if strings.Contains(args[1], "$") {
 			job.ScheduleExpression = args[1]
 		} else {
-			parsed, parseErr := schedule.Parse(args[1])
+			parsed, parseErr := parseScheduleArg(args[1])
 			if parseErr != nil {
-				return usageError(parseErr.Error(), "Try every day at 9am")
+				return parseErr
 			}
 			job.Schedule = &parsed
 		}
@@ -880,4 +880,13 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 		_ = d.Close()
 	}
 	return e
+}
+
+// parseScheduleArg keeps schedule diagnostics identical across commands.
+func parseScheduleArg(text string) (schedule.Schedule, error) {
+	parsed, err := schedule.Parse(text)
+	if err != nil {
+		return schedule.Schedule{}, usageError(err.Error(), "Try every day at 9am")
+	}
+	return parsed, nil
 }

@@ -167,6 +167,8 @@ func TestScheduleParse(t *testing.T) {
 		{"daily at 12pm", "every day at 12:00", ""},
 		{"weekdays at 9:30pm", "weekdays at 21:30", ""},
 		{"weekends at noon", "weekends at 12:00", ""},
+		{"every weekday at 9am", "weekdays at 09:00", ""},
+		{"every weekend at noon", "weekends at 12:00", ""},
 		{"every friday at 5pm", "every friday at 17:00", ""},
 		{"every FRI at 17:00", "every friday at 17:00", ""},
 		{"fri,MON,wednesday at 18:00", "mon,wed,fri at 18:00", ""},

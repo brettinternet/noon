@@ -11,7 +11,6 @@ import (
 
 	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/config"
-	"github.com/brettinternet/noon/internal/schedule"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -235,9 +234,9 @@ func nextRuns(_ context.Context, cmd *urfave.Command) error {
 		if cmd.Args().Len() > 0 {
 			return usageError("--schedule excludes job names", "Use noon next NAME or noon next --schedule EXPR")
 		}
-		parsed, err := schedule.Parse(cmd.String("schedule"))
+		parsed, err := parseScheduleArg(cmd.String("schedule"))
 		if err != nil {
-			return usageError(err.Error(), "Try every day at 9am")
+			return err
 		}
 		if values.Timezone != nil {
 			timezone = *values.Timezone

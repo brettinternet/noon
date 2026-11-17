@@ -145,7 +145,7 @@ Accepted forms are case-insensitive and normalized for display:
 | --- | --- | --- |
 | Cron | `0 9 * * 1-5`, `*/15`, `*/15 1-5` | One to five fields; omitted trailing fields default to `*`. Lists, ranges, steps, `jan`–`dec`, `sun`–`sat`, `0` or `7` = Sunday |
 | Macro | `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`; bare `hourly`, `daily`, `weekly`, `monthly`, `yearly` | Cron equivalents |
-| Calendar | `every day at 2am`, `daily at 14:30`, `weekdays at 9:30am`, `weekends at noon`, `mon,wed at 18:00`, `every friday at 5pm` | One cron expression. One time: `H[:MM]am/pm`, `H:MM`, `noon`, or `midnight` |
+| Calendar | `every day at 2am`, `daily at 14:30`, `weekdays at 9:30am`, `every weekday at 9am`, `weekends at noon`, `mon,wed at 18:00`, `every friday at 5pm` | One cron expression. One time: `H[:MM]am/pm`, `H:MM`, `noon`, or `midnight` |
 | Interval | `every 15m`, `every 6h`, `every 1d12h`, `every 2 hours` | Elapsed time, whole minutes, `1m` to `365d` |
 
 Cron fields are minute, hour, day-of-month, month, and day-of-week, in that order.

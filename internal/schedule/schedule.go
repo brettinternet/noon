@@ -236,10 +236,10 @@ func parseCalendar(text string) (Schedule, error) {
 	switch days {
 	case "every day", "daily":
 		display = "every day"
-	case "weekdays":
-		dow = "1-5"
-	case "weekends":
-		dow = "0,6"
+	case "weekdays", "every weekday":
+		dow, display = "1-5", "weekdays"
+	case "weekends", "every weekend":
+		dow, display = "0,6", "weekends"
 	default:
 		list := strings.TrimPrefix(days, "every ")
 		var selected [7]bool
