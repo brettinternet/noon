@@ -2,6 +2,12 @@
 
 Notable changes to noon are documented here. This file is generated from conventional commits by [git-cliff](https://git-cliff.org/).
 
+## [v0.16.1](https://github.com/brettinternet/noon/compare/v0.16.0...v0.16.1) - 2026-11-17
+
+### Documentation
+
+- Refresh changelog
+
 ## [v0.16.0](https://github.com/brettinternet/noon/compare/v0.15.0...v0.16.0) - 2026-11-02
 
 ### Added
