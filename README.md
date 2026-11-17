@@ -140,6 +140,7 @@ and [examples/local-dev/housekeeping](examples/local-dev/housekeeping/).
 | `noon` / `noon status` | Dashboard: jobs, scheduler, queued work, next step |
 | `noon list` | Jobs and next run times |
 | `noon projects` | Every enabled project: state, next run, next step |
+| `noon next [NAME...]` | Upcoming run times (`-n 3`); `--schedule EXPR` previews a schedule before adding it |
 | `noon add NAME [SCHEDULE] -- CMD…` | Add a job (`--sh`, `--prompt`, `--prompt-file`, `--shared`); `--temporary --for 2h` keeps it in state, not config |
 | `noon remove NAME...` | Remove job definitions; history stays |
 | `noon run NAME` | Run now; returns 0 when `noop_exit_code` matches |

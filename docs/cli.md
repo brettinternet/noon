@@ -75,6 +75,7 @@ project. See [Agents](agents.md#remote-mcp-and-json-api) for client setup.
 | All commands | `-C DIR` = `--project DIR`, `-j` = `--json`, `-h` = `--help` |
 | Root | `-v` = `--version` |
 | `history` | `-n N` = `--limit N`, `-s STATUS` = `--status STATUS` |
+| `next` | `-n N` = `--limit N` |
 | `logs` | `-f` = `--follow`, `-t` = `--timestamps`, `-s` = `--status`, `-n` = `--tail`, `-c` = `--after-cursor`, `-m` = `--match`, `-b` = `--limit-bytes` |
 | `run` | `-d` = `--detach` |
 | `pause`, `resume` | `-a` = `--all` |
@@ -400,6 +401,34 @@ cancels queued runs and ends temporary schedules. Cancelling a run ID alone leav
 schedule intact. Cancelling a job prints `Ended temporary schedule for NAME.` when one existed,
 and JSON lists those jobs in `ended_temporary_schedules`. For a temporary job definition,
 it prints `Ended temporary job NAME.` and lists `ended_temporary_jobs`; the 24h grace starts now.
+
+## Next run times
+
+```console
+$ noon next
+Tue 2026-11-17 14:00  sync
+Tue 2026-11-17 15:00  sync
+Wed 2026-11-18 02:00  tests
+$ noon next tests -n 3
+Wed 2026-11-18 02:00  tests
+Thu 2026-11-19 02:00  tests
+Fri 2026-11-20 02:00  tests
+$ noon next --schedule "weekdays at 9am" -n 2
+Wed 2026-11-18 09:00
+Thu 2026-11-19 09:00
+```
+
+`noon next` is read-only and creates no state. Without names it lists the next N runs (`-n`,
+1–100, default 10) across scheduled jobs in time order, ties by name; with names, the next N of
+each. An unknown or unscheduled name exits 2. Each job's first time is its `noon list` `next_at`;
+later times follow splay, jitter, a pending pause window, and `until`. Paused, ended, disabled,
+unapproved, and other-platform jobs show nothing. Temporary schedules and queued runs are not
+included.
+
+`--schedule EXPR` previews EXPR without splay or jitter in the project timezone (or `--timezone`),
+and works outside a project. It rejects job names, and an invalid EXPR exits 2 with the same error
+as `noon add`. JSON is `{schema_version: 1, timezone, occurrences: [{job, at}]}` with RFC 3339
+times; previews omit `job`.
 
 ## History
 

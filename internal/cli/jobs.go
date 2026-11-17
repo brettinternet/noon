@@ -11,6 +11,7 @@ import (
 
 	"github.com/brettinternet/noon/internal/app"
 	"github.com/brettinternet/noon/internal/config"
+	"github.com/brettinternet/noon/internal/schedule"
 	urfave "github.com/urfave/cli/v3"
 )
 
@@ -220,4 +221,66 @@ func nextRole(job app.Job, next string) string {
 		return "paused"
 	}
 	return next
+}
+
+func nextRuns(_ context.Context, cmd *urfave.Command) error {
+	values, err := input(cmd)
+	if err != nil {
+		return err
+	}
+	now, limit := time.Now(), int(cmd.Int("limit"))
+	var timezone string
+	var occurrences []app.Occurrence
+	if cmd.IsSet("schedule") {
+		if cmd.Args().Len() > 0 {
+			return usageError("--schedule excludes job names", "Use noon next NAME or noon next --schedule EXPR")
+		}
+		parsed, err := schedule.Parse(cmd.String("schedule"))
+		if err != nil {
+			return usageError(err.Error(), "Try every day at 9am")
+		}
+		if values.Timezone != nil {
+			timezone = *values.Timezone
+		} else {
+			cfg, err := config.Load(values)
+			if err != nil {
+				return configError(err)
+			}
+			timezone = cfg.Timezone
+		}
+		loc, err := time.LoadLocation(timezone)
+		if err != nil {
+			return configError(err)
+		}
+		if occurrences, err = app.PreviewSchedule(parsed, loc, now, limit); err != nil {
+			return err
+		}
+	} else {
+		view, err := app.ListJobs(values, now)
+		if err != nil {
+			return err
+		}
+		timezone = view.Project.Timezone
+		if occurrences, err = app.Upcoming(view, uniqueTargets(cmd.Args().Slice()), limit); err != nil {
+			return err
+		}
+	}
+	if occurrences == nil {
+		occurrences = []app.Occurrence{}
+	}
+	if cmd.Bool("json") {
+		return emit(cmd, map[string]any{"timezone": timezone, "occurrences": occurrences})
+	}
+	if len(occurrences) == 0 {
+		fmt.Fprintln(cmd.Writer, "No upcoming runs.")
+	}
+	style := styleFor(cmd, cmd.Writer)
+	for _, item := range occurrences {
+		line := item.At.Format("Mon 2006-01-02 15:04")
+		if item.Job != "" {
+			line += "  " + style.render(item.Job, "heading")
+		}
+		fmt.Fprintln(cmd.Writer, line)
+	}
+	return nil
 }

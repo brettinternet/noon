@@ -1001,3 +1001,101 @@ func invokeText(t *testing.T, args ...string) (int, string, string) {
 	code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)
 	return code, out.String(), stderr.String()
 }
+
+// noon next must agree with list's next_at and with the scheduler's skipping
+// of a pending pause window, and previews must follow decision-5 DST rules.
+func TestNextOccurrences(t *testing.T) {
+	sandbox(t)
+	manifest := "version: 1\ntimezone: America/Denver\njobs:\n  tick:\n    schedule: \"0 * * * *\"\n    splay: 10m\n    run: [\"true\"]\n"
+	if err := os.WriteFile("noon.yaml", []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, result := invoke(t, "enable", "--json"); code != 0 {
+		t.Fatalf("enable: %d %+v", code, result)
+	}
+	from := time.Now().Add(2 * time.Hour).Format(time.RFC3339)
+	if code, result := invoke(t, "pause", "tick", "--from", from, "--for", "3h", "--json"); code != 0 {
+		t.Fatalf("pause: %d %+v", code, result)
+	}
+	at := func(value any) time.Time {
+		t.Helper()
+		parsed, err := time.Parse(time.RFC3339Nano, value.(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parsed
+	}
+	_, list := invoke(t, "list", "--json")
+	job := list["jobs"].([]any)[0].(map[string]any)
+	start, end := at(job["pause_starts_at"]), at(job["pause_ends_at"])
+	code, next := invoke(t, "next", "tick", "--json")
+	occurrences := next["occurrences"].([]any)
+	if code != 0 || len(occurrences) != 10 {
+		t.Fatalf("next: %d %+v", code, next)
+	}
+	if first := occurrences[0].(map[string]any)["at"]; first != job["next_at"] {
+		t.Fatalf("first occurrence %v, next_at %v", first, job["next_at"])
+	}
+	skipped := false
+	for i, item := range occurrences {
+		value := at(item.(map[string]any)["at"])
+		if !value.Before(start) && value.Before(end) {
+			t.Fatalf("occurrence %v inside pause window %v–%v", value, start, end)
+		}
+		if i > 0 && value.Sub(at(occurrences[i-1].(map[string]any)["at"])) > time.Hour {
+			skipped = true
+		}
+	}
+	if !skipped {
+		t.Fatalf("pause window skipped no occurrence: %+v", occurrences)
+	}
+
+	denver, err := time.LoadLocation("America/Denver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := func(expr string) []time.Time {
+		t.Helper()
+		code, result := invoke(t, "next", "--schedule", expr, "--timezone", "America/Denver", "-n", "20", "--json")
+		if code != 0 || result["timezone"] != "America/Denver" {
+			t.Fatalf("preview %q: %d %+v", expr, code, result)
+		}
+		var times []time.Time
+		for _, item := range result["occurrences"].([]any) {
+			times = append(times, at(item.(map[string]any)["at"]).In(denver))
+		}
+		return times
+	}
+	// Sundays in March always include the spring-forward day, when 02:30 does
+	// not exist and runs once right after the gap.
+	gaps := 0
+	for _, value := range preview("30 2 * 3 0") {
+		if value.Hour() == 3 && value.Minute() == 0 {
+			if _, offset := value.Zone(); offset != -6*3600 || value.Add(-time.Minute).Hour() != 1 {
+				t.Fatalf("gap run %v is not the first instant after the gap", value)
+			}
+			gaps++
+		} else if value.Hour() != 2 || value.Minute() != 30 {
+			t.Fatalf("unexpected March run %v", value)
+		}
+	}
+	// Sundays in November include fall-back day, when 01:30 repeats and runs
+	// once, at its first (daylight) occurrence.
+	repeats, days := 0, map[string]bool{}
+	for _, value := range preview("30 1 * 11 0") {
+		day := value.Format(time.DateOnly)
+		if days[day] || value.Hour() != 1 || value.Minute() != 30 {
+			t.Fatalf("unexpected November run %v", value)
+		}
+		days[day] = true
+		if value.Add(time.Hour).Hour() == 1 {
+			if _, offset := value.Zone(); offset != -6*3600 {
+				t.Fatalf("repeated 01:30 ran at its second occurrence %v", value)
+			}
+			repeats++
+		}
+	}
+	if gaps == 0 || repeats == 0 {
+		t.Fatalf("previews crossed no DST change: gaps=%d repeats=%d", gaps, repeats)
+	}
+}

@@ -61,9 +61,9 @@ func WithScheduler(view Inspection, now time.Time) (Inspection, error) {
 		next, err := time.Parse(store.TimestampLayout, persisted.NextAt)
 		if err == nil {
 			value := schedule.EffectiveStart(view.Project.Path, job.Name, next, splay, jitter).In(location)
-			job.NextAt = nil
+			job.NextAt, job.nextNominal = nil, time.Time{}
 			if job.Until == nil || value.Before(*job.Until) {
-				job.NextAt = &value
+				job.NextAt, job.nextNominal = &value, next
 			}
 		}
 	}

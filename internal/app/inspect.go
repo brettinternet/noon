@@ -2,7 +2,9 @@
 package app
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/brettinternet/noon/internal/config"
@@ -62,6 +64,9 @@ type Job struct {
 	Approval            string                   `json:"approval"`
 	WebhookPath         string                   `json:"webhook_path,omitempty"`
 	HasWebhook          bool                     `json:"-"`
+	// nextNominal is the schedule occurrence behind NextAt, before splay and
+	// jitter, so Upcoming can chain later occurrences exactly as the scheduler does.
+	nextNominal time.Time
 }
 
 type Inspection struct {
@@ -119,10 +124,10 @@ func inspectConfig(cfg config.Config, now time.Time) (Inspection, error) {
 			text := job.Schedule.String()
 			view.Schedule = &text
 			if job.Enabled && view.PlatformSupported && !view.Ended {
-				_, next := job.Schedule.NextEffective(now, loc, cfg.Project, name, job.Splay, job.Jitter, time.Time{})
+				nominal, next := job.Schedule.NextEffective(now, loc, cfg.Project, name, job.Splay, job.Jitter, time.Time{})
 				next = next.In(loc)
 				if !next.IsZero() && (job.Until == nil || next.Before(*job.Until)) {
-					view.NextAt = &next
+					view.NextAt, view.nextNominal = &next, nominal
 				}
 			}
 		}
@@ -166,4 +171,119 @@ func (job Job) PauseStatus() string {
 		return "paused until " + job.PauseEndsAt.Format("Mon 15:04")
 	}
 	return "paused"
+}
+
+// Occurrence is one planned start; Job is empty for a schedule preview.
+type Occurrence struct {
+	Job string    `json:"job,omitempty"`
+	At  time.Time `json:"at"`
+}
+
+// Upcoming lists planned starts from a ListJobs view. Without names it returns
+// the next n across all jobs; with names, the next n of each. Results are in
+// time order, ties by job name. Each job starts at its NextAt and follows the
+// scheduler: splay and jitter apply, a pending pause window is skipped, and
+// nothing starts at or after until. Jobs without a NextAt and paused, disabled,
+// other-platform, or unapproved jobs contribute nothing. Temporary schedules are excluded.
+func Upcoming(view Inspection, names []string, n int) ([]Occurrence, error) {
+	if n < 1 || n > 100 {
+		return nil, UsageError("--limit must be between 1 and 100", "")
+	}
+	loc, err := time.LoadLocation(view.Project.Timezone)
+	if err != nil {
+		return nil, ConfigError(err)
+	}
+	selected := view.Jobs
+	if len(names) > 0 {
+		selected = make([]Job, 0, len(names))
+		for _, name := range names {
+			i := slices.IndexFunc(view.Jobs, func(job Job) bool { return job.Name == name })
+			if i < 0 {
+				hint, best := "Run noon list to see available jobs", 3
+				for _, job := range view.Jobs {
+					if distance := editDistance(name, job.Name); distance < best {
+						hint, best = "Did you mean noon next "+job.Name+"?", distance
+					}
+				}
+				return nil, UsageError(fmt.Sprintf("job %q not found", name), hint)
+			}
+			if view.Jobs[i].Schedule == nil {
+				return nil, UsageError(fmt.Sprintf("job %q has no schedule", name), "Run noon list to see scheduled jobs")
+			}
+			selected = append(selected, view.Jobs[i])
+		}
+	}
+	var result []Occurrence
+	for _, job := range selected {
+		if job.Schedule == nil || job.nextNominal.IsZero() || !job.Enabled || !job.PlatformSupported || job.Paused || job.Approval == "needs_approval" {
+			continue
+		}
+		parsed, err := schedule.Parse(*job.Schedule)
+		if err != nil {
+			return nil, ConfigError(err)
+		}
+		splay, _ := schedule.ParseDuration(job.Splay)
+		jitter, _ := schedule.ParseDuration(job.Jitter)
+		p := plan{schedule: parsed, loc: loc, project: view.Project.Path, name: job.Name, splay: splay, jitter: jitter, until: job.Until, pauseStart: job.PauseStartsAt, pauseEnd: job.PauseEndsAt}
+		for _, at := range p.upcoming(job.nextNominal, n) {
+			result = append(result, Occurrence{Job: job.Name, At: at})
+		}
+	}
+	slices.SortStableFunc(result, func(a, b Occurrence) int {
+		if c := a.At.Compare(b.At); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Job, b.Job)
+	})
+	if len(names) == 0 && len(result) > n {
+		result = result[:n]
+	}
+	return result, nil
+}
+
+// PreviewSchedule lists the next n occurrences of s after now in loc, without
+// splay or jitter.
+func PreviewSchedule(s schedule.Schedule, loc *time.Location, now time.Time, n int) ([]Occurrence, error) {
+	if n < 1 || n > 100 {
+		return nil, UsageError("--limit must be between 1 and 100", "")
+	}
+	nominal, _ := s.NextEffective(now, loc, "", "", 0, 0, time.Time{})
+	p := plan{schedule: s, loc: loc}
+	result := []Occurrence{}
+	for _, at := range p.upcoming(nominal, n) {
+		result = append(result, Occurrence{At: at})
+	}
+	return result, nil
+}
+
+type plan struct {
+	schedule             schedule.Schedule
+	loc                  *time.Location
+	project, name        string
+	splay, jitter        time.Duration
+	until                *time.Time
+	pauseStart, pauseEnd *time.Time
+}
+
+// upcoming chains nominal occurrences as the scheduler advances them:
+// intervals keep their phase and calendar schedules use wall-clock rules.
+func (p plan) upcoming(nominal time.Time, n int) []time.Time {
+	var result []time.Time
+	for len(result) < n && !nominal.IsZero() {
+		at := schedule.EffectiveStart(p.project, p.name, nominal, p.splay, p.jitter).In(p.loc)
+		if p.until != nil && !at.Before(*p.until) {
+			break
+		}
+		if p.pauseStart != nil && p.pauseEnd != nil && !at.Before(*p.pauseStart) && at.Before(*p.pauseEnd) {
+			nominal, _ = p.schedule.AfterPause(*p.pauseEnd, p.loc, p.project, p.name, p.splay, p.jitter)
+			continue
+		}
+		result = append(result, at)
+		if interval, ok := p.schedule.Interval(); ok {
+			nominal = nominal.Add(interval)
+		} else {
+			nominal = p.schedule.Next(nominal, p.loc)
+		}
+	}
+	return result
 }

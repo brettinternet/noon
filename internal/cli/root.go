@@ -109,6 +109,10 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			{Name: "list", Aliases: []string{"ls"}, Usage: "List validated jobs and next scheduled times", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "wide", Usage: "Show complete names, schedules, and commands without truncation"},
 			}, Action: listJobs},
+			{Name: "next", Usage: "Preview upcoming scheduled run times without running anything", Description: "Without NAME, list the next N runs across scheduled jobs; with NAME, the next N of each. Each job starts at its list NEXT time and follows splay, jitter, pause windows, and until. Temporary schedules and queued runs are not shown. --schedule previews EXPR in the project timezone (or --timezone) without a project or config.\n\nExamples:\n  noon next\n  noon next tests -n 3\n  noon next --schedule \"weekdays at 9am\"", ArgsUsage: "[NAME...]", Flags: []urfave.Flag{
+				&urfave.IntFlag{Name: "limit", Aliases: []string{"n"}, Value: 10, Usage: "Show `N` runs (1–100)"},
+				&urfave.StringFlag{Name: "schedule", Usage: "Preview schedule `EXPR` instead of configured jobs"},
+			}, Action: nextRuns},
 			{Name: "add", Usage: "Add a scheduled or manual job", Description: "Without arguments, print examples. --temporary stores a private job in state, requires --for or --until (maximum 7 days), and removes it 24h after ending. Writes private .git/noon.yaml by default; --shared writes noon.yaml. With --user, writes the user config.yaml and rejects --shared/--local.\n\nExamples:\n  noon add tests \"every day at 2am\" -- go test ./...\n  noon add lint --sh 'go vet ./...'\n  noon --user add digest \"every day at 8am\" --sh 'date >> digest.txt'\n  noon add review --agent claude --prompt 'Review changes'", ArgsUsage: "NAME [SCHEDULE] [-- ARGV...]", Flags: []urfave.Flag{
 				&urfave.BoolFlag{Name: "temporary", Usage: "Keep a private job in state, not config; requires --for or --until (maximum 7 days)"},
 				&urfave.StringFlag{Name: "key", Usage: "Idempotency KEY for --temporary creation"},
