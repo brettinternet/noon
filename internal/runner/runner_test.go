@@ -150,7 +150,7 @@ func TestRunner(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			script := `sh -c 'echo $$ > child; sleep 30 & echo $! > grandchild; wait' &
-while [ ! -f grandchild ]; do :; done
+while [ ! -s grandchild ]; do :; done
 `
 			if mode == "leader exits with open grandchild pipe" {
 				script += "exit 0"
