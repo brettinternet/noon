@@ -1,7 +1,7 @@
 ---
 id: NOON-93
 title: Add noon projects to show every project the scheduler serves
-status: todo
+status: done
 type: feature
 priority: medium
 labels: [cli, delight]
@@ -17,7 +17,7 @@ files:
   - docs/design.md
   - internal/skill/SKILL.md
 created: 2026-11-17T18:40:24Z
-updated: 2026-11-17T18:40:46Z
+updated: 2026-11-17T19:10:29Z
 ---
 
 Why: one per-user scheduler serves every enabled project, but the CLI only ever shows one project at a time. "What is noon running on this machine, and is any of it broken?" has no answer short of remembering every repo or reading `scheduler.log`. MCP `list_projects` and HTTP `GET /v1/projects` already list enabled projects for agents and integrations; people at a terminal have nothing.
@@ -54,15 +54,35 @@ Modified-file contract: the files list plus this task record. Justify other path
 
 ## Acceptance criteria
 
-- [ ] After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `noon_ac_home=$(mktemp -d)`: `bin/noon projects` exits 0, prints `No enabled projects.`, and leaves no state database under NOON_STATE_DIR.
-- [ ] In the same environment with temp Git repos `app` (noon.yaml: `flaky` schedule `every 1h` run ["false"]) and `site` (noon.yaml: `tests` schedule `every 1h` run ["true"]), after `bin/noon -C app enable`, `bin/noon -C site enable`, and one `bin/noon -C app run flaky`: `bin/noon projects` exits 0 with one row per project, `app` in state `flaky failing` and `site` `ok`, each with a NEXT time, and `Suggested action: noon -C <app path> logs flaky -s failed`.
-- [ ] In the same environment, after `mv site site-moved`: `bin/noon projects --json` exits 0 with `schema_version` 1, `site` in state `missing`, and `next` equal to `noon -C <site path> disable`; running that command and then `bin/noon projects --json` lists only `app`.
-- [ ] `task cli:test PKG=./internal/cli -- -run TestProjects -count=1` exits 0 and covers a healthy and a missing-checkout project, the suggested action, and no state creation without a database.
+- [x] After `task cli:build`, with HOME, XDG_CONFIG_HOME, XDG_STATE_HOME, and NOON_STATE_DIR under one `noon_ac_home=$(mktemp -d)`: `bin/noon projects` exits 0, prints `No enabled projects.`, and leaves no state database under NOON_STATE_DIR.
+  Evidence: AC#1: ac.sh -> exit 0, 'No enabled projects.', no NOON_STATE_DIR created.
+- [x] In the same environment with temp Git repos `app` (noon.yaml: `flaky` schedule `every 1h` run ["false"]) and `site` (noon.yaml: `tests` schedule `every 1h` run ["true"]), after `bin/noon -C app enable`, `bin/noon -C site enable`, and one `bin/noon -C app run flaky`: `bin/noon projects` exits 0 with one row per project, `app` in state `flaky failing` and `site` `ok`, each with a NEXT time, and `Suggested action: noon -C <app path> logs flaky -s failed`.
+  Evidence: AC#2: ac2.sh with serve running -> app 'flaky failing', site ok, both NEXT set, 'Suggested action: noon -C ~/app logs flaky -s failed' (scheduler-online per recorded decision).
+- [x] In the same environment, after `mv site site-moved`: `bin/noon projects --json` exits 0 with `schema_version` 1, `site` in state `missing`, and `next` equal to `noon -C <site path> disable`; running that command and then `bin/noon projects --json` lists only `app`.
+  Evidence: AC#3: ac.sh -> schema_version 1, site missing, next 'noon -C <site path> disable'; ran it exit 0; then only app listed.
+- [x] `task cli:test PKG=./internal/cli -- -run TestProjects -count=1` exits 0 and covers a healthy and a missing-checkout project, the suggested action, and no state creation without a database.
+  Evidence: AC#4: task cli:test PKG=./internal/cli -- -run TestProjects -count=1 -> ok.
 
 ## Definition of done
 
-- [ ] task ci passes on the final commit
-- [ ] Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] No test was deleted, skipped, or weakened
-- [ ] README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] task ci passes on the final commit
+  Evidence: task ci exit 0 on the merged tree (1b489be).
+- [x] Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+  Evidence: Notes have AC#1-4 lines with commands and results.
+- [x] The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+  Evidence: Diff limited to contract files: app/projects.go, cli/root.go, cli/dashboard.go, cli/dashboard_test.go, README.md, docs/cli.md, docs/design.md.
+- [x] No test was deleted, skipped, or weakened
+  Evidence: Only TestProjects added; no tests changed.
+- [x] README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+  Evidence: README table, docs/cli.md Projects section, design.md Experience bullet describe implemented behavior.
+
+## Notes
+
+AC2 conflict: contract ranks scheduler offline above failing, but AC2 had no scheduler and expected the logs suggestion. User decided (2026-11-17): keep contract order; AC2 is verified while bin/noon serve is running so the scheduler is online.
+
+AC#1: /tmp/noon93-ac/ac.sh (task cli:build; HOME/XDG_CONFIG_HOME/XDG_STATE_HOME/NOON_STATE_DIR under one mktemp -d) -> bin/noon projects exit 0, 'No enabled projects.', NOON_STATE_DIR absent afterwards.
+AC#2: /tmp/noon93-ac/ac2.sh (same env; app flaky run false, site tests run true; both enabled; bin/noon -C app run flaky; bin/noon serve running per the recorded AC2 decision) -> exit 0; rows app ~/app 'flaky failing' NEXT Tue 13:09, site ~/site ok NEXT Tue 13:09; 'Suggested action: noon -C ~/app logs flaky -s failed'. Without a scheduler the contract's offline priority suggests noon service install (observed).
+AC#3: ac.sh after mv site site-moved -> projects --json exit 0, schema_version 1, site state missing, next 'noon -C /private/var/.../site disable'; running it with bin/noon exit 0; projects --json then lists only app.
+AC#4: task cli:test PKG=./internal/cli -- -run TestProjects -count=1 -> ok; covers healthy + missing-checkout project rows, next/suggested action (JSON and human), and no state dir created without a database.
+CI: task ci exit 0 on c7b1fcd+change (tree identical to merged 1b489be; later main commit is backlog-only). Commit 1b489be fast-forwarded onto main; worktree and branch removed.
+Review: one inline pass; fixed suggested --state-dir being appended when it only came from NOON_STATE_DIR (env already carries over). SKILL.md has no command list, so unchanged.
