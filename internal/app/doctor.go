@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -59,6 +60,8 @@ func Doctor(ctx context.Context, input config.Input, now time.Time, build config
 	} else if strings.Contains(configErr.Error(), "timezone") {
 		add("timezone", "fail", configErr.Error(), "Set a valid IANA timezone")
 	}
+	// Scheduled jobs inherit the installed unit's PATH, not this shell's.
+	jobEnv, schedulerPath, unitPath := os.Environ(), "", false
 	view, inspectErr := inspectionForDiagnostics(input, now)
 	if inspectErr != nil {
 		add("state", "fail", inspectErr.Error(), "Fix configuration so the state directory can be resolved")
@@ -125,6 +128,11 @@ func Doctor(ctx context.Context, input config.Input, now time.Time, build config
 					add("service", "warn", "Per-user service is not installed", "noon service install")
 				} else {
 					add("service", "ok", "Per-user service installed", "")
+					if path, installed, err := service.InstalledPath(options); err != nil {
+						add("service_path", "warn", err.Error(), "noon service install")
+					} else if installed {
+						jobEnv, schedulerPath, unitPath = schedulerEnvironment(path), path, true
+					}
 				}
 			}
 		} else {
@@ -148,7 +156,7 @@ func Doctor(ctx context.Context, input config.Input, now time.Time, build config
 				err = fmt.Errorf("%s is not a directory", job.CWD)
 			}
 			check("job "+name+" cwd", job.CWD, "Create the job cwd or correct its configuration", err)
-			inherited := os.Environ()
+			inherited := slices.Clone(jobEnv)
 			for _, path := range job.EnvFile {
 				values, err := readEnvFile(cfg.Project, path)
 				check("job "+name+" env_file", path, "Provide a valid readable regular env file of at most 64 KiB", err)
@@ -169,7 +177,12 @@ func Doctor(ctx context.Context, input config.Input, now time.Time, build config
 			spec, err := RunSpec(cfg.Project, job, inherited)
 			if err == nil && len(spec.Argv) > 0 {
 				_, err = runner.ResolveExecutable(spec.Argv[0], spec.Env, spec.Dir)
-				check("job "+name+" command", spec.Argv[0], "Install "+spec.Argv[0]+" or correct the job PATH/command", err)
+				hint := "Install " + spec.Argv[0] + " or correct the job PATH/command"
+				if unitPath && errors.Is(err, exec.ErrNotFound) && environmentValue(spec.Env, "PATH") == schedulerPath {
+					err = fmt.Errorf("%s not found on the scheduler's PATH", spec.Argv[0])
+					hint = "Re-run noon service install from a shell where it resolves, or set PATH in the job's env"
+				}
+				check("job "+name+" command", spec.Argv[0], hint, err)
 			} else if err != nil {
 				check("job "+name+" command", "", "Correct the job command", err)
 			}
@@ -199,4 +212,42 @@ func writableState(path string) error {
 		}
 		path = parent
 	}
+}
+
+// MissingCommand returns a job's executable when the environment scheduled runs
+// inherit cannot find it, or "". unitPath reports whether that environment uses
+// an installed service unit's PATH. Shell-string jobs check only the shell.
+func MissingCommand(project string, job config.Job, stateDir string) (missing string, unitPath bool) {
+	env := os.Environ()
+	if options, err := service.CurrentConfig(stateDir); err == nil {
+		if path, installed, err := service.InstalledPath(options); err == nil && installed {
+			env, unitPath = schedulerEnvironment(path), true
+		}
+	}
+	if job.PromptFile != nil {
+		empty := ""
+		job.PromptFile, job.Prompt = nil, &empty
+	}
+	spec, err := RunSpec(project, job, env)
+	if err != nil || len(spec.Argv) == 0 {
+		return "", unitPath
+	}
+	if _, err := runner.ResolveExecutable(spec.Argv[0], spec.Env, spec.Dir); errors.Is(err, exec.ErrNotFound) {
+		return spec.Argv[0], unitPath
+	}
+	return "", unitPath
+}
+
+func schedulerEnvironment(path string) []string {
+	return setEnvironment(os.Environ(), "PATH", path)
+}
+
+func environmentValue(env []string, name string) string {
+	value := ""
+	for _, entry := range env {
+		if key, v, ok := strings.Cut(entry, "="); ok && key == name {
+			value = v
+		}
+	}
+	return value
 }

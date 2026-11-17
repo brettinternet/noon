@@ -459,6 +459,79 @@ func IsInstalled(config Config) (string, bool, error) {
 	return unit.Path, installed, err
 }
 
+// InstalledPath returns the PATH the installed unit gives the scheduler. It
+// reports false when no unit is installed or the platform is unsupported.
+func InstalledPath(config Config) (string, bool, error) {
+	unit, err := CurrentUnit(config)
+	if IsUnsupported(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	installed, contents, err := readUnit(unit.Path)
+	if err != nil || !installed {
+		return "", false, err
+	}
+	path, err := unitPath(unit.Platform, contents)
+	if err != nil {
+		return "", false, fmt.Errorf("%s: %w", unit.Path, err)
+	}
+	return path, true, nil
+}
+
+// unitPath parses the PATH entry in the format BuildUnit writes.
+func unitPath(platform Platform, contents []byte) (string, error) {
+	for _, line := range strings.Split(string(contents), "\n") {
+		if platform == Launchd {
+			encoded, found := strings.CutPrefix(line, "  <key>PATH</key><string>")
+			if encoded, ok := strings.CutSuffix(encoded, "</string>"); found && ok {
+				var value struct {
+					Text string `xml:",chardata"`
+				}
+				if err := xml.Unmarshal([]byte("<v>"+encoded+"</v>"), &value); err != nil {
+					return "", fmt.Errorf("parse service PATH: %w", err)
+				}
+				return value.Text, nil
+			}
+		} else if quoted, found := strings.CutPrefix(line, `Environment="PATH=`); found {
+			return systemdUnquote(`"` + quoted)
+		}
+	}
+	return "", errors.New("service unit has no PATH entry")
+}
+
+// systemdUnquote reverses systemdQuote.
+func systemdUnquote(quoted string) (string, error) {
+	if len(quoted) < 2 || !strings.HasPrefix(quoted, `"`) || !strings.HasSuffix(quoted, `"`) {
+		return "", errors.New("parse service PATH: unterminated quote")
+	}
+	var result strings.Builder
+	escapes := map[byte]byte{'\\': '\\', '"': '"', 'n': '\n', 'r': '\r', 't': '\t'}
+	body := quoted[1 : len(quoted)-1]
+	for i := 0; i < len(body); i++ {
+		switch body[i] {
+		case '\\':
+			if i+1 == len(body) || escapes[body[i+1]] == 0 {
+				return "", errors.New("parse service PATH: invalid escape")
+			}
+			i++
+			result.WriteByte(escapes[body[i]])
+		case '%':
+			if i+1 == len(body) || body[i+1] != '%' {
+				return "", errors.New("parse service PATH: invalid specifier")
+			}
+			i++
+			result.WriteByte('%')
+		case '"':
+			return "", errors.New("parse service PATH: unescaped quote")
+		default:
+			result.WriteByte(body[i])
+		}
+	}
+	return result.String(), nil
+}
+
 func Uninstall(ctx context.Context, config Config, runner Runner) (string, bool, error) {
 	unit, err := CurrentUnit(config)
 	if err != nil {

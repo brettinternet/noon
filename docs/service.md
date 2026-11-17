@@ -37,6 +37,11 @@ jobs:
       TERM: xterm-256color  # beats .env
 ```
 
+The unit's `PATH` is fixed at install, so a tool installed later, or found only through an
+interactive shell's `PATH` (mise, nvm), is missing on schedule. `noon add` warns and `noon doctor`
+fails when a job's command isn't on the installed unit's `PATH`; re-run `noon service install` from a
+shell where it resolves, or set `PATH` in the job's `env`.
+
 When a job works in your shell but fails on schedule, run it inside the scheduler:
 
 ```sh

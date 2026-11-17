@@ -339,6 +339,15 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 	if scheduled {
 		scheduleText = addedJob.Schedule.String()
 	}
+	// The job stays written: the command may be installed later or provided by an env file.
+	var warnings []string
+	if missing, unitPath := app.MissingCommand(updated.Project, addedJob, updated.StateDir); missing != "" {
+		where := "PATH"
+		if unitPath {
+			where = "the scheduler's PATH"
+		}
+		warnings = append(warnings, fmt.Sprintf("%s not found on %s. Suggested action: fix the command, or set PATH in the job's env.", missing, where))
+	}
 	if cmd.Bool("json") {
 		notes := []string{}
 		if overrides {
@@ -368,9 +377,13 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 				next = "noon service install"
 			}
 		}
-		return emit(cmd, map[string]any{"added": name, "file": file, "shared": cmd.Bool("shared") && !userProject,
+		output := map[string]any{"added": name, "file": file, "shared": cmd.Bool("shared") && !userProject,
 			"schedule": scheduleText, "next_at": nextAt, "scheduling_enabled": scheduled || queued,
-			"notes": notes, "needs_approval": needsApproval, "next": guidance(cmd, next)})
+			"notes": notes, "needs_approval": needsApproval, "next": guidance(cmd, next)}
+		if len(warnings) > 0 {
+			output["warnings"] = warnings
+		}
+		return emit(cmd, output)
 	}
 	fmt.Fprintf(cmd.Writer, "Added %s to %s (%s) · %s", name, displayPath(cfg.Project, file), kind, scheduleText)
 	if scheduled {
@@ -382,6 +395,9 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		fmt.Fprintf(cmd.Writer, " · next %s", queueDue.In(location).Format("Mon 15:04"))
 	}
 	fmt.Fprintln(cmd.Writer)
+	for _, warning := range warnings {
+		fmt.Fprintln(cmd.ErrWriter, "Warning: "+warning)
+	}
 	if overrides {
 		fmt.Fprintf(cmd.Writer, "Local job %s overrides the shared definition.\n", name)
 	}

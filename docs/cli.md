@@ -84,6 +84,22 @@ Don't bundle short flags. `-p=-j` keeps `-j` as prompt text; everything after `a
 literal argv. Options with scope or side effects (`--config`, `--in`, `--at`, `--data`, `--key`,
 `--shared`, `--write`, `--listen`, …) are deliberately long-only.
 
+## Command checks
+
+`noon add` and `noon doctor` resolve each job's executable against the environment scheduled runs
+inherit: your current environment, with the installed service unit's `PATH` in place of yours (job
+`env` and `env_file` `PATH` still win). Shell-string jobs check only the shell.
+
+```console
+$ noon add sync "every 1h" -- gti pull
+Added sync to .git/noon.yaml (private) · every 1h · next Tue 15:00
+Warning: gti not found on the scheduler's PATH. Suggested action: fix the command, or set PATH in the job's env.
+```
+
+`add` still writes the job and exits 0; the warning goes to stderr, says `PATH` instead of `the
+scheduler's PATH` without an installed unit, and appears in `--json` as `warnings`. Doctor fails
+the `job NAME command` check instead.
+
 ## Ending jobs
 
 ```sh

@@ -489,6 +489,59 @@ func TestDoctor(t *testing.T) {
 			t.Fatal(out)
 		}
 	})
+	// A command on this shell's PATH but not the installed unit's fails at 2am.
+	t.Run("scheduler PATH", func(t *testing.T) {
+		root := diagnosticSandbox(t)
+		bin := filepath.Join(root, "shell-bin")
+		if err := os.Mkdir(bin, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bin, "tool"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+		diagnosticConfig(t, root, "jobs:\n  t:\n    run: [tool]\n  pinned:\n    env: {PATH: "+bin+"}\n    run: [tool]\n")
+		commandChecks := func() map[string]app.Check {
+			_, out := diagnosticCommand(t, true, true)
+			var result app.DoctorView
+			if err := json.Unmarshal([]byte(out), &result); err != nil {
+				t.Fatal(err)
+			}
+			checks := map[string]app.Check{}
+			for _, check := range result.Checks {
+				checks[check.Name] = check
+			}
+			return checks
+		}
+		if checks := commandChecks(); checks["job t command"].Status != "ok" || checks["job pinned command"].Status != "ok" {
+			t.Fatalf("without a unit: %v", checks)
+		}
+		options, err := service.CurrentConfig(filepath.Join(root, "state", "noon"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		options.Path = "/usr/bin:/bin"
+		unit, err := service.CurrentUnit(options)
+		if service.IsUnsupported(err) {
+			t.Skip(err)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(unit.Path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(unit.Path, unit.Contents, 0600); err != nil {
+			t.Fatal(err)
+		}
+		checks := commandChecks()
+		if check := checks["job t command"]; check.Status != "fail" || check.Message != "tool not found on the scheduler's PATH" || !strings.Contains(check.Hint, "noon service install") {
+			t.Fatalf("unit PATH lacks tool: %+v", check)
+		}
+		if check := checks["job pinned command"]; check.Status != "ok" {
+			t.Fatalf("job env PATH: %+v", check)
+		}
+	})
 }
 
 func fileNames(files map[string]string) []string {

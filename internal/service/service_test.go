@@ -151,6 +151,34 @@ func TestServiceUnits(t *testing.T) {
 		if strings.Contains(string(unit.Contents), "XDG_CONFIG_HOME") {
 			t.Errorf("%s unit includes unset XDG_CONFIG_HOME:\n%s", platform, unit.Contents)
 		}
+		// Doctor and add read the scheduler's PATH back from the unit.
+		quoted := withoutConfigHome
+		quoted.Path = "/opt/a \"b\"/bin:/x\\y:/100%:/<&>:/'q'\t:/$HOME"
+		unit, err = BuildUnit(platform, quoted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := unitPath(platform, unit.Contents); err != nil || got != quoted.Path {
+			t.Errorf("%s unit PATH = %q, %v; want %q", platform, got, err, quoted.Path)
+		}
+	}
+	home := t.TempDir()
+	installed := Config{StateDir: stateDir, Executable: config.Executable, Path: "/opt/a \"b\"/bin:/100%", Home: home}
+	if _, exists, err := InstalledPath(installed); exists || err != nil {
+		t.Fatalf("InstalledPath without a unit = %v, %v", exists, err)
+	}
+	unit, err := CurrentUnit(installed)
+	if IsUnsupported(err) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeUnit(unit.Path, unit.Contents, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, exists, err := InstalledPath(installed); !exists || err != nil || got != installed.Path {
+		t.Fatalf("InstalledPath = %q, %v, %v; want %q", got, exists, err, installed.Path)
 	}
 }
 
