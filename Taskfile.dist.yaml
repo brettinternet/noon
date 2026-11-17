@@ -38,7 +38,7 @@ tasks:
   security:
     desc: Scan Git history and reachable Go vulnerabilities
     cmds:
-      - mise exec gitleaks -- gitleaks git --redact --verbose --no-banner
+      - mise exec betterleaks -- betterleaks git --redact --verbose --no-banner
       - mise exec go:golang.org/x/vuln/cmd/govulncheck -- govulncheck ./...
   smoke:
     desc: Exercise the built binary in an isolated environment
