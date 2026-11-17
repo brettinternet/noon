@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -1049,6 +1050,42 @@ VALUES(?, ?, ?, 'manual', 'old-definition', ?, ?)`, projectID, job, status, Form
 		if _, err := s.PreviousStatus(project, "flip", current); err == nil {
 			t.Fatal("lookup error reported as missing history")
 		}
+	})
+
+	t.Run("failure streaks count back to the last success in completion order", func(t *testing.T) {
+		s, project := testStore(t)
+		var path string
+		if err := s.db.QueryRow("SELECT path FROM projects WHERE id=?", project).Scan(&path); err != nil {
+			t.Fatal(err)
+		}
+		now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+		insert := func(job, status string, minute int) {
+			t.Helper()
+			if _, err := s.db.Exec(`INSERT INTO runs(project_id, job, status, trigger, digest, created_at, finished_at)
+VALUES(?, ?, ?, 'manual', 'd', ?, ?)`, project, job, status, FormatTime(now), FormatTime(now.Add(time.Duration(minute)*time.Minute))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		check := func(want map[string]FailureStreak) {
+			t.Helper()
+			got, err := s.FailureStreaksForProject(path)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("streaks=%v err=%v, want %v", got, err, want)
+			}
+		}
+		check(map[string]FailureStreak{})
+		insert("flip", "failed", 1)
+		insert("flip", "succeeded", 2)
+		insert("flip", "timed_out", 4) // higher ID, later completion than the next failure
+		insert("flip", "failed", 3)
+		for _, status := range []string{"noop", "cancelled", "skipped", "running", "queued"} {
+			insert("flip", status, 5)
+		}
+		insert("ok", "failed", 1)
+		insert("ok", "succeeded", 2)
+		check(map[string]FailureStreak{"flip": {Count: 2, Since: FormatTime(now.Add(3 * time.Minute))}})
+		insert("flip", "succeeded", 6)
+		check(map[string]FailureStreak{})
 	})
 
 	t.Run("migrate and reopen; secure WAL store; absent open is read-only", func(t *testing.T) {

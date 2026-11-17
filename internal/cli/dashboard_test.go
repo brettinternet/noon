@@ -263,6 +263,8 @@ func TestDashboard(t *testing.T) {
 		{"queued", true, true, []string{"queued"}, "noon run t"},
 		{"orphaned", true, true, []string{"orphaned"}, "noon cancel 1"},
 		{"offline orphan", true, false, []string{"scheduler_offline", "orphaned", "queued"}, "noon service install"},
+		{"failing", true, true, []string{"failing"}, "noon logs t -s failed"},
+		{"paused failing", true, true, []string{}, "noon run u"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := diagnosticSandbox(t)
@@ -270,7 +272,7 @@ func TestDashboard(t *testing.T) {
 			if tc.name == "empty" {
 				manifest = "timezone: UTC\n"
 			}
-			if tc.name == "paused first" {
+			if tc.name == "paused first" || tc.name == "paused failing" {
 				manifest += "  u:\n    schedule: every 1h\n    run: [/bin/sh, -c, 'true']\n"
 			}
 			cfg := diagnosticConfig(t, root, manifest)
@@ -280,7 +282,7 @@ func TestDashboard(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if tc.name == "paused first" || tc.name == "all paused" {
+				if tc.name == "paused first" || tc.name == "all paused" || tc.name == "paused failing" {
 					if err := state.SetPaused(cfg.Project, "t", true, diagnosticNow); err != nil {
 						t.Fatal(err)
 					}
@@ -293,6 +295,17 @@ func TestDashboard(t *testing.T) {
 				if tc.name == "queued" || tc.name == "offline orphan" {
 					if _, err := state.QueueRun(store.QueueRunInput{ProjectID: id, Job: "t", Digest: cfg.Jobs["t"].Digest, JobExists: true, JobEnabled: true, JobShared: true, Now: diagnosticNow, DueAt: diagnosticNow}); err != nil {
 						t.Fatal(err)
+					}
+				}
+				if tc.name == "failing" || tc.name == "paused failing" {
+					for i := range 2 {
+						run, err := state.CreateRun(store.NewRun{ProjectID: id, Job: "t", Trigger: "manual", Digest: "test", Now: diagnosticNow, OwnerPID: os.Getpid()})
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err := state.FinishRun(run.ID, id, "t", store.Outcome{Status: "failed", FinishedAt: diagnosticNow.Add(time.Duration(i) * time.Minute)}); err != nil {
+							t.Fatal(err)
+						}
 					}
 				}
 				if tc.name == "orphaned" || tc.name == "offline orphan" {
@@ -356,6 +369,9 @@ func TestDashboard(t *testing.T) {
 			_, human := diagnosticCommand(t, false, false)
 			if strings.Count(human, "Suggested action:") != 1 {
 				t.Fatal(human)
+			}
+			if tc.name == "failing" && (!strings.Contains(human, "t failing: 2 runs since "+diagnosticNow.Format("Mon 15:04")+".") || !strings.Contains(human, "Suggested action: noon logs t -s failed")) {
+				t.Fatalf("failing dashboard omitted notice or logs guidance:\n%s", human)
 			}
 			if tc.name == "orphaned" {
 				if !strings.Contains(human, "removed-low") || !strings.Contains(human, "removed-high") || !strings.Contains(human, "Suggested action: noon cancel 1") {

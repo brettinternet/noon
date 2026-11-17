@@ -455,6 +455,7 @@ plus a temporary-schedule summary when present, and one `Suggested action:`. Bot
 | Scheduled but not enabled / pending approval | `noon enable` |
 | Scheduler offline | `noon service install` (or `noon serve` if installed) |
 | Orphaned run (blocks background runs) | `noon cancel ID` |
+| Failing job (latest result failed or timed out; not disabled, paused, or ended) | `noon logs JOB -s failed` for the first one |
 | Queued work / otherwise | Run an unpaused job (`noon tui` at a terminal), or `noon add` |
 
 The suggestion is a command, not the next scheduled run; that's the `NEXT` column. JSON has
@@ -463,6 +464,10 @@ The suggestion is a command, not the next scheduled run; that's the `NEXT` colum
 `noon list` adds commands. Its `LAST` column ignores noops. Columns shrink to the terminal (80 when
 redirected) but job names never truncate; `--wide` shows everything. Environment values are never
 shown.
+
+List, status, and MCP job JSON add `consecutive_failures`, the failed and timed-out runs since the
+last success (noops, cancellations, and skips don't count; omitted when 0), and `failing_since`, the
+oldest of those runs' finish time in the project timezone.
 
 ```console
 $ noon doctor

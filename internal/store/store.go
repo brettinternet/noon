@@ -1176,6 +1176,48 @@ func (s *Store) LatestRunsForProject(project string) ([]Run, error) {
 	return runs, rows.Err()
 }
 
+// FailureStreak counts a job's retained failed and timed_out runs since its last success.
+type FailureStreak struct {
+	Count int
+	Since string // finished_at of the oldest failure in the streak
+}
+
+// FailureStreaksForProject returns each currently failing job's streak in
+// completion order, ignoring results that PreviousResults also ignores.
+func (s *Store) FailureStreaksForProject(project string) (map[string]FailureStreak, error) {
+	rows, err := s.db.Query(`SELECT job, status, finished_at FROM runs
+WHERE project_id=(SELECT id FROM projects WHERE path=?) AND status IN ('succeeded','failed','timed_out')
+ORDER BY job, finished_at DESC, id DESC`, project)
+	if err != nil {
+		return nil, fmt.Errorf("read failure streaks: %w", err)
+	}
+	defer rows.Close()
+	streaks := map[string]FailureStreak{}
+	settled := map[string]bool{}
+	for rows.Next() {
+		var job, status string
+		var finished sql.NullString
+		if err := rows.Scan(&job, &status, &finished); err != nil {
+			return nil, fmt.Errorf("read failure streak: %w", err)
+		}
+		if settled[job] {
+			continue
+		}
+		if status == "succeeded" {
+			settled[job] = true
+			continue
+		}
+		streak := streaks[job]
+		streak.Count++
+		streak.Since = finished.String
+		streaks[job] = streak
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read failure streaks: %w", err)
+	}
+	return streaks, nil
+}
+
 // ReadRunLog reads the persisted bytes without creating or changing the log file.
 func (s *Store) ReadRunLog(run Run) ([]byte, error) {
 	if !run.LogPath.Valid {

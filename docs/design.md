@@ -64,7 +64,13 @@ priority. A temporary-schedule summary is also shown when present:
 | Scheduled project not enabled; pending approvals | `noon enable` |
 | Enabled project, scheduler offline | `noon service install` (`noon serve` if installed) |
 | Orphaned runs, each with `noon cancel ID`; they block the project | `noon cancel` lowest orphaned ID |
+| Failing jobs: `JOB failing: N runs since DAY HH:MM.` or `N jobs failing: a, b.` | `noon logs JOB -s failed` for the first failing job |
 | Queued work | An unpaused runnable job, or `noon add` |
+
+A job is failing when its latest retained succeeded, failed, or timed_out run (any trigger) failed
+or timed out; noop, cancelled, and skipped runs are ignored. Disabled, paused, and ended jobs are
+never failing. Job JSON carries `consecutive_failures` and `failing_since` (the oldest failure in
+the streak); the TUI banner shows the notice in failure tone with the same fix.
 
 `noon doctor` never executes jobs, repairs, migrates, or creates absent state. SQLite WAL/SHM
 sidecars for an existing database are allowed; application data stays read-only.

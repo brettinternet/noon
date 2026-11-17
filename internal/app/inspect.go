@@ -21,45 +21,47 @@ type Project struct {
 
 // Job exposes environment names, never their values.
 type Job struct {
-	TemporarySchedule *store.TemporarySchedule `json:"temporary_schedule,omitempty"`
-	Temporary         *config.TemporaryJob     `json:"temporary,omitempty"`
-	Name              string                   `json:"name"`
-	Description       string                   `json:"description"`
-	Schedule          *string                  `json:"schedule"`
-	Splay             string                   `json:"splay,omitempty"`
-	SplayOffset       string                   `json:"splay_offset,omitempty"`
-	Jitter            string                   `json:"jitter,omitempty"`
-	NextAt            *time.Time               `json:"next_at,omitempty"`
-	Until             *time.Time               `json:"until,omitempty"`
-	Ended             bool                     `json:"ended"`
-	Run               any                      `json:"run"`
-	Prompt            *string                  `json:"prompt"`
-	PromptFile        *string                  `json:"prompt_file"`
-	EnvFile           []string                 `json:"env_file"`
-	Agent             string                   `json:"agent,omitempty"`
-	AgentArgs         []string                 `json:"agent_args,omitempty"`
-	CWD               string                   `json:"cwd"`
-	EnvKeys           []string                 `json:"env_keys"`
-	Timeout           string                   `json:"timeout"`
-	NoopExitCode      int                      `json:"noop_exit_code,omitempty"`
-	Overlap           string                   `json:"overlap"`
-	Parallel          bool                     `json:"parallel,omitempty"`
-	Missed            string                   `json:"missed"`
-	Enabled           bool                     `json:"enabled"`
-	OS                []string                 `json:"os,omitempty"`
-	Arch              []string                 `json:"arch,omitempty"`
-	PlatformSupported bool                     `json:"platform_supported"`
-	Paused            bool                     `json:"paused"`
-	PauseStartsAt     *time.Time               `json:"pause_starts_at,omitempty"`
-	PauseEndsAt       *time.Time               `json:"pause_ends_at,omitempty"`
-	LastRun           *Run                     `json:"last_run"`
-	Source            string                   `json:"source"`
-	Shared            bool                     `json:"shared"`
-	Overrides         bool                     `json:"overrides"`
-	Digest            string                   `json:"digest"`
-	Approval          string                   `json:"approval"`
-	WebhookPath       string                   `json:"webhook_path,omitempty"`
-	HasWebhook        bool                     `json:"-"`
+	TemporarySchedule   *store.TemporarySchedule `json:"temporary_schedule,omitempty"`
+	Temporary           *config.TemporaryJob     `json:"temporary,omitempty"`
+	Name                string                   `json:"name"`
+	Description         string                   `json:"description"`
+	Schedule            *string                  `json:"schedule"`
+	Splay               string                   `json:"splay,omitempty"`
+	SplayOffset         string                   `json:"splay_offset,omitempty"`
+	Jitter              string                   `json:"jitter,omitempty"`
+	NextAt              *time.Time               `json:"next_at,omitempty"`
+	Until               *time.Time               `json:"until,omitempty"`
+	Ended               bool                     `json:"ended"`
+	Run                 any                      `json:"run"`
+	Prompt              *string                  `json:"prompt"`
+	PromptFile          *string                  `json:"prompt_file"`
+	EnvFile             []string                 `json:"env_file"`
+	Agent               string                   `json:"agent,omitempty"`
+	AgentArgs           []string                 `json:"agent_args,omitempty"`
+	CWD                 string                   `json:"cwd"`
+	EnvKeys             []string                 `json:"env_keys"`
+	Timeout             string                   `json:"timeout"`
+	NoopExitCode        int                      `json:"noop_exit_code,omitempty"`
+	Overlap             string                   `json:"overlap"`
+	Parallel            bool                     `json:"parallel,omitempty"`
+	Missed              string                   `json:"missed"`
+	Enabled             bool                     `json:"enabled"`
+	OS                  []string                 `json:"os,omitempty"`
+	Arch                []string                 `json:"arch,omitempty"`
+	PlatformSupported   bool                     `json:"platform_supported"`
+	Paused              bool                     `json:"paused"`
+	PauseStartsAt       *time.Time               `json:"pause_starts_at,omitempty"`
+	PauseEndsAt         *time.Time               `json:"pause_ends_at,omitempty"`
+	LastRun             *Run                     `json:"last_run"`
+	ConsecutiveFailures int                      `json:"consecutive_failures,omitempty"`
+	FailingSince        *time.Time               `json:"failing_since,omitempty"`
+	Source              string                   `json:"source"`
+	Shared              bool                     `json:"shared"`
+	Overrides           bool                     `json:"overrides"`
+	Digest              string                   `json:"digest"`
+	Approval            string                   `json:"approval"`
+	WebhookPath         string                   `json:"webhook_path,omitempty"`
+	HasWebhook          bool                     `json:"-"`
 }
 
 type Inspection struct {
@@ -148,6 +150,11 @@ func ListJobs(input config.Input, now time.Time) (Inspection, error) {
 		return Inspection{}, StateError(err)
 	}
 	return view, nil
+}
+
+// Failing reports a failure streak on a job that is still expected to run.
+func (job Job) Failing() bool {
+	return job.ConsecutiveFailures > 0 && job.Enabled && !job.Paused && !job.Ended
 }
 
 // PauseStatus is the NEXT text for an active pause, or empty.

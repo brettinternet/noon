@@ -170,10 +170,34 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 		}
 		add("orphaned", fmt.Sprintf("Orphaned runs %s block background runs in this project.", strings.Join(runs, ", ")))
 	}
+	var failing []Job
+	for _, job := range result.Jobs {
+		if job.Failing() {
+			failing = append(failing, job)
+		}
+	}
 	var temporary, temporaryJobs []string
 	location, _ := time.LoadLocation(result.Project.Timezone)
 	if location == nil {
 		location = time.UTC
+	}
+	switch {
+	case len(failing) == 1:
+		job, runs := failing[0], "runs"
+		if job.ConsecutiveFailures == 1 {
+			runs = "run"
+		}
+		since := ""
+		if job.FailingSince != nil {
+			since = " since " + job.FailingSince.In(location).Format("Mon 15:04")
+		}
+		add("failing", fmt.Sprintf("%s failing: %d %s%s.", job.Name, job.ConsecutiveFailures, runs, since))
+	case len(failing) > 0:
+		names := make([]string, 0, len(failing))
+		for _, job := range failing {
+			names = append(names, job.Name)
+		}
+		add("failing", fmt.Sprintf("%d jobs failing: %s.", len(failing), strings.Join(names, ", ")))
 	}
 	for _, job := range result.Jobs {
 		if job.Temporary != nil && !job.Ended && job.Until != nil {
@@ -216,6 +240,8 @@ func Dashboard(input config.Input, now time.Time) (DashboardView, error) {
 		}
 	case len(orphanedRuns) > 0:
 		result.Next = fmt.Sprintf("noon cancel %d", orphanedRuns[0].ID)
+	case len(failing) > 0:
+		result.Next = "noon logs " + failing[0].Name + " -s failed"
 	default:
 		result.Next = "noon add"
 		for _, job := range result.Jobs {

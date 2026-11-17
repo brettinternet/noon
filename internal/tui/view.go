@@ -155,6 +155,15 @@ func (m *Model) bannerItems() []bannerItem {
 			items = append(items, bannerItem{"▲", "Not enabled for background runs", "noon enable", t.warning})
 		case "needs_approval":
 			items = append(items, bannerItem{"▲", m.approvalText(), "noon enable", t.warning})
+		case "failing":
+			fix := ""
+			for _, job := range m.dashboard.Jobs {
+				if job.Failing() {
+					fix = "noon logs " + job.Name + " -s failed"
+					break
+				}
+			}
+			items = append(items, bannerItem{"✗", strings.TrimSuffix(notice.Message, "."), fix, t.failure})
 		case "scheduler_offline", "queued":
 		default:
 			items = append(items, bannerItem{"•", strings.TrimSuffix(notice.Message, "."), "", t.muted})

@@ -325,9 +325,24 @@ func WithLastRuns(view Inspection, stateDir string) (Inspection, error) {
 		}
 		latest[run.Job] = mapped
 	}
+	streaks, err := state.FailureStreaksForProject(view.Project.Path)
+	if err != nil {
+		return Inspection{}, err
+	}
+	location, _ := time.LoadLocation(view.Project.Timezone)
+	if location == nil {
+		location = time.UTC
+	}
 	for i := range view.Jobs {
 		if run, ok := latest[view.Jobs[i].Name]; ok {
 			view.Jobs[i].LastRun = &run
+		}
+		if streak, ok := streaks[view.Jobs[i].Name]; ok {
+			view.Jobs[i].ConsecutiveFailures = streak.Count
+			if since, err := time.Parse(store.TimestampLayout, streak.Since); err == nil {
+				since = since.In(location)
+				view.Jobs[i].FailingSince = &since
+			}
 		}
 	}
 	return view, nil
