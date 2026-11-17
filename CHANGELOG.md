@@ -2,11 +2,15 @@
 
 Notable changes to noon are documented here. This file is generated from conventional commits by [git-cliff](https://git-cliff.org/).
 
-## Unreleased
+## [v0.16.0](https://github.com/brettinternet/noon/compare/v0.15.0...v0.16.0) - 2026-11-02
 
 ### Added
 
 - **scheduler:** Add parallel job option
+
+### Documentation
+
+- Refresh changelog
 
 ## [v0.15.0](https://github.com/brettinternet/noon/compare/v0.14.0...v0.15.0) - 2026-10-29
 
