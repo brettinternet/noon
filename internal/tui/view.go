@@ -31,6 +31,8 @@ func (m *Model) View() tea.View {
 	height := max(0, m.height-top-bottom)
 	var body []string
 	switch m.screen {
+	case projectsScreen:
+		body = m.projectsBody(now)
 	case jobsScreen:
 		body = m.jobsBody(now)
 	case runsScreen:
@@ -103,18 +105,24 @@ func (m *Model) listLayout() listLayout {
 	return layout
 }
 
-func (m *Model) jobsLayout() listLayout { return m.listLayout() }
-func (m *Model) runsLayout() listLayout { return m.listLayout() }
+func (m *Model) projectsLayout() listLayout { return m.listLayout() }
+func (m *Model) jobsLayout() listLayout     { return m.listLayout() }
+func (m *Model) runsLayout() listLayout     { return m.listLayout() }
 
 // Header
 
+// titleRow names the open project on every screen, so actions never target
+// a project the reader can't see.
 func (m *Model) titleRow() string {
 	t := m.theme
-	name := m.dashboard.Project.Name
-	if name == "" {
-		name = "project"
+	left := []span{{" ", style{}}, {"noon", t.key}}
+	if m.project != "" {
+		name := m.dashboard.Project.Name
+		if name == "" {
+			name = "project"
+		}
+		left = append(left, span{"  ", style{}}, span{name, t.strong})
 	}
-	left := []span{{" ", style{}}, {"noon", t.key}, {"  ", style{}}, {name, t.strong}}
 	var right []span
 	switch {
 	case m.dashboard.Scheduler.State == "running":
@@ -129,7 +137,7 @@ func (m *Model) titleRow() string {
 	}
 	right = append(right, span{" ", style{}})
 	// The path matters least, so it takes only the room the rest leaves.
-	if path := m.homePath(m.dashboard.Project.Path); path != "" {
+	if path := m.homePath(m.project); path != "" {
 		if room := m.width - spansWidth(left) - spansWidth(right) - 4; room >= 12 {
 			left = append(left, span{"  " + truncateLeft(path, room), t.muted})
 		}
@@ -142,24 +150,28 @@ type bannerItem struct {
 	tone            style
 }
 
-// bannerItems lists project notices with the CLI command that fixes each.
-// The title shows scheduler state and the jobs table shows queued runs.
+// bannerItems lists the open project's notices with the CLI command that fixes
+// each. The title shows scheduler state and the jobs table shows queued runs;
+// the projects list shows each project's state instead.
 func (m *Model) bannerItems() []bannerItem {
+	if m.screen == projectsScreen || m.project == "" {
+		return nil
+	}
 	t := m.theme
 	var items []bannerItem
 	for _, notice := range m.dashboard.Notices {
 		switch notice.Code {
 		case "config_error":
-			items = append(items, bannerItem{"✗", strings.TrimSuffix(notice.Message, "."), "noon config check", t.failure})
+			items = append(items, bannerItem{"✗", strings.TrimSuffix(notice.Message, "."), m.command("noon config check"), t.failure})
 		case "not_enabled":
-			items = append(items, bannerItem{"▲", "Not enabled for background runs", "noon enable", t.warning})
+			items = append(items, bannerItem{"▲", "Not enabled for background runs", m.command("noon enable"), t.warning})
 		case "needs_approval":
-			items = append(items, bannerItem{"▲", m.approvalText(), "noon enable", t.warning})
+			items = append(items, bannerItem{"▲", m.approvalText(), m.command("noon enable"), t.warning})
 		case "failing":
 			fix := ""
 			for _, job := range m.dashboard.Jobs {
 				if job.Failing() {
-					fix = "noon logs " + job.Name + " -s failed"
+					fix = m.command("noon logs " + job.Name + " -s failed")
 					break
 				}
 			}
@@ -378,6 +390,85 @@ func (m *Model) emptyRow(spans ...span) string {
 	return fitSpans(append([]span{{"   ", style{}}}, spans...), m.width, style{}, false)
 }
 
+// Projects
+
+var projectColumns = []column{
+	{title: "PROJECT", max: 32},
+	{title: "STATE", max: 24},
+	{title: "NEXT", min: 8, max: 16, rank: 1},
+	{title: "PATH", min: 12, max: 60, rank: 2},
+}
+
+func (m *Model) projectsBody(now time.Time) []string {
+	t := m.theme
+	layout := m.projectsLayout()
+	title := append(m.breadcrumb("projects"), span{"  " + strconv.Itoa(len(m.projects)), t.faint})
+	rows := []string{fitSpans(title, m.width, style{}, false)}
+	if layout.gap {
+		rows = append(rows, "")
+	}
+	if len(m.projects) == 0 {
+		return append(rows, m.emptyRow(span{"No enabled projects", t.muted}, span{"  noon enable", t.cmd}))
+	}
+	cells := make([][][]span, len(m.projects))
+	for i, project := range m.projects {
+		cells[i] = m.projectCells(project, now)
+	}
+	rows = append(rows, m.tableRows(newTable(projectColumns, cells, m.width), cells, m.selectedProject, m.projectOffset, layout.rows)...)
+	if layout.detail && m.selectedProject < len(m.projects) {
+		rows = append(rows, "")
+		rows = append(rows, m.projectDetail(m.projects[m.selectedProject])...)
+	}
+	return rows
+}
+
+func (m *Model) projectCells(project app.ProjectStatus, now time.Time) [][]span {
+	t := m.theme
+	name := []span{{project.Name, t.text}}
+	if project.Path == m.project {
+		name = []span{{project.Name, t.strong}, {"  open", t.accent}}
+	}
+	next := []span{{"—", t.faint}}
+	if project.NextAt != nil {
+		next = []span{{untilText(*project.NextAt, now), t.text}}
+	}
+	return [][]span{name, m.projectState(project), next, {{m.homePath(project.Path), t.muted}}}
+}
+
+func (m *Model) projectState(project app.ProjectStatus) []span {
+	t := m.theme
+	switch project.State {
+	case "missing":
+		return []span{{"▲ missing checkout", t.warning}}
+	case "not_enabled":
+		return []span{{"▲ not enabled", t.warning}}
+	case "config_error":
+		return []span{{"✗ config error", t.failure}}
+	case "failing":
+		if len(project.Failing) == 1 {
+			return []span{{"✗ " + project.Failing[0] + " failing", t.failure}}
+		}
+		return []span{{fmt.Sprintf("✗ %d jobs failing", len(project.Failing)), t.failure}}
+	}
+	return []span{{"ok", t.muted}}
+}
+
+// projectDetail shows the full path and, for a broken project, what's wrong.
+func (m *Model) projectDetail(project app.ProjectStatus) []string {
+	t := m.theme
+	about := []span{{" " + project.Name, t.strong}, {"  " + m.homePath(project.Path), t.muted}}
+	var problem []span
+	switch project.State {
+	case "missing":
+		problem = []span{{" Checkout missing", t.warning}, {"  " + m.scopedCommand(project.Path, "", "noon disable"), t.cmd}}
+	case "config_error":
+		problem = []span{{" " + firstLine(project.ConfigError), t.failure}}
+	case "failing":
+		problem = []span{{" Failing: " + strings.Join(project.Failing, ", "), t.failure}}
+	}
+	return []string{fitSpans(about, m.width, style{}, false), fitSpans(problem, m.width, style{}, false)}
+}
+
 // Jobs
 
 var jobColumns = []column{
@@ -399,9 +490,9 @@ func (m *Model) jobsBody(now time.Time) []string {
 	}
 	if len(jobs) == 0 {
 		if m.dashboard.Project.ConfigError != "" {
-			return append(rows, m.emptyRow(span{"Jobs could not be loaded", t.muted}, span{"  noon config check", t.cmd}))
+			return append(rows, m.emptyRow(span{"Jobs could not be loaded", t.muted}, span{"  " + m.command("noon config check"), t.cmd}))
 		}
-		return append(rows, m.emptyRow(span{"No jobs configured", t.muted}, span{"  noon add", t.cmd}))
+		return append(rows, m.emptyRow(span{"No jobs configured", t.muted}, span{"  " + m.command("noon add"), t.cmd}))
 	}
 	cells := make([][][]span, len(jobs))
 	for i, job := range jobs {
@@ -708,7 +799,7 @@ var helpColumns = [2][]helpSection{{
 		{"ctrl+d ctrl+u", "half page down / up"},
 		{"ctrl+f ctrl+b", "page down / up"},
 		{"enter →", "open"},
-		{"esc h ←", "back"},
+		{"esc h ←", "back up to projects"},
 		{"?", "toggle this help"},
 		{"q ctrl+c", "quit"},
 	}},
@@ -892,6 +983,10 @@ func (m *Model) positionItems() [][]span {
 	var items [][]span
 	add := func(spans ...span) { items = append(items, spans) }
 	switch m.screen {
+	case projectsScreen:
+		if total := len(m.projects); total > m.projectsLayout().rows {
+			add(span{fmt.Sprintf("%d/%d", m.selectedProject+1, total), t.faint})
+		}
 	case jobsScreen:
 		if total := len(m.dashboard.Jobs); total > m.jobsLayout().rows {
 			add(span{fmt.Sprintf("%d/%d", m.selectedJob+1, total), t.faint})

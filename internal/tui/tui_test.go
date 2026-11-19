@@ -84,6 +84,73 @@ func TestEndedTemporaryJob(t *testing.T) {
 	}
 }
 
+// After switching projects, the header must name the opened project and every
+// action must target it, never the project noon tui started in.
+func TestSwitchProject(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "user"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	for _, key := range []string{"NOON_PROJECT", "NOON_CONFIG", "NOON_TIMEZONE", "NOON_STATE_DIR", "NOON_DEPTH"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inputAt := func(dir string) config.Input {
+		return config.Input{CWD: dir, UserConfigDir: filepath.Join(root, "user"), StateDirDefault: filepath.Join(root, "state", "noon")}
+	}
+	paths := map[string]string{}
+	for _, name := range []string{"alpha", "beta"} {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".git", "noon.yaml"), []byte("jobs:\n  check:\n    schedule: every 1h\n    run: [\"true\"]\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Load(inputAt(dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := app.Enable(cfg, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		paths[name] = cfg.Project
+	}
+	stateDir := filepath.Join(root, "state", "noon")
+
+	// Outside any project, the list opens with no project named in the header.
+	outside := filepath.Join(root, "outside")
+	if err := os.Mkdir(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	model, err := tui.NewModel(inputAt(outside))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header := strings.SplitN(screen(model), "\n", 2)[0]; !strings.Contains(screen(model), "projects  2") || strings.Contains(header, "outside") {
+		t.Fatalf("outside launch did not open the projects list:\n%s", screen(model))
+	}
+
+	model, err = tui.NewModel(inputAt(paths["alpha"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	model = press(t, model, "esc")
+	if !strings.Contains(screen(model), "alpha  open") {
+		t.Fatalf("projects list does not mark alpha open:\n%s", screen(model))
+	}
+	model = press(t, press(t, model, "j"), "enter")
+	if header := strings.SplitN(screen(model), "\n", 2)[0]; !strings.Contains(header, "beta") {
+		t.Fatalf("header does not name beta: %q", header)
+	}
+	press(t, model, "p")
+	if !readPaused(t, stateDir, paths["beta"])["check"] || readPaused(t, stateDir, paths["alpha"])["check"] {
+		t.Fatalf("pause targeted the wrong project: alpha=%v beta=%v", readPaused(t, stateDir, paths["alpha"]), readPaused(t, stateDir, paths["beta"]))
+	}
+}
+
 func TestTUIModel(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")

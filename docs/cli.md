@@ -571,10 +571,15 @@ restart never approves jobs. See [service upgrades](service.md#upgrades).
 
 `noon tui` (alias `noon ui`) refreshes every second and never edits jobs or enables projects.
 
+It opens the current project (or `-C` / `--user`). `esc` from jobs lists every enabled project,
+as `noon projects` does, with the open one marked; `enter` opens another. The header always names
+the open project, and every action and suggested command targets it, adding `-C PATH` when it
+isn't the project the TUI started in. Started outside any project, the TUI opens on the list.
+
 | Key | Action |
 | --- | --- |
 | `j` / `k`, arrows | Move |
-| `enter` | Open runs for a job |
+| `enter` | Open a project, or runs for a job |
 | `l` | Open a log |
 | `f` | Cycle run status filter |
 | `/`, `n` / `N` | Search the log (RE2, three lines of context), next / previous match |
@@ -585,4 +590,4 @@ restart never approves jobs. See [service upgrades](service.md#upgrades).
 | `r` | Queue the selected job now |
 | `p` | Pause or resume the selected job |
 | `c` | Cancel a run (asks first) |
-| `esc`, `?`, `q` | Back, help, quit |
+| `esc`, `?`, `q` | Back (jobs → projects), help, quit |

@@ -32,7 +32,8 @@ const (
 type screen int
 
 const (
-	jobsScreen screen = iota
+	projectsScreen screen = iota
+	jobsScreen
 	runsScreen
 	logScreen
 	helpScreen
@@ -69,8 +70,22 @@ var logSections = []string{"job", "hook", "all"}
 type Model struct {
 	input    config.Input
 	stateDir string
-	project  string
-	home     string
+	// project is the open project's path; empty until one is opened when
+	// noon tui starts outside any project.
+	project string
+	home    string
+
+	// launch is the project noon tui started in. Its input keeps the
+	// invocation's flags, and it stays listed while it isn't enabled.
+	launchInput   config.Input
+	launchProject string
+	launchName    string
+	listLaunch    bool
+
+	projects            []app.ProjectStatus
+	selectedProject     int
+	selectedProjectPath string
+	projectOffset       int
 
 	dashboard app.DashboardView
 	screen    screen
@@ -130,7 +145,9 @@ type Model struct {
 }
 
 // NewModel loads the current project dashboard without creating application
-// state. Mutations are performed only by explicit keyboard actions.
+// state. Mutations are performed only by explicit keyboard actions. Outside
+// any project (no jobs, not enabled, no -C or --user), it opens the projects
+// list instead when there are enabled projects to show.
 func NewModel(input config.Input) (*Model, error) {
 	cfg, err := app.LoadJobs(input, time.Now())
 	if err != nil {
@@ -139,11 +156,25 @@ func NewModel(input config.Input) (*Model, error) {
 	home, _ := os.UserHomeDir()
 	model := &Model{
 		input: input, stateDir: cfg.StateDir, project: cfg.Project, home: home,
+		launchInput: input, launchProject: cfg.Project, listLaunch: true,
 		screen: jobsScreen, width: 80, height: 24, dark: true, logWrap: true, showLogTimestamps: true,
 	}
 	model.theme = newTheme(model.profile, model.dark, model.background)
 	if err := model.refreshDashboard(); err != nil {
 		return nil, err
+	}
+	model.launchName = model.dashboard.Project.Name
+	explicit := input.Project != nil || input.User
+	if !explicit && len(model.dashboard.Jobs) == 0 && !model.dashboard.Project.Enabled {
+		model.listLaunch = false
+		if err := model.refreshProjects(); err != nil {
+			return nil, err
+		}
+		if len(model.projects) > 0 {
+			model.project, model.screen = "", projectsScreen
+		} else {
+			model.listLaunch = true // It stays open, so the list must lead back to it.
+		}
 	}
 	return model, nil
 }
@@ -277,6 +308,8 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch m.screen {
+	case projectsScreen:
+		m.projectsKey(key)
 	case jobsScreen:
 		m.jobsKey(key)
 	case runsScreen:
@@ -313,6 +346,17 @@ func listMove(key string, page int) (int, bool) {
 		return 1 << 30, true
 	}
 	return 0, false
+}
+
+func (m *Model) projectsKey(key string) {
+	if delta, ok := listMove(key, m.projectsLayout().rows); ok {
+		m.moveProject(delta)
+		return
+	}
+	switch key {
+	case "enter", "right", "l":
+		m.openSelectedProject()
+	}
 }
 
 func (m *Model) jobsKey(key string) {
@@ -477,6 +521,11 @@ func (m *Model) refresh() {
 	if err := m.refreshDashboard(); err != nil {
 		m.flash(toneError, errorMessage(err))
 	}
+	if m.screen == projectsScreen {
+		if err := m.refreshProjects(); err != nil {
+			m.flash(toneError, errorMessage(err))
+		}
+	}
 	if m.screen == runsScreen {
 		m.refreshRuns()
 	}
@@ -559,6 +608,126 @@ func (m *Model) refreshRuns() {
 	m.runOffset = scrollOffset(m.runOffset, m.selectedRun, len(runs), m.runsLayout().rows)
 }
 
+// refreshProjects reads every enabled project, plus the launch project while
+// it isn't enabled, so the list can always return to where noon tui started.
+func (m *Model) refreshProjects() error {
+	view, err := app.ProjectStatuses(m.launchInput, time.Now())
+	if err != nil {
+		return err
+	}
+	projects := view.Projects
+	listed := slices.ContainsFunc(projects, func(project app.ProjectStatus) bool { return project.Path == m.launchProject })
+	if m.listLaunch && !listed {
+		projects = append(projects, app.ProjectStatus{Name: m.launchName, Path: m.launchProject, State: "not_enabled"})
+		slices.SortFunc(projects, func(a, b app.ProjectStatus) int { return strings.Compare(a.Path, b.Path) })
+	}
+	m.projects = projects
+	m.selectedProject = 0
+	for i := range projects {
+		if projects[i].Path == m.selectedProjectPath {
+			m.selectedProject = i
+			break
+		}
+	}
+	m.selectedProjectPath = ""
+	if len(projects) > 0 {
+		m.selectedProjectPath = projects[m.selectedProject].Path
+	}
+	m.projectOffset = scrollOffset(m.projectOffset, m.selectedProject, len(projects), m.projectsLayout().rows)
+	return nil
+}
+
+func (m *Model) moveProject(delta int) {
+	if len(m.projects) == 0 {
+		return
+	}
+	m.selectedProject = clamp(m.selectedProject+delta, 0, len(m.projects)-1)
+	m.selectedProjectPath = m.projects[m.selectedProject].Path
+	m.projectOffset = scrollOffset(m.projectOffset, m.selectedProject, len(m.projects), m.projectsLayout().rows)
+	m.clearFlash()
+}
+
+// openProjects shows the projects list with the open project selected.
+func (m *Model) openProjects() {
+	if m.project != "" {
+		m.selectedProjectPath = m.project
+	}
+	if err := m.refreshProjects(); err != nil {
+		m.flash(toneError, errorMessage(err))
+		return
+	}
+	m.screen = projectsScreen
+	m.clearFlash()
+}
+
+// openSelectedProject makes the selected project the target of every view and
+// action. Other projects resolve through the config recorded at enable time.
+func (m *Model) openSelectedProject() {
+	if m.selectedProject >= len(m.projects) {
+		m.flash(toneInfo, "No project selected.")
+		return
+	}
+	project := m.projects[m.selectedProject]
+	if project.State == "missing" {
+		m.flash(toneWarning, "Checkout missing · "+m.scopedCommand(project.Path, "", "noon disable"))
+		return
+	}
+	if project.Path != m.project {
+		values := m.launchInput
+		if project.Path != m.launchProject {
+			var err error
+			if values, err = app.EnabledProjectInput(m.launchInput, m.stateDir, project.ID); err != nil {
+				m.flash(toneError, errorMessage(err))
+				return
+			}
+		}
+		previous, previousJob := m.input, m.selectedJobName
+		m.input, m.selectedJobName, m.jobOffset = values, "", 0
+		if err := m.refreshDashboard(); err != nil {
+			m.input, m.selectedJobName = previous, previousJob
+			m.flash(toneError, errorMessage(err))
+			return
+		}
+		m.project = m.dashboard.Project.Path
+		m.runsJob, m.runs, m.selectedRunID = "", nil, 0
+	}
+	m.screen = jobsScreen
+	m.clearFlash()
+}
+
+// command points a project command at the open project.
+func (m *Model) command(text string) string {
+	file := ""
+	if m.input.File != nil {
+		file = *m.input.File
+	}
+	return m.scopedCommand(m.project, file, text)
+}
+
+// scopedCommand adds -C (and the recorded --config) to a project command when
+// path isn't the project noon tui started in, so it works from the same shell.
+func (m *Model) scopedCommand(path, configFile, text string) string {
+	rest, ok := strings.CutPrefix(text, "noon ")
+	if !ok || path == m.launchProject {
+		return text
+	}
+	if config.IsUserProject(path, m.launchInput.UserConfigDir) {
+		return "noon --user " + rest
+	}
+	scope := "noon -C " + m.shellPath(path)
+	if configFile != "" {
+		scope += " --config " + m.shellPath(configFile)
+	}
+	return scope + " " + rest
+}
+
+func (m *Model) shellPath(path string) string {
+	if rest, ok := strings.CutPrefix(m.homePath(path), "~/"); ok {
+		return "~/" + shellWord(rest)
+	}
+	return shellWord(path)
+}
+
 // scrollOffset keeps a selection visible with a little context, moving the
 // window only when the selection approaches an edge.
 func scrollOffset(offset, selected, total, rows int) int {
@@ -579,6 +748,7 @@ func scrollOffset(offset, selected, total, rows int) int {
 func (m *Model) clampScroll() {
 	m.jobOffset = scrollOffset(m.jobOffset, m.selectedJob, len(m.dashboard.Jobs), m.jobsLayout().rows)
 	m.runOffset = scrollOffset(m.runOffset, m.selectedRun, len(m.runs), m.runsLayout().rows)
+	m.projectOffset = scrollOffset(m.projectOffset, m.selectedProject, len(m.projects), m.projectsLayout().rows)
 	if m.autoScroll {
 		m.logScroll = m.maxLogScroll()
 	}
@@ -1141,6 +1311,8 @@ func (m *Model) goBack() {
 	case runsScreen:
 		m.screen = jobsScreen
 		m.clearFlash()
+	case jobsScreen:
+		m.openProjects()
 	case helpScreen:
 		m.screen = m.helpFrom
 	}
