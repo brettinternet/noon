@@ -6,6 +6,12 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- **tui:** Browse and switch between enabled projects
+
+## [v0.17.0](https://github.com/brettinternet/noon/compare/v0.16.1...v0.17.0) - 2026-11-17
+
+### Added
+
 - **schedule:** Accept every weekday and every weekend
 - Preview upcoming run times with noon next
 - Print resume command for agent runs
@@ -22,6 +28,7 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Documentation
 
+- Refresh changelog
 - Refresh changelog
 
 ## [v0.16.1](https://github.com/brettinternet/noon/compare/v0.16.0...v0.16.1) - 2026-11-17
