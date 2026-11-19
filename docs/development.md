@@ -151,9 +151,10 @@ task release:smoke BINARY="$(brew --prefix brettinternet/tap/noon)/bin/noon" VER
 ```
 
 Release CI also installs `latest` and the pinned version through mise on all four platforms, with
-fresh mise directories, isolated HOME, an empty environment, and `MISE_MINIMUM_RELEASE_AGE=0`. It
-calls mise by absolute path with no shims on PATH; shims would let `gh auth token` re-enter mise
-recursively. Don't reproduce this with only directory overrides in a normal shell.
+fresh mise directories, isolated HOME, an empty environment, `MISE_MINIMUM_RELEASE_AGE=0`, and
+`MISE_USE_VERSIONS_HOST=0`, since mise's versions host can lag a new release. It calls mise by
+absolute path with no shims on PATH; shims would let `gh auth token` re-enter mise recursively.
+Don't reproduce this with only directory overrides in a normal shell.
 
 ## Worktrees and backlog
 

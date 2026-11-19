@@ -240,6 +240,7 @@ jobs:
                 MISE_STATE_DIR="$install_root/state" \
                 MISE_GITHUB_TOKEN="$MISE_GITHUB_TOKEN" \
                 MISE_MINIMUM_RELEASE_AGE=0 \
+                MISE_USE_VERSIONS_HOST=0 \
                 "$mise_bin" exec "github:brettinternet/noon@$release" -- noon --version
             )"
             printf '%s\n' "$output"

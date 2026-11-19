@@ -42,7 +42,8 @@ mise use -g github:brettinternet/noon@latest               # or mise (pin with @
 mise trust && mise exec -- task init && task cli:build     # or from source → bin/noon
 ```
 
-If mise's minimum-release-age policy hides a new release from `latest`, pin the version.
+If mise hides a new release from `latest` (minimum release age or its cached version list), pin
+the version.
 
 Installing never starts a scheduler. Start one explicitly, and re-run install after each upgrade:
 
