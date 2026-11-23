@@ -28,7 +28,7 @@ files:
   - docs/webhooks.md
   - docs/design.md
 created: 2026-11-23T20:47:44Z
-updated: 2026-11-23T20:48:02Z
+updated: 2026-11-23T22:23:57Z
 ---
 
 Why: the per-user service (`noon service install`) runs `noon serve` with only `--state-dir`, so webhooks, the remote API, and the planned web viewer (decision-6) can run in the background only in Docker or by hand. Flags captured in the unit would vanish when the documented "re-run install after each upgrade" step omits them.
@@ -43,7 +43,7 @@ serve:
 ```
 
 Settled contract:
-- Keys: `serve.listen` (host:port) and `serve.api_token_file` (path). Paths resolve like `state_dir` (relative to the config file's directory) and expand a leading `~`. NOON-98 adds `serve.web`.
+- Keys: `serve.listen` (host:port) and `serve.api_token_file` (path). Paths resolve like `state_dir` (relative to the config file's directory) and expand a leading `~`. NOON-98 adds `serve.web_token_file`.
 - Allowed only in user config. In `noon.yaml`, `.git/noon.yaml`, `.git/noon.d/*.yaml`, or a `--config` file it is an error naming user config (decision-6 item 2). A cloned or pulled repository can never open a port.
 - Precedence per key: flag > user config. There are no environment variables. `--api-token-file` (flag or setting) without a listen address (flag or setting) stays a usage error (exit 2) from `serve`, and `noon config check` reports it as a config error.
 - Token validation is unchanged (read once at startup, at least 32 bytes, startup fails with exit 1 before scheduling). The token is never logged or echoed.
