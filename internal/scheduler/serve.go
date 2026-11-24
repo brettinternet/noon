@@ -107,7 +107,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 			return errors.New("API token file requires an HTTP listener")
 		}
 		var err error
-		apiToken, err = readAPITokenFile(options.APITokenFile)
+		apiToken, err = config.ReadTokenFile(options.APITokenFile)
 		if err != nil {
 			return err
 		}
@@ -547,23 +547,6 @@ type schedulerLogger struct {
 	writer io.Writer
 	now    func() time.Time
 	mu     sync.Mutex
-}
-
-func readAPITokenFile(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read API token file %q: %w", path, err)
-	}
-	value := string(data)
-	if strings.HasSuffix(value, "\r\n") {
-		value = strings.TrimSuffix(value, "\r\n")
-	} else {
-		value = strings.TrimSuffix(value, "\n")
-	}
-	if len([]byte(value)) < 32 {
-		return nil, errors.New("API token must be at least 32 bytes")
-	}
-	return []byte(value), nil
 }
 
 func (l *schedulerLogger) event(format string, args ...any) {

@@ -63,6 +63,7 @@ type Config struct {
 	Platform     Platform                `json:"-"`
 	OnSuccess    any                     `json:"-"`
 	OnFailure    any                     `json:"-"`
+	Serve        Serve                   `json:"-"`
 }
 
 // Load applies defaults, user settings, project settings, and invocation overrides.
@@ -162,12 +163,14 @@ func loadProject(input Input, project string, stateOnly bool, override *fileOver
 		userFile = filepath.Join(project, "config.yaml")
 	}
 	if !stateOnly && input.UserConfigDir != "" && !userProject {
-		varsFiles, err := validateUserConfig(userFile, input.UserConfigDir, stateDefault, override)
+		user, err := validateUserConfig(userFile, input.UserConfigDir, stateDefault, override)
 		if err != nil {
 			return Config{}, err
 		}
+		// Listener settings always come from user config, even beside --config.
+		cfg.Serve = user.Serve
 		if input.File != nil {
-			cfg.VarsFiles = append(cfg.VarsFiles, varsFiles...)
+			cfg.VarsFiles = append(cfg.VarsFiles, user.VarsFiles...)
 		}
 	}
 	if stateOnly && input.StateDir != nil {
@@ -355,19 +358,19 @@ func canonicalPath(path string) (string, error) {
 	}
 }
 
-func validateUserConfig(path, userConfigDir, stateDefault string, override *fileOverride) ([]VarsFile, error) {
+func validateUserConfig(path, userConfigDir, stateDefault string, override *fileOverride) (Config, error) {
 	project, err := UserProjectDir(userConfigDir)
 	if err != nil {
-		return nil, err
+		return Config{}, err
 	}
 	validation := Config{Project: project, Timezone: "Local", StateDir: stateDefault, Jobs: make(map[string]Job), Agents: BuiltInAgents()}
 	if err := validation.applyFile(path, true, "user", path, false, override, true); err != nil {
-		return nil, err
+		return Config{}, err
 	}
 	if err := validation.resolveJobs(); err != nil {
-		return nil, err
+		return Config{}, err
 	}
-	return validation.VarsFiles, nil
+	return validation, nil
 }
 
 func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath string, stateOnly bool, override *fileOverride, includeJobs bool) error {
@@ -409,7 +412,7 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 	}
 	if stateOnly {
 		for key := range values {
-			if key != "state_dir" {
+			if key != "state_dir" && (key != "serve" || kind != "user") {
 				delete(values, key)
 			}
 		}
@@ -482,6 +485,14 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 			return jobError(path, node, "default_agent", "must not be empty")
 		}
 		cfg.DefaultAgent = value
+	}
+	if node, ok := values["serve"]; ok {
+		if kind != "user" {
+			return jobError(path, node, "serve", "allowed only in user config "+userConfigPath)
+		}
+		if err := cfg.applyServe(path, node, !stateOnly); err != nil {
+			return err
+		}
 	}
 	if node, ok := values["agents"]; ok {
 		if kind != "user" && kind != "explicit" {
@@ -572,6 +583,8 @@ func parse(data []byte) (map[string]*yaml.Node, error) {
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				return nil, &yamlDiagnostic{line: value.Line, message: "default_agent must be a string"}
 			}
+		case "serve":
+			// Listener settings are user-only and validated with source lines in applyFile.
 		case "on_success", "on_failure":
 			// Hook commands retain source-aware diagnostics in applyFile.
 		case "jobs":

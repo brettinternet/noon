@@ -22,6 +22,12 @@ noon service uninstall        # stop and remove the unit; keep state and history
 
 Re-run `noon service install` after changing any of these. An unchanged unit isn't rewritten.
 
+## Background listener
+
+The unit has no listener flags. To serve webhooks or the remote API in the background, set
+[`serve`](configuration.md#listener) in user config; `noon serve` reads it at startup, so it
+survives reinstalls and upgrades. Run `noon service restart` after changing it.
+
 ## Job environment
 
 Scheduled runs inherit the scheduler's environment, not your shell's: the captured `PATH` and

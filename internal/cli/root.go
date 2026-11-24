@@ -89,9 +89,9 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			}, Action: runLogs},
 			{Name: "enable", Usage: "Enable this project and approve current shared job definitions", Action: enableProject},
 			{Name: "disable", Usage: "Disable this project and revoke approvals; keep history", Action: disableProject},
-			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks and an authenticated API with --listen", Description: "Runs in the foreground until stopped. Uses each enabled project's recorded configuration, including the user project. Accepts --state-dir, --listen, and --api-token-file; rejects --user, --project, --config, --timezone, and --json. No HTTP listener starts by default. --api-token-file requires --listen.\n\nExamples:\n  noon serve\n  noon serve --listen 127.0.0.1:8080\n  noon serve --listen 127.0.0.1:8080 --api-token-file /run/secrets/noon-api-token", Flags: []urfave.Flag{
-				&urfave.StringFlag{Name: "listen", Usage: "Listen for signed webhooks at `ADDR`; no listener starts without this flag"},
-				&urfave.StringFlag{Name: "api-token-file", Usage: "Read a bearer token from `FILE` and enable the authenticated API and MCP over HTTP; requires --listen"},
+			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks and an authenticated API on a listener", Description: "Runs in the foreground until stopped. Uses each enabled project's recorded configuration, including the user project. Accepts --state-dir, --listen, and --api-token-file; rejects --user, --project, --config, --timezone, and --json. No HTTP listener starts unless --listen or serve.listen in user config sets one; each flag overrides its setting. An API token file requires a listen address. Settings are read at startup; restart to apply changes.\n\nExamples:\n  noon serve\n  noon serve --listen 127.0.0.1:8080\n  noon serve --listen 127.0.0.1:8080 --api-token-file /run/secrets/noon-api-token", Flags: []urfave.Flag{
+				&urfave.StringFlag{Name: "listen", Usage: "Listen for signed webhooks at `ADDR`; overrides serve.listen"},
+				&urfave.StringFlag{Name: "api-token-file", Usage: "Read a bearer token from `FILE` and enable the authenticated API and MCP over HTTP; overrides serve.api_token_file"},
 			}, Action: serveAction(build)},
 			{Name: "mcp", Usage: "Serve MCP tools over stdio", Action: mcpCommand(build.Version)},
 			{Name: "tui", Aliases: []string{"ui"}, Usage: "Open the keyboard-driven jobs, runs, and logs view", Description: "Requires terminal stdin and stdout; --json is not supported. Inspect the current project and safely queue, pause, or cancel work. Log views show local receipt timestamps by default; t toggles them. Keys: j/k or arrows move, enter opens runs, l opens logs, / searches, s changes log sections, f filters runs, r queues, p pauses, c cancels after confirmation, g/G jump through logs, ? shows help, q quits. Never adds, edits, enables, or approves jobs.", Action: tuiAction},
@@ -398,6 +398,7 @@ func showConfig(_ context.Context, cmd *urfave.Command) error {
 	} else {
 		fmt.Fprintf(cmd.Writer, "Default agent: %s\n", cell(cfg.DefaultAgent, 80))
 	}
+	fmt.Fprintf(cmd.Writer, "Listener:      %s\n", listenerSummary(cfg.Serve))
 	fmt.Fprintln(cmd.Writer, "Files (low → high precedence):")
 	if len(cfg.Sources) == 0 {
 		fmt.Fprintln(cmd.Writer, "  none; using defaults and invocation overrides")
@@ -512,11 +513,23 @@ func configOutput(cfg config.Config) map[string]any {
 	}
 	return map[string]any{
 		"project": cfg.Project, "timezone": cfg.Timezone, "state_dir": cfg.StateDir,
-		"sources": cfg.Sources, "agents": agents, "agent_profiles": profiles, "default_agent": cfg.DefaultAgent,
+		"sources": cfg.Sources, "agents": agents, "agent_profiles": profiles, "default_agent": cfg.DefaultAgent, "serve": cfg.Serve,
 	}
 }
 
 func emit(cmd *urfave.Command, result map[string]any) error {
 	result["schema_version"] = 1
 	return json.NewEncoder(cmd.Writer).Encode(result)
+}
+
+// listenerSummary names the user-config listener; the token file path stays out of it.
+func listenerSummary(serve config.Serve) string {
+	switch {
+	case serve.Listen == "":
+		return "off"
+	case serve.APITokenFile != "":
+		return cell(serve.Listen, 80) + " (API)"
+	default:
+		return cell(serve.Listen, 80)
+	}
 }

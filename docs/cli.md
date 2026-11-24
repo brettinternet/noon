@@ -20,8 +20,10 @@ These work before or after the subcommand.
 `serve`, `service`, `init`, and `shell`.
 
 `noon serve` accepts only `--state-dir`, `--listen ADDR` (signed webhooks), and
-`--api-token-file FILE` (remote API and MCP; needs `--listen`). Each project uses the config
-selection recorded by `noon enable`. No listener starts without `--listen`.
+`--api-token-file FILE` (remote API and MCP; needs a listen address). Each project uses the config
+selection recorded by `noon enable`. No listener starts unless `--listen` or
+[`serve.listen`](configuration.md#listener) in user config sets one; each flag overrides its
+setting. Settings are read at startup.
 
 ## Remote API and MCP over HTTP
 

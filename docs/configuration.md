@@ -114,8 +114,10 @@ timezones, or agent resolution; run `noon config check` for those.
 | `timezone` | yes | yes | no | yes |
 | `default_agent` | yes | no | no | yes |
 | `state_dir`, `agents`, `on_success`, `on_failure` | yes | no | no | no |
+| `serve` | yes | no | no | no |
 
-A `--config` file accepts every key. A key in the wrong file is an error naming the right one.
+A `--config` file accepts every key except `serve`. A key in the wrong file is an error naming the
+right one.
 
 ## Settings
 
@@ -131,7 +133,7 @@ Timezones are `Local`, `UTC`, or IANA names like `America/Chicago`; data is buil
 
 | Path in | Relative to |
 | --- | --- |
-| A YAML setting (`state_dir`) | That file's directory |
+| A YAML setting (`state_dir`, `serve.api_token_file`) | That file's directory |
 | Job `cwd`, `env_file`, `prompt_file`; `vars_file` | Project root, even in private files |
 | A flag or environment variable | Where you ran the command |
 
@@ -140,6 +142,35 @@ paths and `vars_file`, after config-time variables; `~user` stays literal. Share
 `--config` files never expand `~`. YAML keeps `$` literal outside the
 [config-time variable](#config-time-variables) fields. `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME`
 must be absolute.
+
+### Listener
+
+`serve` in user config starts the HTTP listener whenever `noon serve` runs, including under
+[`noon service install`](service.md#background-listener):
+
+```yaml
+# ~/.config/noon/config.yaml
+serve:
+  listen: 127.0.0.1:8787               # signed webhooks; --listen overrides
+  api_token_file: ~/.config/noon/api-token  # remote API and MCP; --api-token-file overrides
+```
+
+| Key | Flag | Notes |
+| --- | --- | --- |
+| `serve.listen` | `--listen` | `HOST:PORT` |
+| `serve.api_token_file` | `--api-token-file` | Needs a listen address; a leading `~` expands |
+
+Only user config may set `serve`, so a cloned or pulled repository can never open a port. There
+are no environment variables. `noon serve` reads the settings once at startup; restart it (or
+`noon service restart`) to apply changes. Create a token of at least 32 bytes:
+
+```sh
+(umask 077; openssl rand -base64 32 > ~/.config/noon/api-token)
+```
+
+`noon config` shows `Listener: ADDR`, with `(API)` when a token file is set, or `Listener: off`.
+`noon doctor` fails when the token file is unreadable or too short, and warns when it is readable
+by group or others or the address isn't loopback. The token itself is never printed.
 
 ## User project
 

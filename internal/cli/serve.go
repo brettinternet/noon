@@ -26,21 +26,9 @@ func serveAction(build config.BuildOpts) func(context.Context, *urfave.Command) 
 		if cmd.IsSet("json") {
 			return usageError("serve does not support --json or NOON_JSON", "Run noon status to inspect scheduler state")
 		}
-		listenAddr := ""
-		if cmd.IsSet("listen") {
-			listenAddr = cmd.String("listen")
-			if strings.TrimSpace(listenAddr) == "" {
-				return usageError("--listen must not be empty", "Use --listen ADDR to start a signed webhook listener")
-			}
-		}
-		apiTokenFile := ""
-		if cmd.IsSet("api-token-file") {
-			apiTokenFile = cmd.String("api-token-file")
-			if strings.TrimSpace(apiTokenFile) == "" {
-				return usageError("--api-token-file must not be empty", "Pass a file containing a bearer token")
-			}
-			if listenAddr == "" {
-				return usageError("--api-token-file requires --listen", "Pass --listen ADDR to start the HTTP listener")
+		for _, name := range []string{"listen", "api-token-file"} {
+			if cmd.IsSet(name) && strings.TrimSpace(cmd.String(name)) == "" {
+				return usageError("--"+name+" must not be empty", "Pass a value or omit the flag to use user config")
 			}
 		}
 		for _, name := range []string{"NOON_PROJECT", "NOON_CONFIG", "NOON_TIMEZONE", "NOON_JSON"} {
@@ -52,13 +40,23 @@ func serveAction(build config.BuildOpts) func(context.Context, *urfave.Command) 
 		if err != nil {
 			return err
 		}
-		stateDir, err := config.StateDirectory(values)
+		stateDir, settings, err := config.ServeSettings(values)
 		if err != nil {
 			return configError(err)
 		}
+		// Each flag overrides its user config setting.
+		if cmd.IsSet("listen") {
+			settings.Listen = cmd.String("listen")
+		}
+		if cmd.IsSet("api-token-file") {
+			settings.APITokenFile = cmd.String("api-token-file")
+		}
+		if settings.APITokenFile != "" && settings.Listen == "" {
+			return usageError("an API token file (--api-token-file or serve.api_token_file) requires a listen address", "Pass --listen ADDR or set serve.listen in user config")
+		}
 		options := scheduler.ServeOptions{
 			StateDir: stateDir, StateDirDefault: values.StateDirDefault,
-			UserConfigDir: values.UserConfigDir, Version: build.Version, Commit: build.Commit, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: listenAddr, APITokenFile: apiTokenFile,
+			UserConfigDir: values.UserConfigDir, Version: build.Version, Commit: build.Commit, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: settings.Listen, APITokenFile: settings.APITokenFile,
 		}
 		if err := scheduler.Serve(ctx, options); err != nil {
 			var running *scheduler.SchedulerRunningError

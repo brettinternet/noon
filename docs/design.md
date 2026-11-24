@@ -539,7 +539,9 @@ No plugin system; commands are the integration boundary (decision-4).
 - **Shell** ([doc](shell.md)): completion only reads config. `--on-enter` detects canonical project
   changes per shell, uses the checkout's recorded config and the normal queue with an atomic pause
   check, and stores directories as data. Nothing edits startup files or the parent environment.
-- **Webhooks** ([doc](webhooks.md)): only with `serve --listen`. `POST /hooks/{project_id}/{job}`
+- **Webhooks** ([doc](webhooks.md)): only with a listener, from `serve --listen` or `serve.listen`
+  in user config (never repository or `--config` files, so a commit can't open a port; flags
+  override settings, read once at startup). `POST /hooks/{project_id}/{job}`
   needs an HMAC-SHA256 signature; the secret comes from the scheduler's startup environment.
   Delivery IDs are idempotency keys. Payloads choose data, never commands.
 - **Event files**: `schema_version`, `source` (`cli`, `mcp`, `api`, `webhook`), `received_at`, `data`, and
@@ -548,11 +550,11 @@ No plugin system; commands are the integration boundary (decision-4).
   `list_projects`, `list_jobs`, `run_job`, `list_runs`, `get_run`, `cancel_run`. HTTP MCP has no
   default project and only reaches enabled projects. Agents can't approve, add, or edit unattended
   commands. `noon skill` prints the shell-only fallback unchanged; it's never auto-installed.
-- **Remote JSON API** ([reference](cli.md#remote-api-and-mcp-over-http)): with
-  `serve --listen --api-token-file`, routes under `/v1/` expose only the inspect, queue, read, and
-  cancel operations shared with MCP. The shared bearer token is read once from a file, checked
-  before routing, and never inherited by jobs or hooks. Only enabled projects and their runs are
-  reachable; `/healthz` remains unauthenticated, and webhooks retain HMAC authentication.
+- **Remote JSON API** ([reference](cli.md#remote-api-and-mcp-over-http)): with a listener and an
+  API token file (`--api-token-file` or `serve.api_token_file`), routes under `/v1/` expose only
+  the inspect, queue, read, and cancel operations shared with MCP. The shared bearer token is read
+  once from a file, checked before routing, and never inherited by jobs or hooks. Only enabled
+  projects and their runs are reachable; `/healthz` remains unauthenticated, and webhooks retain HMAC authentication.
 - **Crontab import** ([doc](crontab.md)): preview by default; unsupported features fail with line
   numbers.
 - Outbound HTTP is a command (`run: [curl, -fsS, …]`), not a built-in action.
@@ -573,7 +575,7 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 | `noon.yaml`, `--config` file | Repository or operator content | Unattended runs need the approved digest; manual runs are explicit |
 | Scripts, prompt files, and env files | Not pinned | Approval covers what and when, not file contents |
 | MCP clients and authenticated HTTP API clients | Inspect, queue approved jobs, read logs, cancel runs; MCP also attaches bounded temporary schedules to approved jobs | Can't add, edit, enable, disable, approve, pause, or resume jobs; identity is metadata |
-| HTTP API bearer token | One shared token read from `--api-token-file` | Required before `/v1/` and `/mcp` routing; never logged, persisted, echoed, or passed to jobs/hooks |
+| HTTP API bearer token | One shared token read from `--api-token-file` or user `serve.api_token_file` | Required before `/v1/` and `/mcp` routing; never logged, persisted, echoed, or passed to jobs/hooks |
 | Webhooks | HMAC-authenticated data | Never select or build commands; payload is a file |
 | Job and hook output | Untrusted bytes | Stored raw and bounded; never interpreted |
 | Environment values | Secret by default | Never printed by list, status, JSON, or MCP |

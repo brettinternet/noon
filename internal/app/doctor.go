@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,6 +58,7 @@ func Doctor(ctx context.Context, input config.Input, now time.Time, build config
 				add("vars_file", "warn", varsFile.Configured+" (missing; using expression defaults)", "Create it or correct vars_file")
 			}
 		}
+		listenerChecks(cfg.Serve, add)
 	} else if strings.Contains(configErr.Error(), "timezone") {
 		add("timezone", "fail", configErr.Error(), "Set a valid IANA timezone")
 	}
@@ -189,6 +191,43 @@ func Doctor(ctx context.Context, input config.Input, now time.Time, build config
 		}
 	}
 	return result
+}
+
+// listenerChecks reviews user-config listener settings without opening a port.
+// Messages name the token file, never its contents.
+func listenerChecks(serve config.Serve, add func(name, status, message, hint string)) {
+	if serve.Listen != "" {
+		if loopback(serve.Listen) {
+			add("listener", "ok", serve.Listen, "")
+		} else {
+			add("listener", "warn", serve.Listen+" is not a loopback address", "Bind 127.0.0.1, or keep the path to it private (loopback, a tailnet, or a VPN)")
+		}
+	}
+	if serve.APITokenFile == "" {
+		return
+	}
+	if _, err := config.ReadTokenFile(serve.APITokenFile); err != nil {
+		add("api_token_file", "fail", err.Error(), "umask 077; openssl rand -base64 32 > "+serve.APITokenFile)
+		return
+	}
+	info, err := os.Stat(serve.APITokenFile)
+	if err == nil && info.Mode().Perm()&0o077 != 0 {
+		add("api_token_file", "warn", serve.APITokenFile+" is accessible by group or others", "chmod 600 "+serve.APITokenFile)
+		return
+	}
+	add("api_token_file", "ok", serve.APITokenFile, "")
+}
+
+func loopback(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func writableState(path string) error {

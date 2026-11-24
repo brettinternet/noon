@@ -187,3 +187,72 @@ func TestListJSONWebhookPath(t *testing.T) {
 		t.Fatalf("webhook path = %q", path)
 	}
 }
+
+func TestListenerSettingsInConfigAndDoctor(t *testing.T) {
+	root := sandbox(t)
+	run := func(args ...string) (int, string) {
+		t.Helper()
+		var out, stderr bytes.Buffer
+		code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)
+		return code, out.String() + stderr.String()
+	}
+	if code, output := run("config"); code != 0 || !strings.Contains(output, "Listener:      off\n") {
+		t.Fatalf("no listener: exit=%d output=%s", code, output)
+	}
+	userFile := filepath.Join(root, "user", "noon", "config.yaml")
+	tokenFile := filepath.Join(root, "api-token")
+	token := strings.Repeat("s", 40)
+	writeUser := func(data string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(userFile), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(userFile, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeUser("serve:\n  listen: 127.0.0.1:8787\n  api_token_file: ~/api-token\n")
+	if err := os.WriteFile(tokenFile, []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, output := run("config"); code != 0 || !strings.Contains(output, "Listener:      127.0.0.1:8787 (API)\n") {
+		t.Fatalf("listener with API: exit=%d output=%s", code, output)
+	}
+	doctor := func() (int, map[string]app.Check, string) {
+		t.Helper()
+		code, output := run("doctor", "--json")
+		var view app.DoctorView
+		if err := json.Unmarshal([]byte(output), &view); err != nil {
+			t.Fatalf("doctor json: %v: %s", err, output)
+		}
+		checks := map[string]app.Check{}
+		for _, check := range view.Checks {
+			checks[check.Name] = check
+		}
+		return code, checks, output
+	}
+	if _, checks, output := doctor(); checks["api_token_file"].Status != "ok" || checks["listener"].Status != "ok" || strings.Contains(output, token) {
+		t.Fatalf("healthy listener: %s", output)
+	}
+	if err := os.Chmod(tokenFile, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeUser("serve:\n  listen: 0.0.0.0:8787\n  api_token_file: ~/api-token\n")
+	if _, checks, output := doctor(); checks["api_token_file"].Status != "warn" || checks["listener"].Status != "warn" || strings.Contains(output, token) {
+		t.Fatalf("readable token and public address should warn: %s", output)
+	}
+	for name, data := range map[string]string{"short": strings.Repeat("s", 31), "unreadable": ""} {
+		if name == "unreadable" {
+			if err := os.Remove(tokenFile); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := os.WriteFile(tokenFile, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		code, checks, output := doctor()
+		check := checks["api_token_file"]
+		if code == 0 || check.Status != "fail" || !strings.Contains(check.Message, tokenFile) || strings.Contains(output, token) {
+			t.Fatalf("%s token: exit=%d %s", name, code, output)
+		}
+	}
+}

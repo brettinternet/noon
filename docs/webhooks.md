@@ -34,7 +34,9 @@ export NOON_GITHUB_WEBHOOK_SECRET='the-secret-you-gave-github'
 noon serve --listen 127.0.0.1:8787
 ```
 
-Add `--api-token-file FILE` to also serve the remote API. The secret is read once at startup; if
+Add `--api-token-file FILE` to also serve the remote API. To run the listener under
+[`noon service install`](service.md#background-listener), set
+[`serve.listen`](configuration.md#listener) in user config instead. The secret is read once at startup; if
 it's missing or empty, that endpoint is off and `noon status` and `noon doctor` report a config error.
 
 ## 4. Add the GitHub webhook

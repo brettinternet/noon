@@ -457,3 +457,56 @@ func TestLoadDoesNotIgnoreBrokenConfigLink(t *testing.T) {
 		t.Fatal("broken configuration link silently ignored")
 	}
 }
+
+// A cloned or pulled repository must never open a port: serve is user-only.
+func TestServeSettingsAreUserOnly(t *testing.T) {
+	root := canonical(t, t.TempDir())
+	t.Setenv("HOME", root)
+	project := filepath.Join(root, "repo")
+	userDir := filepath.Join(root, "user")
+	userFile := filepath.Join(userDir, "noon", "config.yaml")
+	defaultState := filepath.Join(root, "state", "noon")
+	block := "serve:\n  listen: 127.0.0.1:8787\n"
+	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	explicit := filepath.Join(root, "explicit.yaml")
+	for name, path := range map[string]string{
+		"noon.yaml":      filepath.Join(project, "noon.yaml"),
+		".git/noon.yaml": filepath.Join(project, ".git", "noon.yaml"),
+		"fragment":       filepath.Join(project, ".git", "noon.d", "web.yaml"),
+		"--config":       explicit,
+	} {
+		put(t, path, block)
+		input := config.Input{CWD: project, UserConfigDir: userDir, StateDirDefault: defaultState}
+		if name == "--config" {
+			input.File = &explicit
+		}
+		_, err := config.Load(input)
+		if err == nil || !strings.Contains(err.Error(), "user config "+userFile) {
+			t.Fatalf("%s: serve must be rejected naming user config: %v", name, err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	put(t, userFile, "serve:\n  listen: 127.0.0.1:8787\n  api_token_file: secrets/api-token\n")
+	cfg, err := config.Load(config.Input{CWD: project, UserConfigDir: userDir, StateDirDefault: defaultState})
+	if err != nil || cfg.Serve.APITokenFile != filepath.Join(userDir, "noon", "secrets", "api-token") || cfg.Serve.Listen != "127.0.0.1:8787" {
+		t.Fatalf("relative token path = %+v, err=%v", cfg.Serve, err)
+	}
+	put(t, userFile, "serve:\n  listen: 127.0.0.1:8787\n  api_token_file: ~/api-token\n")
+	_, serve, err := config.ServeSettings(config.Input{CWD: root, UserConfigDir: userDir, StateDirDefault: defaultState})
+	if err != nil || serve.APITokenFile != filepath.Join(root, "api-token") {
+		t.Fatalf("~ token path = %+v, err=%v", serve, err)
+	}
+	// Pairing is checked against flags by serve, but a lone token file is a config error.
+	put(t, userFile, "serve:\n  api_token_file: /token\n")
+	if _, _, err := config.ServeSettings(config.Input{CWD: root, UserConfigDir: userDir, StateDirDefault: defaultState}); err != nil {
+		t.Fatalf("serve settings must leave pairing to flags: %v", err)
+	}
+	if _, err := config.Load(config.Input{CWD: project, UserConfigDir: userDir, StateDirDefault: defaultState}); err == nil || !strings.Contains(err.Error(), "requires serve.listen") {
+		t.Fatalf("lone token file should fail validation: %v", err)
+	}
+}

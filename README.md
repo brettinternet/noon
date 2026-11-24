@@ -52,7 +52,9 @@ noon service install   # per-user launchd/systemd service; reconciles upgrades
 noon serve             # or run in the foreground
 ```
 
-Restarts interrupt active jobs. Config edits and `env_file` changes need no restart. See
+Restarts interrupt active jobs. Config edits and `env_file` changes need no restart. To serve
+webhooks or the remote API in the background, set [`serve`](docs/configuration.md#listener) in user
+config and run `noon service restart`. See
 [upgrades and migration](docs/service.md#upgrades).
 
 ## Quick start
