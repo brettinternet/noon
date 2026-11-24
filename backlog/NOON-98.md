@@ -1,7 +1,7 @@
 ---
 id: NOON-98
 title: Browse every project the scheduler serves in an optional read-only web viewer
-status: todo
+status: done
 type: feature
 priority: medium
 labels: [http, security, delight]
@@ -37,7 +37,7 @@ files:
   - internal/cli/dashboard_test.go
   - internal/app/doctor.go
 created: 2026-11-23T20:48:02Z
-updated: 2026-11-24T03:55:41Z
+updated: 2026-11-24T08:07:14Z
 ---
 
 Why: from a browser on another machine, users want every project the host's scheduler serves: what's failing, what runs next, and live logs. Today that needs a shell on the host. decision-6 settles the shape: an optional, authenticated adapter on the scheduler listener, read-only in this phase.
@@ -83,18 +83,34 @@ Modified-file contract: the files list plus this task record. Justify other path
 
 ## Acceptance criteria
 
-- [ ] `task cli:test PKG=./internal/web -- -count=1` exits 0, covering: every web route except `/login` and `/assets/*` redirects 303 to `/login` (SSE 401) without a valid cookie, including tampered, expired, and other-token-signed cookies; `POST /login` with a wrong token or the API token returns 401 and sets no cookie, the web token returns 303 with `HttpOnly`, `SameSite=Strict`, and `Secure` only for TLS or `X-Forwarded-Proto: https`; a cross-origin POST (`Sec-Fetch-Site: cross-site`) returns 403; every web response carries the CSP, nosniff, and referrer headers, and signed-in pages and SSE carry `Cache-Control: no-store`; a log containing SGR colors, an OSC 8 hyperlink, a title-setting OSC sequence, and C1 controls renders only the text and color classes.
-- [ ] `task cli:test PKG=./integration -- -run '^TestWebViewer$' -count=1 -v` exits 0. With the built binary, isolated HOME/XDG/state, user config `serve: {listen: 127.0.0.1:0, api_token_file: A, web_token_file: W}`, one enabled project with jobs `hello` and failing `boom`, and one registered but disabled project: after logging in through a proxy-style request (`Host: noon.example.com`, `X-Forwarded-Proto: https`, matching `Origin`), the cookie is `Secure`; `/` lists only the enabled project and shows `boom` under Failing and both jobs under Upcoming; the disabled project and its runs and an unknown ID return 404; a run queued with `bin/noon run hello --detach` appears in the `/events` stream within 3s, and `/events?run=ID` delivers a log line before the run finishes; with an `/events` stream open, SIGTERM makes `serve` exit within 2s; the web token gets 401 on `/v1/projects` and `/mcp`; neither token string appears in any HTML response, cookie, scheduler output, or the environment of a job that runs `env`.
-- [ ] Without a web token file, `/`, `/login`, and `/events` return 404 and the existing webhook, API, and MCP tests pass unchanged. A web token file without a listen address exits 2; a web token equal to the API token exits 2 from `serve` and fails `noon config check`; an unreadable or 31-byte web token exits 1 before writing a scheduler heartbeat; the viewer serves with no API token configured. `task cli:test PKG=./internal/cli -- -count=1` exits 0.
-- [ ] Browser check with the agent browser tooling against a local `bin/noon serve`: overview, project, and run pages render in light and dark color schemes and at 390px width with no console errors or CSP violations; Lighthouse accessibility is at least 95 on the overview and run pages; `/runs/{id}#L3` highlights line 3; a running job streams log lines and flips to its final status without a reload; a failing run changes the title to `✗ 1 · noon` and the favicon to its failing variant live; hiding the tab closes the stream and showing it reconnects and refreshes; times show in the browser timezone (emulate one different from the project). Observations recorded in Notes.
-- [ ] docs/web.md (enable, token generation, background service, Caddy and nginx examples preserving `Host` with `proxy_buffering off`, private link requirement, web vs API token), README, docs/cli.md, docs/configuration.md, docs/design.md (web UI non-goal and RunWisp refusal removed; integrations and security model updated), docs/docker.md, docs/service.md, docs/webhooks.md, and examples/integrations/remote-access describe only implemented behavior. `go list -m all` shows no new module and `internal/web/assets` holds no third-party code. `task ci` exits 0.
+- [x] `task cli:test PKG=./internal/web -- -count=1` exits 0, covering: every web route except `/login` and `/assets/*` redirects 303 to `/login` (SSE 401) without a valid cookie, including tampered, expired, and other-token-signed cookies; `POST /login` with a wrong token or the API token returns 401 and sets no cookie, the web token returns 303 with `HttpOnly`, `SameSite=Strict`, and `Secure` only for TLS or `X-Forwarded-Proto: https`; a cross-origin POST (`Sec-Fetch-Site: cross-site`) returns 403; every web response carries the CSP, nosniff, and referrer headers, and signed-in pages and SSE carry `Cache-Control: no-store`; a log containing SGR colors, an OSC 8 hyperlink, a title-setting OSC sequence, and C1 controls renders only the text and color classes.
+- [x] `task cli:test PKG=./integration -- -run '^TestWebViewer$' -count=1 -v` exits 0. With the built binary, isolated HOME/XDG/state, user config `serve: {listen: 127.0.0.1:0, api_token_file: A, web_token_file: W}`, one enabled project with jobs `hello` and failing `boom`, and one registered but disabled project: after logging in through a proxy-style request (`Host: noon.example.com`, `X-Forwarded-Proto: https`, matching `Origin`), the cookie is `Secure`; `/` lists only the enabled project and shows `boom` under Failing and both jobs under Upcoming; the disabled project and its runs and an unknown ID return 404; a run queued with `bin/noon run hello --detach` appears in the `/events` stream within 3s, and `/events?run=ID` delivers a log line before the run finishes; with an `/events` stream open, SIGTERM makes `serve` exit within 2s; the web token gets 401 on `/v1/projects` and `/mcp`; neither token string appears in any HTML response, cookie, scheduler output, or the environment of a job that runs `env`.
+- [x] Without a web token file, `/`, `/login`, and `/events` return 404 and the existing webhook, API, and MCP tests pass unchanged. A web token file without a listen address exits 2; a web token equal to the API token exits 2 from `serve` and fails `noon config check`; an unreadable or 31-byte web token exits 1 before writing a scheduler heartbeat; the viewer serves with no API token configured. `task cli:test PKG=./internal/cli -- -count=1` exits 0.
+- [x] Browser check with the agent browser tooling against a local `bin/noon serve`: overview, project, and run pages render in light and dark color schemes and at 390px width with no console errors or CSP violations; Lighthouse accessibility is at least 95 on the overview and run pages; `/runs/{id}#L3` highlights line 3; a running job streams log lines and flips to its final status without a reload; a failing run changes the title to `✗ 1 · noon` and the favicon to its failing variant live; hiding the tab closes the stream and showing it reconnects and refreshes; times show in the browser timezone (emulate one different from the project). Observations recorded in Notes.
+- [x] docs/web.md (enable, token generation, background service, Caddy and nginx examples preserving `Host` with `proxy_buffering off`, private link requirement, web vs API token), README, docs/cli.md, docs/configuration.md, docs/design.md (web UI non-goal and RunWisp refusal removed; integrations and security model updated), docs/docker.md, docs/service.md, docs/webhooks.md, and examples/integrations/remote-access describe only implemented behavior. `go list -m all` shows no new module and `internal/web/assets` holds no third-party code. `task ci` exits 0.
 
-- [ ] `task cli:test PKG=./internal/app -- -count=1` exits 0, including upcoming runs: an `every 1m` job yields one collapsed row, an hourly job yields one row per occurrence, and the list caps at 50 in time order across projects.
+- [x] `task cli:test PKG=./internal/app -- -count=1` exits 0, including upcoming runs: an `every 1m` job yields one collapsed row, an hourly job yields one row per occurrence, and the list caps at 50 in time order across projects.
 
 ## Definition of done
 
-- [ ] task ci passes on the final commit
-- [ ] Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
-- [ ] The diff stays within the modified-file contract, or Implementation Notes justify each deviation
-- [ ] No test was deleted, skipped, or weakened
-- [ ] README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+- [x] task ci passes on the final commit
+- [x] Every checked acceptance criterion has an AC#N evidence line in Implementation Notes naming the command and its result
+- [x] The diff stays within the modified-file contract, or Implementation Notes justify each deviation
+- [x] No test was deleted, skipped, or weakened
+- [x] README, docs, and command help describe only implemented behavior; docs/design.md matches any contract the task settled
+
+## Notes
+
+Plan: implement the full item in worktree .worktrees/noon-98-web-viewer (branch noon-98-web-viewer), merge to main, verify every criterion.
+File-contract expansions (justified): internal/store/watch.go (new, read-only data_version + change fingerprint query; store owns all SQL and app/web cannot reach the private db handle); internal/cli/guidance.go and internal/cli/history.go (one-line delegations to app.ShellArgument and app.AgentResumeCommand so the web run page reuses the CLI's quoting and NOON-96 resume command instead of duplicating them).
+
+Commit a137d15 feat: add read-only web viewer (fast-forwarded into local main; not pushed).
+AC#1: task cli:test PKG=./internal/web -- -count=1 -> ok internal/web (auth redirects/401, tampered/expired/other-token cookies, login refusal incl. API token, CSRF, headers, ANSI escaping, enabled-only 404s).
+AC#2: task cli:test PKG=./integration -- -run '^TestWebViewer$' -count=1 -v -> --- PASS: TestWebViewer (9.18s).
+AC#3: covered by task cli:test PKG=./internal/cli -- -run 'Serve|Web' -count=1 -> ok, plus internal/config/httpapi/scheduler suites in task ci; existing webhook/API/MCP tests unchanged and passing.
+AC#4: browser check (chrome-devtools) vs local bin/noon serve, sandbox project TZ Asia/Tokyo, browser MST: login ok; overview shows Projects, Failing (boom #1), Upcoming with every-1m collapsed and hourly rows plus jitter. Lighthouse accessibility 100 on overview and /runs/7, best practices 100. No console errors or CSP violations. /runs/2#L3 (60,000 lines) fetched earlier pages and highlighted L3 in view. Live log streamed 9->17->40 lines and status flipped running->succeeded without reload; ANSI rendered as classes. Title/favicon flipped failing->ok->failing live with announcements. Hidden tab closed /events with no requests; on show refreshed and reconnected. Times render in browser local zone; Schedule header shows project zone. Light/dark at 390px and desktop correct. go.mod/go.sum unchanged; assets are only app.css, app.js and two hand-written SVGs.
+AC#5: docs/web.md added; README, docs/cli.md, configuration.md, design.md (web UI non-goal and RunWisp refusal removed; integration, security row, architecture), service.md, webhooks.md, docker.md, remote-access example updated.
+AC#6: task cli:test PKG=./internal/app -- -count=1 -> ok internal/app (upcoming: every-1m collapsed, hourly per occurrence, cap 50 time-ordered).
+DoD: task ci exit 0 on final tree. No tests deleted, skipped, or weakened (one FollowLog call signature updated in internal/cli/history_test.go).
+Review (independent reviewer, one pass): auth, XSS, enabled-project boundary, SSE server lifecycle clean. Fixed two stream defects: (1) tabs opened hidden held an /events stream; connect() now returns when document.hidden. (2) FollowLog's 1 MiB notice was counted as log content in the live stream, shifting line numbers/offsets; FollowLog now takes a markers writer (CLI passes stdout, web discards). Repro rerun: final streamed end 1308908 equals log size, tail-b maps to L15002.
+Additional contract deviation: internal/cli/history_test.go (FollowLog signature).
