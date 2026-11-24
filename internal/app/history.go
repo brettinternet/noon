@@ -474,7 +474,8 @@ func GetRun(ctx context.Context, stateDir string, id int64, waitSeconds int, que
 }
 
 // FollowLog waits for queued runs, then streams live growth until completion or owner exit.
-func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tail *int, out, notices io.Writer, timestamps bool) error {
+// Markers receives text that Noon inserts into the log stream, which isn't log content.
+func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tail *int, out, markers, notices io.Writer, timestamps bool) error {
 	state, err := store.OpenExisting(stateDir)
 	if err != nil {
 		return err
@@ -539,9 +540,9 @@ func FollowLog(ctx context.Context, stateDir string, id int64, after *int64, tai
 	}
 	writeUnavailable := func(data []byte) error {
 		if timestamps {
-			return stream.write(out, data, 0, nil, true)
+			return stream.write(markers, data, 0, nil, true)
 		}
-		n, err := out.Write(data)
+		n, err := markers.Write(data)
 		if err != nil {
 			return err
 		}

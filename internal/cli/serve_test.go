@@ -28,6 +28,7 @@ func TestServeCLIRestrictionsAndStatus(t *testing.T) {
 		{"serve", "--project", root},
 		{"serve", "--api-token-file", "secret"},
 		{"serve", "--api-token-file="},
+		{"serve", "--web-token-file="},
 	} {
 		var out, stderr bytes.Buffer
 		code := cli.Run(context.Background(), append([]string{"noon"}, args...), config.BuildOpts{}, &out, &stderr)
@@ -254,5 +255,64 @@ func TestListenerSettingsInConfigAndDoctor(t *testing.T) {
 		if code == 0 || check.Status != "fail" || !strings.Contains(check.Message, tokenFile) || strings.Contains(output, token) {
 			t.Fatalf("%s token: exit=%d %s", name, code, output)
 		}
+	}
+
+	// The web token gets the same checks, and must differ from the API token.
+	webFile := filepath.Join(root, "web-token")
+	webToken := strings.Repeat("w", 40)
+	for path, data := range map[string]string{tokenFile: token, webFile: webToken} {
+		if err := os.WriteFile(path, []byte(data+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeUser("serve:\n  listen: 127.0.0.1:8787\n  api_token_file: ~/api-token\n  web_token_file: ~/web-token\n")
+	if code, output := run("config"); code != 0 || !strings.Contains(output, "Listener:      127.0.0.1:8787 (API, web)\n") {
+		t.Fatalf("listener with API and web: exit=%d output=%s", code, output)
+	}
+	if code, checks, output := doctor(); code != 0 || checks["web_token_file"].Status != "ok" || strings.Contains(output, webToken) {
+		t.Fatalf("healthy web token: exit=%d %s", code, output)
+	}
+	if err := os.WriteFile(webFile, []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, output := run("config", "check"); code == 0 || !strings.Contains(output, "web token must differ") || strings.Contains(output, token) {
+		t.Fatalf("reused token config check: exit=%d output=%s", code, output)
+	}
+	if code, checks, output := doctor(); code == 0 || checks["web_token_file"].Status != "fail" || strings.Contains(output, token) {
+		t.Fatalf("reused token doctor: exit=%d %s", code, output)
+	}
+	if code, output := run("serve"); code != 2 || strings.Contains(output, token) {
+		t.Fatalf("reused token serve: exit=%d output=%s", code, output)
+	}
+
+	// Unusable web tokens stop serve before it writes a heartbeat.
+	stateDir := filepath.Join(root, "state", "noon")
+	for name, data := range map[string]string{"short": strings.Repeat("w", 31), "unreadable": ""} {
+		if name == "unreadable" {
+			if err := os.Remove(webFile); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := os.WriteFile(webFile, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if code, output := run("serve"); code != 1 || !strings.Contains(output, webFile) {
+			t.Fatalf("%s web token serve: exit=%d output=%s", name, code, output)
+		}
+		if state, err := store.OpenExisting(stateDir); err == nil {
+			_, exists, err := state.SchedulerInfo()
+			_ = state.Close()
+			if err != nil || exists {
+				t.Fatalf("%s web token wrote a heartbeat: exists=%t err=%v", name, exists, err)
+			}
+		}
+	}
+
+	writeUser("serve:\n  web_token_file: ~/web-token\n")
+	if code, output := run("config", "check"); code == 0 || !strings.Contains(output, "serve.web_token_file") {
+		t.Fatalf("web token without listen in config: exit=%d output=%s", code, output)
+	}
+	writeUser("")
+	if code, output := run("serve", "--web-token-file", webFile); code != 2 {
+		t.Fatalf("--web-token-file without a listener: exit=%d output=%s", code, output)
 	}
 }

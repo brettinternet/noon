@@ -1,0 +1,44 @@
+{{define "head"}}<!doctype html>
+<html lang="en" data-version="{{.Version}}" data-seq="{{.Seq}}" data-failing="{{.Failing}}" data-title="{{.Title}}" data-assets="{{.Assets}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{if .Failing}}✗ {{.Failing}} · {{end}}{{.Title}}</title>
+<link rel="icon" type="image/svg+xml" href="{{.Assets}}{{if .Failing}}favicon-failing.svg{{else}}favicon-ok.svg{{end}}">
+<link rel="stylesheet" href="{{.Assets}}app.css">
+{{if .SignedIn}}<script src="{{.Assets}}app.js" defer></script>{{end}}
+</head>
+<body>
+<header>
+<a class="home" href="/">noon</a>
+{{if .SignedIn}}<form method="post" action="/logout"><button type="submit">Sign out</button></form>{{end}}
+</header>
+<p id="announce" class="visually-hidden" role="status" aria-live="polite"></p>
+{{end}}
+
+{{define "foot"}}</body>
+</html>
+{{end}}
+
+{{define "time"}}{{if .}}<time datetime="{{.ISO}}">{{.Text}}</time>{{else}}—{{end}}{{end}}
+
+{{define "status"}}<span class="status {{.Class}}"><span aria-hidden="true">{{.Glyph}}</span> {{.Name}}</span>{{end}}
+
+{{define "command"}}<span class="command"><code>{{.}}</code><button type="button" data-copy="{{.}}">Copy</button></span>{{end}}
+
+{{define "error"}}{{template "head" .}}
+<main><h1>{{.Data}}</h1><p><a href="/">Overview</a></p></main>
+{{template "foot" .}}{{end}}
+
+{{define "login"}}{{template "head" .}}
+<main class="login">
+<h1>Sign in</h1>
+<form method="post" action="/login">
+{{if and .Data .Data.Failed}}<p class="bad" role="alert">Wrong token.</p>{{end}}
+<label for="token">Web token</label>
+<input id="token" name="token" type="password" autocomplete="current-password" required autofocus>
+<button type="submit">Sign in</button>
+</form>
+</main>
+{{template "foot" .}}{{end}}

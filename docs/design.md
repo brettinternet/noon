@@ -23,14 +23,14 @@ Jobs to be done:
 | cron, launchd, systemd timers | Five-field schedules; launchd's single catch-up run after sleep | Per-OS setup, silent failure, no history, minimal-PATH surprises |
 | [Supercronic](https://github.com/aptible/supercronic) | Foreground container process, inherited environment, overlap awareness | Crontab as the only format |
 | [schedx](https://github.com/Alireza29675/schedx) | Repo manifests, agent profiles, one-shot jobs, JSON everywhere | A per-minute OS timer tick as the execution model |
-| [RunWisp](https://github.com/runwisp/runwisp) | Missed-run and overlap policies, bounded logs, honest interrupted runs, validate-first reload | Web dashboard, long-running services, notification-provider catalog |
+| [RunWisp](https://github.com/runwisp/runwisp) | Missed-run and overlap policies, bounded logs, honest interrupted runs, validate-first reload, a web view of runs | Long-running services, notification-provider catalog |
 | [Dagu](https://github.com/dagucloud/dagu) | Declarative jobs, run history, MCP | DAGs and a workflow platform |
 | Claude Code scheduled tasks | One catch-up run after sleep, per-task permissions | Vendor lock-in; the app must stay open |
 | [pueue](https://github.com/Nukesor/pueue) | Persisted queue, follow/wait ergonomics | General-purpose task queue |
 | [herdr-sched](https://github.com/husniadil/herdr-sched), [mcp-cron](https://github.com/jolks/mcp-cron) | Named triggers, cooldowns, durable schedules over MCP | Agents granting themselves authority |
 | hum (sibling) | Process groups, start-identity checks, strict YAML, JSON v1 envelopes | Supervising long-running services |
 
-Non-goals: supervising long-running services (use hum), DAGs or job dependencies, a web UI,
+Non-goals: supervising long-running services (use hum), DAGs or job dependencies,
 multi-host scheduling, a secrets manager, provider SDKs or model credentials, LLM-parsed schedules,
 a plugin ABI, a second live job format (crontabs are imported), a container per job, and native
 Windows for now. No source code was copied from the references.
@@ -555,6 +555,13 @@ No plugin system; commands are the integration boundary (decision-4).
   the inspect, queue, read, and cancel operations shared with MCP. The shared bearer token is read
   once from a file, checked before routing, and never inherited by jobs or hooks. Only enabled
   projects and their runs are reachable; `/healthz` remains unauthenticated, and webhooks retain HMAC authentication.
+- **Web viewer** ([doc](web.md)): with a listener and a web token file (`--web-token-file` or
+  `serve.web_token_file`), the scheduler serves read-only pages at `/` from `internal/web`, using
+  the same `internal/app` reads as the CLI, TUI, and MCP. Only enabled projects and their runs are
+  reachable. One watcher polls SQLite's `data_version` and pushes changes over server-sent events,
+  capped at 32 streams and closed at shutdown. Standard library only: server-rendered
+  `html/template` pages, one embedded script and stylesheet, no third-party code. Without the
+  token file every web route is 404. It never queues, cancels, enables, or approves.
 - **Crontab import** ([doc](crontab.md)): preview by default; unsupported features fail with line
   numbers.
 - Outbound HTTP is a command (`run: [curl, -fsS, …]`), not a built-in action.
@@ -576,6 +583,7 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 | Scripts, prompt files, and env files | Not pinned | Approval covers what and when, not file contents |
 | MCP clients and authenticated HTTP API clients | Inspect, queue approved jobs, read logs, cancel runs; MCP also attaches bounded temporary schedules to approved jobs | Can't add, edit, enable, disable, approve, pause, or resume jobs; identity is metadata |
 | HTTP API bearer token | One shared token read from `--api-token-file` or user `serve.api_token_file` | Required before `/v1/` and `/mcp` routing; never logged, persisted, echoed, or passed to jobs/hooks |
+| Web token and session cookie | One shared token read from `--web-token-file` or user `serve.web_token_file`, distinct from the API token; login sets a 30-day `HttpOnly`, `SameSite=Strict` cookie holding an expiry and an HMAC keyed by the token | Reads every enabled project's runs and logs; never accepted by `/v1/` or `/mcp`; cross-origin posts refused; pages send a strict CSP and `no-store`; never logged, echoed, or passed to jobs/hooks |
 | Webhooks | HMAC-authenticated data | Never select or build commands; payload is a file |
 | Job and hook output | Untrusted bytes | Stored raw and bounded; never interpreted |
 | Environment values | Secret by default | Never printed by list, status, JSON, or MCP |
@@ -593,6 +601,7 @@ container's or OS's job.
 cmd/noon ─▶ internal/cli ─┐
 internal/mcp ─────────────┼─▶ internal/app ─▶ internal/config     (files, jobs, digests; reads only)
 internal/httpapi ─────────┤                 ├▶ internal/schedule   (pure grammar and next-time math)
+internal/web ─────────────┤                 │
 internal/tui ─────────────┘                 ├▶ internal/store      (SQLite, logs, locks, recovery)
                                             ├▶ internal/runner     (processes, env, timeouts, capture)
                                             └▶ internal/scheduler  (pure planner + serve loop)

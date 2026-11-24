@@ -13,7 +13,7 @@ func TestListenerAuthenticationPrecedesRouting(t *testing.T) {
 	webhooks.SetHealthy(true)
 	api := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) })
 	mcp := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	handler := NewListenerHandler(webhooks, api, mcp, []byte(token))
+	handler := NewListenerHandler(webhooks, api, mcp, nil, []byte(token))
 	for _, request := range []*http.Request{
 		httptest.NewRequest(http.MethodGet, "/v1/unknown", nil),
 		httptest.NewRequest(http.MethodDelete, "/v1/projects/1", nil),
@@ -40,7 +40,7 @@ func TestListenerAuthenticationPrecedesRouting(t *testing.T) {
 		t.Fatalf("unauthenticated health status=%d body=%s", health.Code, health.Body)
 	}
 
-	withoutToken := NewListenerHandler(webhooks, api, mcp, nil)
+	withoutToken := NewListenerHandler(webhooks, api, mcp, nil, nil)
 	for _, path := range []string{"/v1/projects", "/mcp"} {
 		missing := httptest.NewRecorder()
 		withoutToken.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, path, nil))

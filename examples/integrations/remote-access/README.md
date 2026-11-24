@@ -1,6 +1,6 @@
 # Remote jobs over HTTPS
 
-**Level:** intermediate · **Shows:** authenticated JSON API, HTTP MCP, Cloudflare Tunnel, optional ngrok
+**Level:** intermediate · **Shows:** authenticated JSON API, HTTP MCP, web viewer, Cloudflare Tunnel, optional ngrok
 
 Run approved jobs on another machine without giving clients a shell. Start locally, then put a
 **named Cloudflare Tunnel** in front of the same listener. The optional ngrok path uses the same
@@ -160,6 +160,24 @@ Ask the agent to call `list_projects`, then `list_jobs` with the returned **serv
 project path**. Call `run_job` with that path, `name: show-event`, and JSON `data`; follow with
 `get_run` using the returned run ID and bounded `wait_seconds`. HTTP MCP has no default project.
 Treat only `succeeded` as completed work, not `noop`, queued, or cancelled results.
+
+## Web viewer
+
+The same tunnel can serve the read-only [web viewer](../../../docs/web.md). In the server terminal
+from step 1, stop `serve`, create a second token, and restart with both:
+
+```sh
+openssl rand -hex 32 > "$noon_demo/web-token"
+noon serve --listen 127.0.0.1:8787 --api-token-file "$noon_demo/api-token" \
+  --web-token-file "$noon_demo/web-token"
+```
+
+Open `http://127.0.0.1:8787/` locally, or `https://noon.example.com/` through the tunnel, and sign
+in with the web token. The web token never works on `/v1/` or `/mcp`, and the API token never
+signs in. `cloudflared` preserves `Host`, sets `X-Forwarded-Proto: https`, and streams responses,
+so live updates and the `Secure` session cookie need no extra settings. The viewer shows every
+enabled project's logs; keep it behind the tunnel and Noon's login, adding Cloudflare Access with
+a browser login policy for another perimeter.
 
 ## Alternative: ngrok
 

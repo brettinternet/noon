@@ -19,8 +19,9 @@ These work before or after the subcommand.
 `--user` conflicts with `-C`, `--config`, and their environment variables, and is rejected by
 `serve`, `service`, `init`, and `shell`.
 
-`noon serve` accepts only `--state-dir`, `--listen ADDR` (signed webhooks), and
-`--api-token-file FILE` (remote API and MCP; needs a listen address). Each project uses the config
+`noon serve` accepts only `--state-dir`, `--listen ADDR` (signed webhooks),
+`--api-token-file FILE` (remote API and MCP), and `--web-token-file FILE` (the
+[web viewer](web.md)); both token files need a listen address. Each project uses the config
 selection recorded by `noon enable`. No listener starts unless `--listen` or
 [`serve.listen`](configuration.md#listener) in user config sets one; each flag overrides its
 setting. Settings are read at startup.
@@ -35,6 +36,7 @@ The token file must hold at least 32 bytes (a trailing newline is dropped) and i
 `/v1/` and `/mcp` request needs `Authorization: Bearer TOKEN`; failures get an empty `401` with
 `WWW-Authenticate: Bearer`. `/healthz` is open, webhooks keep HMAC signatures, and the token is
 never logged, stored, or passed to jobs. Put a TLS reverse proxy in front; Noon has no TLS or CORS.
+The [web viewer](web.md)'s token is never accepted here.
 
 | Method and route | Operation |
 | --- | --- |

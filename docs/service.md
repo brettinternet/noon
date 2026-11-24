@@ -24,7 +24,7 @@ Re-run `noon service install` after changing any of these. An unchanged unit isn
 
 ## Background listener
 
-The unit has no listener flags. To serve webhooks or the remote API in the background, set
+The unit has no listener flags. To serve webhooks, the remote API, or the [web viewer](web.md) in the background, set
 [`serve`](configuration.md#listener) in user config; `noon serve` reads it at startup, so it
 survives reinstalls and upgrades. Run `noon service restart` after changing it.
 

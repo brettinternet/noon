@@ -852,7 +852,7 @@ func TestLogsFollow(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatal("orphan follow did not stop within 3s")
 		}
-		err = app.FollowLog(ctx, stateDir, run.ID, nil, nil, io.Discard, io.Discard, false)
+		err = app.FollowLog(ctx, stateDir, run.ID, nil, nil, io.Discard, io.Discard, io.Discard, false)
 		if failure, ok := err.(*app.Error); !ok || failure.Code != "orphaned" {
 			t.Fatalf("orphan error=%v", err)
 		}

@@ -1,0 +1,115 @@
+:root {
+  color-scheme: light dark;
+  --fg: light-dark(#1f2328, #e6edf3);
+  --muted: light-dark(#59636e, #9198a1);
+  --bg: light-dark(#ffffff, #0d1117);
+  --panel: light-dark(#f6f8fa, #161b22);
+  --line: light-dark(#d1d9e0, #30363d);
+  --link: light-dark(#0969da, #4493f8);
+  --ok: light-dark(#1a7f37, #3fb950);
+  --bad: light-dark(#cf222e, #f85149);
+  --warn: light-dark(#9a6700, #d29922);
+  --running: light-dark(#0969da, #58a6ff);
+  --queued: light-dark(#8250df, #bc8cff);
+  --target: light-dark(#fff8c5, #3b2e00);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+body { margin: 0 auto; max-width: 72rem; padding: 0 1rem 3rem; }
+a { color: var(--link); }
+code, pre, .log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.875rem; }
+h1 { font-size: 1.5rem; margin: 1rem 0 0.25rem; overflow-wrap: anywhere; }
+h2 { font-size: 1.125rem; margin: 2rem 0 0.5rem; }
+
+header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+header form { margin: 0; }
+.home { font-weight: 600; color: var(--fg); text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
+
+a, button, select, input { min-height: 44px; }
+td a, dd a, .path a { display: inline-flex; align-items: center; }
+button, select, input {
+  font: inherit; color: inherit; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 0 0.75rem;
+}
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; vertical-align: top; padding: 0.375rem 0.75rem 0.375rem 0; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; font-size: 0.875rem; }
+/* 44px tap targets overlap the cell padding so wrapped text keeps a normal line height. */
+td { padding-block: 10px; }
+td a, td button { margin-block: -10px; }
+td > code { white-space: nowrap; }
+
+.path { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; margin: 0; }
+.status { white-space: nowrap; }
+.ok { color: var(--ok); }
+.bad { color: var(--bad); }
+.warn { color: var(--warn); }
+.running { color: var(--running); }
+.queued { color: var(--queued); }
+.muted { color: var(--muted); }
+
+.strip { display: flex; flex-wrap: wrap; gap: 20px 2px; }
+.strip .tick { width: 24px; height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.strip .tick::before { content: ""; width: 8px; height: 24px; border-radius: 2px; background: currentColor; }
+
+.command { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; line-height: 1.5; }
+.command code { background: var(--panel); padding: 0.25rem 0.5rem; border-radius: 4px; overflow-wrap: anywhere; }
+[data-copy] { display: none; }
+.js [data-copy] { display: inline-block; }
+
+.filter { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 1rem 0; }
+dt { color: var(--muted); }
+dd { margin: 0; overflow-wrap: anywhere; }
+dd a { min-height: 0; }
+
+pre.prompt, pre.error { background: var(--panel); padding: 0.75rem; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.log { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0; overflow-x: auto; }
+.line { display: grid; grid-template-columns: 4rem 1fr; line-height: 24px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.line a { min-height: 24px; text-align: right; padding-right: 1rem; color: var(--muted); text-decoration: none; user-select: none; }
+.line:target, .line.target { background: var(--target); }
+.empty { color: var(--muted); }
+
+.login form { display: grid; gap: 0.5rem; max-width: 24rem; }
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+  .line { transition: background-color 0.3s; }
+}
+
+@media (max-width: 40rem) {
+  th:nth-child(n+4), td:nth-child(n+4) { display: none; }
+  #overview table:first-of-type th:nth-child(4), #overview table:first-of-type td:nth-child(4) { display: table-cell; }
+  .line { grid-template-columns: 3rem 1fr; }
+}
+
+/* ANSI SGR styles: b, d, i, u, and 16-color foreground (f) and background (g). */
+.b { font-weight: 700; }
+.d { opacity: 0.7; }
+.i { font-style: italic; }
+.u { text-decoration: underline; }
+.f0 { color: light-dark(#24292f, #484f58); } .g0 { background: light-dark(#24292f, #484f58); }
+.f1 { color: light-dark(#cf222e, #ff7b72); } .g1 { background: light-dark(#cf222e, #ff7b72); }
+.f2 { color: light-dark(#116329, #3fb950); } .g2 { background: light-dark(#116329, #3fb950); }
+.f3 { color: light-dark(#4d2d00, #d29922); } .g3 { background: light-dark(#4d2d00, #d29922); }
+.f4 { color: light-dark(#0969da, #58a6ff); } .g4 { background: light-dark(#0969da, #58a6ff); }
+.f5 { color: light-dark(#8250df, #bc8cff); } .g5 { background: light-dark(#8250df, #bc8cff); }
+.f6 { color: light-dark(#1b7c83, #39c5cf); } .g6 { background: light-dark(#1b7c83, #39c5cf); }
+.f7 { color: light-dark(#6e7781, #b1bac4); } .g7 { background: light-dark(#6e7781, #b1bac4); }
+.f8 { color: light-dark(#57606a, #6e7681); } .g8 { background: light-dark(#57606a, #6e7681); }
+.f9 { color: light-dark(#a40e26, #ffa198); } .g9 { background: light-dark(#a40e26, #ffa198); }
+.f10 { color: light-dark(#1a7f37, #56d364); } .g10 { background: light-dark(#1a7f37, #56d364); }
+.f11 { color: light-dark(#633c01, #e3b341); } .g11 { background: light-dark(#633c01, #e3b341); }
+.f12 { color: light-dark(#218bff, #79c0ff); } .g12 { background: light-dark(#218bff, #79c0ff); }
+.f13 { color: light-dark(#a475f9, #d2a8ff); } .g13 { background: light-dark(#a475f9, #d2a8ff); }
+.f14 { color: light-dark(#3192aa, #56d4dd); } .g14 { background: light-dark(#3192aa, #56d4dd); }
+.f15 { color: light-dark(#8c959f, #ffffff); } .g15 { background: light-dark(#8c959f, #ffffff); }

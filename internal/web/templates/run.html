@@ -1,0 +1,27 @@
+{{define "run"}}{{template "head" .}}
+<main id="run">
+{{with .Data}}{{$tz := .Timezone}}
+<section data-swap id="summary">
+<h1>#{{.Run.ID}} {{.Run.Job}}</h1>
+<dl>
+<dt>Project</dt><dd><a href="/projects/{{.Project.ID}}">{{.Project.Name}}</a></dd>
+<dt>Status</dt><dd aria-live="polite">{{template "status" (status .Run.Status)}}</dd>
+<dt>Trigger</dt><dd>{{.Run.Trigger}}</dd>
+{{with .Run.RequestedBy}}<dt>Requested by</dt><dd>{{.}}</dd>{{end}}
+<dt>Started</dt><dd>{{template "time" (stamp .Run.StartedAt $tz)}}</dd>
+<dt>Duration</dt><dd>{{duration .Run.DurationMS}}</dd>
+<dt>Exit code</dt><dd>{{with .Run.ExitCode}}{{.}}{{else}}—{{end}}</dd>
+{{with .Run.Error}}<dt>Error</dt><dd>{{.}}</dd>{{end}}
+</dl>
+{{with .Prompt}}<h2>Prompt</h2><pre class="prompt">{{.}}</pre>{{end}}
+{{with .Resume}}<h2>Resume</h2><p>{{template "command" .}}</p>{{end}}
+</section>
+<section id="log" data-run="{{.Run.ID}}"{{if .Active}} data-after="{{.Log.End}}" data-next="{{.Next}}"{{end}}>
+<h2>Log</h2>
+{{with .Log.Earlier}}<p><a class="earlier" href="?before={{.}}">Earlier</a></p>{{end}}
+{{if .Log.Lines}}<div class="log">{{range .Log.Lines}}<div class="line" id="L{{.Number}}"><a href="#L{{.Number}}">{{.Number}}</a><span>{{ansi .Text}}</span></div>{{end}}</div>
+{{else}}<div class="log"></div><p class="empty">No output.</p>{{end}}
+</section>
+{{end}}
+</main>
+{{template "foot" .}}{{end}}

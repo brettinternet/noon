@@ -51,9 +51,10 @@ deploying or restarting. Host edits made while it runs still need approval.
 - Run `noon init` on the host. In the container it refuses the image's `NOON_STATE_DIR` and can't
   write the read-only mount.
 
-## Remote API and MCP
+## Remote API, MCP, and web viewer
 
-Mount the token as a secret file so jobs never inherit it. Add to the Compose `noon` service:
+Mount each token as a secret file so jobs never inherit it. Add to the Compose `noon` service,
+dropping the token you don't use:
 
 ```yaml
 services:
@@ -62,17 +63,24 @@ services:
       - "127.0.0.1:8787:8787"
     secrets:
       - noon_api_token
+      - noon_web_token
     entrypoint:
       - /bin/sh
       - -c
-      - noon enable && exec noon serve --listen 0.0.0.0:8787 --api-token-file /run/secrets/noon_api_token
+      - >-
+        noon enable && exec noon serve --listen 0.0.0.0:8787
+        --api-token-file /run/secrets/noon_api_token
+        --web-token-file /run/secrets/noon_web_token
 
 secrets:
   noon_api_token:
     file: ./secrets/noon-api-token
+  noon_web_token:
+    file: ./secrets/noon-web-token
 ```
 
-The mounted file must be readable by UID 10001. Put a TLS proxy in front for remote clients.
+The mounted files must be readable by UID 10001, and the two tokens must differ. Put a TLS proxy
+in front for remote clients; see [web viewer](web.md#remote-access) for its proxy settings.
 `noon service install` doesn't take listener flags; run `noon serve` directly or under Docker.
 
 ## Tools and credentials

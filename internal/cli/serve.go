@@ -26,7 +26,7 @@ func serveAction(build config.BuildOpts) func(context.Context, *urfave.Command) 
 		if cmd.IsSet("json") {
 			return usageError("serve does not support --json or NOON_JSON", "Run noon status to inspect scheduler state")
 		}
-		for _, name := range []string{"listen", "api-token-file"} {
+		for _, name := range []string{"listen", "api-token-file", "web-token-file"} {
 			if cmd.IsSet(name) && strings.TrimSpace(cmd.String(name)) == "" {
 				return usageError("--"+name+" must not be empty", "Pass a value or omit the flag to use user config")
 			}
@@ -51,17 +51,26 @@ func serveAction(build config.BuildOpts) func(context.Context, *urfave.Command) 
 		if cmd.IsSet("api-token-file") {
 			settings.APITokenFile = cmd.String("api-token-file")
 		}
+		if cmd.IsSet("web-token-file") {
+			settings.WebTokenFile = cmd.String("web-token-file")
+		}
 		if settings.APITokenFile != "" && settings.Listen == "" {
 			return usageError("an API token file (--api-token-file or serve.api_token_file) requires a listen address", "Pass --listen ADDR or set serve.listen in user config")
 		}
+		if settings.WebTokenFile != "" && settings.Listen == "" {
+			return usageError("a web token file (--web-token-file or serve.web_token_file) requires a listen address", "Pass --listen ADDR or set serve.listen in user config")
+		}
 		options := scheduler.ServeOptions{
 			StateDir: stateDir, StateDirDefault: values.StateDirDefault,
-			UserConfigDir: values.UserConfigDir, Version: build.Version, Commit: build.Commit, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: settings.Listen, APITokenFile: settings.APITokenFile,
+			UserConfigDir: values.UserConfigDir, Version: build.Version, Commit: build.Commit, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: settings.Listen, APITokenFile: settings.APITokenFile, WebTokenFile: settings.WebTokenFile,
 		}
 		if err := scheduler.Serve(ctx, options); err != nil {
 			var running *scheduler.SchedulerRunningError
 			if errors.As(err, &running) {
 				return &Error{Code: "scheduler_running", Message: "scheduler_running: " + running.Error()}
+			}
+			if errors.Is(err, config.ErrTokenReuse) {
+				return usageError(err.Error(), "Generate a separate web token: umask 077; openssl rand -base64 32 > "+settings.WebTokenFile)
 			}
 			var newer *store.StateTooNewError
 			if errors.As(err, &newer) {

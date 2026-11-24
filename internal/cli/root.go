@@ -89,9 +89,10 @@ func NewRootCommand(build config.BuildOpts, out, errOut io.Writer) *urfave.Comma
 			}, Action: runLogs},
 			{Name: "enable", Usage: "Enable this project and approve current shared job definitions", Action: enableProject},
 			{Name: "disable", Usage: "Disable this project and revoke approvals; keep history", Action: disableProject},
-			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks and an authenticated API on a listener", Description: "Runs in the foreground until stopped. Uses each enabled project's recorded configuration, including the user project. Accepts --state-dir, --listen, and --api-token-file; rejects --user, --project, --config, --timezone, and --json. No HTTP listener starts unless --listen or serve.listen in user config sets one; each flag overrides its setting. An API token file requires a listen address. Settings are read at startup; restart to apply changes.\n\nExamples:\n  noon serve\n  noon serve --listen 127.0.0.1:8080\n  noon serve --listen 127.0.0.1:8080 --api-token-file /run/secrets/noon-api-token", Flags: []urfave.Flag{
+			{Name: "serve", Usage: "Serve enabled schedules; optionally accept signed webhooks, an authenticated API, and a web viewer on a listener", Description: "Runs in the foreground until stopped. Uses each enabled project's recorded configuration, including the user project. Accepts --state-dir, --listen, --api-token-file, and --web-token-file; rejects --user, --project, --config, --timezone, and --json. No HTTP listener starts unless --listen or serve.listen in user config sets one; each flag overrides its setting. Token files require a listen address, and the web token must differ from the API token. Settings are read at startup; restart to apply changes.\n\nExamples:\n  noon serve\n  noon serve --listen 127.0.0.1:8080\n  noon serve --listen 127.0.0.1:8080 --api-token-file /run/secrets/noon-api-token\n  noon serve --listen 127.0.0.1:8080 --web-token-file ~/.config/noon/web-token", Flags: []urfave.Flag{
 				&urfave.StringFlag{Name: "listen", Usage: "Listen for signed webhooks at `ADDR`; overrides serve.listen"},
 				&urfave.StringFlag{Name: "api-token-file", Usage: "Read a bearer token from `FILE` and enable the authenticated API and MCP over HTTP; overrides serve.api_token_file"},
+				&urfave.StringFlag{Name: "web-token-file", Usage: "Read a sign-in token from `FILE` and enable the read-only web viewer at /; overrides serve.web_token_file"},
 			}, Action: serveAction(build)},
 			{Name: "mcp", Usage: "Serve MCP tools over stdio", Action: mcpCommand(build.Version)},
 			{Name: "tui", Aliases: []string{"ui"}, Usage: "Open the keyboard-driven jobs, runs, and logs view", Description: "Requires terminal stdin and stdout; --json is not supported. Inspect the current project and safely queue, pause, or cancel work. Log views show local receipt timestamps by default; t toggles them. Keys: j/k or arrows move, enter opens runs, l opens logs, / searches, s changes log sections, f filters runs, r queues, p pauses, c cancels after confirmation, g/G jump through logs, ? shows help, q quits. Never adds, edits, enables, or approves jobs.", Action: tuiAction},
@@ -441,6 +442,10 @@ func checkConfig(_ context.Context, cmd *urfave.Command) error {
 	if err != nil {
 		return err
 	}
+	// Read failures belong to noon doctor; reuse is a configuration error.
+	if _, _, err := config.ReadServeTokens(cfg.Serve); errors.Is(err, config.ErrTokenReuse) {
+		return configError(fmt.Errorf("serve.web_token_file: %w", err))
+	}
 	if cmd.Bool("json") {
 		return emit(cmd, map[string]any{"valid": true, "config": configOutput(cfg), "jobs": len(cfg.Jobs)})
 	}
@@ -524,12 +529,18 @@ func emit(cmd *urfave.Command, result map[string]any) error {
 
 // listenerSummary names the user-config listener; the token file path stays out of it.
 func listenerSummary(serve config.Serve) string {
-	switch {
-	case serve.Listen == "":
+	if serve.Listen == "" {
 		return "off"
-	case serve.APITokenFile != "":
-		return cell(serve.Listen, 80) + " (API)"
-	default:
+	}
+	var surfaces []string
+	if serve.APITokenFile != "" {
+		surfaces = append(surfaces, "API")
+	}
+	if serve.WebTokenFile != "" {
+		surfaces = append(surfaces, "web")
+	}
+	if len(surfaces) == 0 {
 		return cell(serve.Listen, 80)
 	}
+	return cell(serve.Listen, 80) + " (" + strings.Join(surfaces, ", ") + ")"
 }

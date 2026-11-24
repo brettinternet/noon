@@ -203,19 +203,27 @@ func listenerChecks(serve config.Serve, add func(name, status, message, hint str
 			add("listener", "warn", serve.Listen+" is not a loopback address", "Bind 127.0.0.1, or keep the path to it private (loopback, a tailnet, or a VPN)")
 		}
 	}
-	if serve.APITokenFile == "" {
-		return
+	_, _, err := config.ReadServeTokens(serve)
+	reused := errors.Is(err, config.ErrTokenReuse)
+	for _, token := range []struct{ name, path string }{{"api_token_file", serve.APITokenFile}, {"web_token_file", serve.WebTokenFile}} {
+		if token.path == "" {
+			continue
+		}
+		if _, err := config.ReadTokenFile(token.path); err != nil {
+			add(token.name, "fail", err.Error(), "umask 077; openssl rand -base64 32 > "+token.path)
+			continue
+		}
+		if reused && token.name == "web_token_file" {
+			add(token.name, "fail", config.ErrTokenReuse.Error(), "umask 077; openssl rand -base64 32 > "+token.path)
+			continue
+		}
+		info, err := os.Stat(token.path)
+		if err == nil && info.Mode().Perm()&0o077 != 0 {
+			add(token.name, "warn", token.path+" is accessible by group or others", "chmod 600 "+token.path)
+			continue
+		}
+		add(token.name, "ok", token.path, "")
 	}
-	if _, err := config.ReadTokenFile(serve.APITokenFile); err != nil {
-		add("api_token_file", "fail", err.Error(), "umask 077; openssl rand -base64 32 > "+serve.APITokenFile)
-		return
-	}
-	info, err := os.Stat(serve.APITokenFile)
-	if err == nil && info.Mode().Perm()&0o077 != 0 {
-		add("api_token_file", "warn", serve.APITokenFile+" is accessible by group or others", "chmod 600 "+serve.APITokenFile)
-		return
-	}
-	add("api_token_file", "ok", serve.APITokenFile, "")
 }
 
 func loopback(address string) bool {

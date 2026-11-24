@@ -165,62 +165,13 @@ type ProjectStatusView struct {
 // ProjectStatuses reads every enabled project's dashboard without creating
 // state. A missing checkout is reported without loading its config.
 func ProjectStatuses(input config.Input, now time.Time) (ProjectStatusView, error) {
-	stateDir, err := config.StateDirectory(input)
-	if err != nil {
-		return ProjectStatusView{}, ConfigError(err)
-	}
-	list, err := ListProjects(stateDir)
+	stateDir, dashboards, offline, err := enabledDashboards(input, now)
 	if err != nil {
 		return ProjectStatusView{}, err
 	}
-	sort.Slice(list.Projects, func(i, j int) bool { return list.Projects[i].Path < list.Projects[j].Path })
-	result := ProjectStatusView{Projects: make([]ProjectStatus, 0, len(list.Projects))}
-	offline := false
-	for _, project := range list.Projects {
-		row := ProjectStatus{ID: project.ID, Name: project.Name, Path: project.Path, State: "ok"}
-		if config.IsUserProject(project.Path, input.UserConfigDir) {
-			row.Name = "user"
-		}
-		if _, err := os.Stat(project.Path); errors.Is(err, fs.ErrNotExist) {
-			row.State = "missing"
-			result.Projects = append(result.Projects, row)
-			continue
-		}
-		values, err := EnabledProjectInput(input, stateDir, project.ID)
-		if err != nil {
-			return ProjectStatusView{}, err
-		}
-		if values.File != nil {
-			row.configFile = *values.File
-		}
-		view, err := Dashboard(values, now)
-		var configuration *DashboardConfigError
-		if errors.As(err, &configuration) {
-			row.State, row.ConfigError = "config_error", err.Error()
-			result.Projects = append(result.Projects, row)
-			continue
-		}
-		if err != nil {
-			return ProjectStatusView{}, StateError(err)
-		}
-		row.Name = view.Project.Name
-		offline = offline || view.Scheduler.State == "offline"
-		for _, job := range view.Jobs {
-			if job.Failing() {
-				row.Failing = append(row.Failing, job.Name)
-			}
-			// The noon list rules: only enabled, approved, active jobs have a next run.
-			if job.NextAt != nil && job.Enabled && job.PlatformSupported && !job.Paused && !job.Ended && job.Approval != "needs_approval" && (row.NextAt == nil || job.NextAt.Before(*row.NextAt)) {
-				row.NextAt = job.NextAt
-			}
-		}
-		switch {
-		case view.Project.ConfigError != "":
-			row.State, row.ConfigError, row.Failing, row.NextAt = "config_error", view.Project.ConfigError, nil, nil
-		case len(row.Failing) > 0:
-			row.State = "failing"
-		}
-		result.Projects = append(result.Projects, row)
+	result := ProjectStatusView{Projects: make([]ProjectStatus, 0, len(dashboards))}
+	for _, dashboard := range dashboards {
+		result.Projects = append(result.Projects, dashboard.status)
 	}
 	first := func(state string) *ProjectStatus {
 		for i := range result.Projects {
@@ -251,4 +202,74 @@ func ProjectStatuses(input config.Input, now time.Time) (ProjectStatusView, erro
 		result.Next, result.NextProject, result.NextConfig = "noon logs "+project.Failing[0]+" -s failed", project.Path, project.configFile
 	}
 	return result, nil
+}
+
+// enabledDashboard is one enabled project's status row and, unless its
+// checkout is missing or its config can't resolve, its dashboard.
+type enabledDashboard struct {
+	status    ProjectStatus
+	dashboard *DashboardView
+}
+
+// enabledDashboards reads every enabled project's dashboard in path order and
+// reports whether the scheduler is offline.
+func enabledDashboards(input config.Input, now time.Time) (string, []enabledDashboard, bool, error) {
+	stateDir, err := config.StateDirectory(input)
+	if err != nil {
+		return "", nil, false, ConfigError(err)
+	}
+	list, err := ListProjects(stateDir)
+	if err != nil {
+		return "", nil, false, err
+	}
+	sort.Slice(list.Projects, func(i, j int) bool { return list.Projects[i].Path < list.Projects[j].Path })
+	result := make([]enabledDashboard, 0, len(list.Projects))
+	offline := false
+	for _, project := range list.Projects {
+		row := ProjectStatus{ID: project.ID, Name: project.Name, Path: project.Path, State: "ok"}
+		if config.IsUserProject(project.Path, input.UserConfigDir) {
+			row.Name = "user"
+		}
+		if _, err := os.Stat(project.Path); errors.Is(err, fs.ErrNotExist) {
+			row.State = "missing"
+			result = append(result, enabledDashboard{status: row})
+			continue
+		}
+		values, err := EnabledProjectInput(input, stateDir, project.ID)
+		if err != nil {
+			return "", nil, false, err
+		}
+		if values.File != nil {
+			row.configFile = *values.File
+		}
+		view, err := Dashboard(values, now)
+		var configuration *DashboardConfigError
+		if errors.As(err, &configuration) {
+			row.State, row.ConfigError = "config_error", err.Error()
+			result = append(result, enabledDashboard{status: row})
+			continue
+		}
+		if err != nil {
+			return "", nil, false, StateError(err)
+		}
+		row.Name = view.Project.Name
+		offline = offline || view.Scheduler.State == "offline"
+		for _, job := range view.Jobs {
+			if job.Failing() {
+				row.Failing = append(row.Failing, job.Name)
+			}
+			// The noon list rules: only enabled, approved, active jobs have a next run.
+			if job.NextAt != nil && job.Enabled && job.PlatformSupported && !job.Paused && !job.Ended && job.Approval != "needs_approval" && (row.NextAt == nil || job.NextAt.Before(*row.NextAt)) {
+				row.NextAt = job.NextAt
+			}
+		}
+		switch {
+		case view.Project.ConfigError != "":
+			row.State, row.ConfigError, row.Failing, row.NextAt = "config_error", view.Project.ConfigError, nil, nil
+		case len(row.Failing) > 0:
+			row.State = "failing"
+		}
+		result = append(result, enabledDashboard{status: row, dashboard: &view})
+	}
+	return stateDir, result, offline, nil
 }

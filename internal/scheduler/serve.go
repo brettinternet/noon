@@ -24,6 +24,7 @@ import (
 	"github.com/brettinternet/noon/internal/runner"
 	"github.com/brettinternet/noon/internal/schedule"
 	"github.com/brettinternet/noon/internal/store"
+	"github.com/brettinternet/noon/internal/web"
 	protocol "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sys/unix"
 )
@@ -42,6 +43,7 @@ type ServeOptions struct {
 	Logger          io.Writer
 	ListenAddr      string
 	APITokenFile    string
+	WebTokenFile    string
 	Platform        *config.Platform
 	IgnoreSignals   bool
 	OnTick          func()
@@ -101,16 +103,12 @@ func (r *runControl) stopStatus() string {
 
 // Serve supervises every enabled project's approved schedules until cancelled.
 func Serve(ctx context.Context, options ServeOptions) error {
-	var apiToken []byte
-	if options.APITokenFile != "" {
-		if options.ListenAddr == "" {
-			return errors.New("API token file requires an HTTP listener")
-		}
-		var err error
-		apiToken, err = config.ReadTokenFile(options.APITokenFile)
-		if err != nil {
-			return err
-		}
+	if (options.APITokenFile != "" || options.WebTokenFile != "") && options.ListenAddr == "" {
+		return errors.New("token files require an HTTP listener")
+	}
+	apiToken, webToken, err := config.ReadServeTokens(config.Serve{APITokenFile: options.APITokenFile, WebTokenFile: options.WebTokenFile})
+	if err != nil {
+		return err
 	}
 	if options.Now == nil {
 		options.Now = time.Now
@@ -200,16 +198,28 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		}
 		webhookHandler = httpapi.NewHandler(projects)
 		var listenerHandler http.Handler = webhookHandler
+		inspectInput := config.Input{CWD: options.StateDir, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, StateDir: &options.StateDir, Platform: options.Platform}
+		var apiHandler, mcpHandler http.Handler
 		if len(apiToken) > 0 {
-			apiInput := config.Input{CWD: options.StateDir, UserConfigDir: options.UserConfigDir, StateDirDefault: options.StateDirDefault, StateDir: &options.StateDir, Platform: options.Platform}
-			apiHandler := httpapi.NewAPIHandler(apiInput, options.StateDir)
-			mcpHandler := protocol.NewStreamableHTTPHandler(
-				func(*http.Request) *protocol.Server { return noonmcp.NewHTTPServer(apiInput, options.Version) },
+			apiHandler = httpapi.NewAPIHandler(inspectInput, options.StateDir)
+			mcpHandler = protocol.NewStreamableHTTPHandler(
+				func(*http.Request) *protocol.Server { return noonmcp.NewHTTPServer(inspectInput, options.Version) },
 				// Bearer authentication protects this endpoint against DNS rebinding.
 				// Permit the public Host preserved by a reverse proxy on loopback.
 				&protocol.StreamableHTTPOptions{Stateless: true, MaxRequestBodyBytes: httpapi.MaxAPIRequestBytes, DisableLocalhostProtection: true},
 			)
-			listenerHandler = httpapi.NewListenerHandler(webhookHandler, apiHandler, mcpHandler, apiToken)
+		}
+		var viewer *web.Handler
+		if len(webToken) > 0 {
+			viewer = web.New(web.Options{Token: webToken, Input: inspectInput, StateDir: options.StateDir, Version: options.Version, Logf: logger.event})
+			defer viewer.Shutdown()
+		}
+		if apiHandler != nil || viewer != nil {
+			var webHandler http.Handler
+			if viewer != nil {
+				webHandler = viewer
+			}
+			listenerHandler = httpapi.NewListenerHandler(webhookHandler, apiHandler, mcpHandler, webHandler, apiToken)
 		}
 		listener, err := net.Listen("tcp", options.ListenAddr)
 		if err != nil {
@@ -217,6 +227,9 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		}
 		address := httpapi.ListenerAddress(listener)
 		httpServer = httpapi.NewServer(listenerHandler)
+		if viewer != nil {
+			httpServer.RegisterOnShutdown(viewer.Shutdown)
+		}
 		done := make(chan struct{})
 		failures := make(chan error, 1)
 		go func() {
@@ -230,6 +243,9 @@ func Serve(ctx context.Context, options ServeOptions) error {
 			logger.event("webhook and API listener listening address=%s", address)
 		} else {
 			logger.event("webhook listener listening address=%s", address)
+		}
+		if viewer != nil {
+			logger.event("web viewer url=http://%s/", address)
 		}
 		if !httpapi.IsLoopbackAddress(address) {
 			if len(apiToken) > 0 {

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/subtle"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 type Serve struct {
 	Listen       string `json:"listen,omitempty"`
 	APITokenFile string `json:"api_token_file,omitempty"`
+	WebTokenFile string `json:"web_token_file,omitempty"`
 }
 
 // MinTokenBytes is the shortest accepted bearer token.
@@ -41,21 +44,53 @@ func (cfg *Config) applyServe(path string, node *yaml.Node, requirePair bool) er
 		switch key.Value {
 		case "listen":
 			serve.Listen = value.Value
-		case "api_token_file":
+		case "api_token_file", "web_token_file":
 			file, err := expandHome(value.Value)
 			if err != nil {
 				return jobError(path, value, field, err.Error())
 			}
-			serve.APITokenFile = resolvePath(filepath.Dir(path), file)
+			if key.Value == "api_token_file" {
+				serve.APITokenFile = resolvePath(filepath.Dir(path), file)
+			} else {
+				serve.WebTokenFile = resolvePath(filepath.Dir(path), file)
+			}
 		default:
 			return jobError(path, key, field, "unknown field")
 		}
 	}
-	if requirePair && serve.APITokenFile != "" && serve.Listen == "" {
-		return jobError(path, node, "serve.api_token_file", "requires serve.listen")
+	if requirePair && serve.Listen == "" {
+		if serve.APITokenFile != "" {
+			return jobError(path, node, "serve.api_token_file", "requires serve.listen")
+		}
+		if serve.WebTokenFile != "" {
+			return jobError(path, node, "serve.web_token_file", "requires serve.listen")
+		}
 	}
 	cfg.Serve = serve
 	return nil
+}
+
+// ErrTokenReuse reports a web token equal to the API token. The two grant
+// different authority, so they must differ.
+var ErrTokenReuse = errors.New("the web token must differ from the API token")
+
+// ReadServeTokens reads each configured token file once and refuses a web
+// token equal to the API token. Errors name files, never contents.
+func ReadServeTokens(serve Serve) (api, web []byte, err error) {
+	if serve.APITokenFile != "" {
+		if api, err = ReadTokenFile(serve.APITokenFile); err != nil {
+			return nil, nil, err
+		}
+	}
+	if serve.WebTokenFile != "" {
+		if web, err = ReadTokenFile(serve.WebTokenFile); err != nil {
+			return nil, nil, err
+		}
+	}
+	if api != nil && web != nil && subtle.ConstantTimeCompare(api, web) == 1 {
+		return nil, nil, ErrTokenReuse
+	}
+	return api, web, nil
 }
 
 // ReadTokenFile reads a bearer token once. One trailing newline is dropped.

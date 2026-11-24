@@ -12,9 +12,11 @@ import (
 // and time to encode and write the response.
 const apiWriteTimeout = 75 * time.Second
 
-// NewListenerHandler mounts the existing webhook/health handler and, when a
-// token is configured, the authenticated JSON API and stateless MCP transport.
-func NewListenerHandler(webhooks, api, mcp http.Handler, token []byte) http.Handler {
+// NewListenerHandler mounts the existing webhook/health handler, the
+// authenticated JSON API and stateless MCP transport when a token is
+// configured, and the web viewer when web is non-nil. The viewer owns every
+// path the others don't and authenticates itself.
+func NewListenerHandler(webhooks, api, mcp, web http.Handler, token []byte) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", webhooks)
 	mux.Handle("/hooks/", webhooks)
@@ -22,7 +24,11 @@ func NewListenerHandler(webhooks, api, mcp http.Handler, token []byte) http.Hand
 		mux.Handle("/v1/", extendWriteDeadline(api))
 		mux.Handle("/mcp", extendWriteDeadline(mcp))
 	}
-	mux.Handle("/", webhooks)
+	if web != nil {
+		mux.Handle("/", web)
+	} else {
+		mux.Handle("/", webhooks)
+	}
 	if len(token) == 0 {
 		return mux
 	}

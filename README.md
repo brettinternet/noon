@@ -53,8 +53,8 @@ noon serve             # or run in the foreground
 ```
 
 Restarts interrupt active jobs. Config edits and `env_file` changes need no restart. To serve
-webhooks or the remote API in the background, set [`serve`](docs/configuration.md#listener) in user
-config and run `noon service restart`. See
+webhooks, the remote API, or the [web viewer](docs/web.md) in the background, set
+[`serve`](docs/configuration.md#listener) in user config and run `noon service restart`. See
 [upgrades and migration](docs/service.md#upgrades).
 
 ## Quick start
@@ -213,6 +213,7 @@ and authenticate the CLI yourself. See [Agents](docs/agents.md) for remote MCP a
 - [Lifecycle hooks](docs/hooks.md): notify on failure and recovery
 - [Triggers](docs/triggers.md): Git hooks, Claude Code and Codex `Stop` hooks
 - [Webhooks](docs/webhooks.md): signed GitHub webhooks and the remote API listener
+- [Web viewer](docs/web.md): read-only browser view of every enabled project and live logs
 - [Shell setup](docs/shell.md): completion and project-entry jobs
 - [Crontab import](docs/crontab.md)
 - [Service](docs/service.md): launchd and systemd

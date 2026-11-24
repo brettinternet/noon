@@ -1,0 +1,68 @@
+{{define "overview"}}{{template "head" .}}
+<main data-swap id="overview">
+{{with .Data}}
+<section>
+<h2>Projects</h2>
+{{if .Projects}}
+<table>
+<thead><tr><th scope="col">Project</th><th scope="col">State</th><th scope="col">Next</th><th scope="col">Recent</th></tr></thead>
+<tbody>
+{{range .Projects}}{{$tz := .Timezone}}
+<tr>
+<td><a href="/projects/{{.ID}}">{{.Name}}</a><div class="path">{{.Path}}</div></td>
+<td>{{template "state" .State}}{{if .Command}}<div>{{template "command" .Command}}</div>{{end}}</td>
+<td>{{template "time" (stamp .NextAt $tz)}}</td>
+<td><span class="strip">{{range .Recent}}{{$s := status .Status}}<a class="tick {{$s.Class}}" href="/runs/{{.ID}}" title="#{{.ID}} {{.Job}} {{$s.Name}}" aria-label="Run {{.ID}} {{.Job}} {{$s.Name}}"></a>{{end}}</span></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>No enabled projects. Run <code>noon enable</code> in a project.</p>
+{{end}}
+</section>
+
+{{if .Failing}}
+<section>
+<h2>Failing</h2>
+<table>
+<thead><tr><th scope="col">Job</th><th scope="col">Project</th><th scope="col">Run</th><th scope="col">Finished</th></tr></thead>
+<tbody>
+{{range .Failing}}
+<tr>
+<td>{{.Job}}</td>
+<td><a href="/projects/{{.ProjectID}}">{{.Project}}</a></td>
+<td><a href="/runs/{{.Run.ID}}">#{{.Run.ID}}</a> {{template "status" (status .Run.Status)}}</td>
+<td>{{template "time" (stamp .Run.FinishedAt "")}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+<section>
+<h2>Upcoming</h2>
+{{if .Upcoming}}
+<table>
+<thead><tr><th scope="col">Time</th><th scope="col">Job</th><th scope="col">Project</th><th scope="col">Jitter</th></tr></thead>
+<tbody>
+{{range .Upcoming}}
+<tr>
+<td>{{if .Every}}{{.Every}} · next {{end}}{{template "time" (stamp .At .Timezone)}}</td>
+<td>{{.Job}}</td>
+<td><a href="/projects/{{.ProjectID}}">{{.Project}}</a></td>
+<td>{{if .Jitter}}±{{.Jitter}}{{else}}—{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>Nothing scheduled in the next 24 hours.</p>
+{{end}}
+</section>
+{{end}}
+</main>
+{{template "foot" .}}{{end}}
+
+{{define "state"}}{{if eq . "ok"}}<span class="status ok"><span aria-hidden="true">✓</span> ok</span>{{else if eq . "failing"}}<span class="status bad"><span aria-hidden="true">✗</span> failing</span>{{else if eq . "needs_approval"}}<span class="status warn"><span aria-hidden="true">!</span> needs approval</span>{{else if eq . "config_error"}}<span class="status bad"><span aria-hidden="true">✗</span> config error</span>{{else}}<span class="status muted"><span aria-hidden="true">–</span> {{.}}</span>{{end}}{{end}}

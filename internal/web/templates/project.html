@@ -1,0 +1,64 @@
+{{define "project"}}{{template "head" .}}
+<main data-swap id="project">
+{{with .Data}}{{$tz := .Project.Timezone}}
+<h1>{{.Project.Name}}</h1>
+<p class="path">{{.Project.Path}} · {{template "state" .Project.State}}</p>
+{{if .Project.Command}}<p>{{template "command" .Project.Command}}</p>{{end}}
+{{if .Project.ConfigError}}<pre class="error">{{.Project.ConfigError}}</pre>{{end}}
+
+<section>
+<h2>Jobs</h2>
+{{if .Dashboard.Jobs}}
+<table>
+<thead><tr><th scope="col">Job</th><th scope="col">Schedule ({{$tz}})</th><th scope="col">Next</th><th scope="col">Last</th><th scope="col">State</th></tr></thead>
+<tbody>
+{{range .Dashboard.Jobs}}
+<tr>
+<td><a href="?job={{.Name}}">{{.Name}}</a></td>
+<td>{{with .Schedule}}<code>{{.}}</code>{{else}}—{{end}}</td>
+<td>{{template "time" (stamp .NextAt $tz)}}</td>
+<td>{{with .LastRun}}<a href="/runs/{{.ID}}">#{{.ID}}</a> {{template "status" (status .Status)}}{{else}}—{{end}}</td>
+<td>{{if eq .Approval "needs_approval"}}<span class="status warn"><span aria-hidden="true">!</span> needs approval</span>{{else if .Paused}}<span class="status muted"><span aria-hidden="true">‖</span> paused</span>{{else if not .Enabled}}<span class="status muted">disabled</span>{{else if .Ended}}<span class="status muted">ended</span>{{else}}<span class="status ok"><span aria-hidden="true">✓</span> active</span>{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>No jobs.</p>
+{{end}}
+</section>
+
+<section>
+<h2>Runs</h2>
+<form class="filter" method="get">
+<label for="job">Job</label>
+<select id="job" name="job"><option value="">All</option>{{$job := .Job}}{{range .Dashboard.Jobs}}<option{{if eq .Name $job}} selected{{end}}>{{.Name}}</option>{{end}}</select>
+<label for="status">Status</label>
+<select id="status" name="status"><option value="">All</option>{{$status := .Status}}{{range .Statuses}}<option{{if eq . $status}} selected{{end}}>{{.}}</option>{{end}}</select>
+<button type="submit">Filter</button>
+</form>
+{{if .Runs}}
+{{template "runs" .}}
+{{else}}
+<p>No runs.</p>
+{{end}}
+</section>
+{{end}}
+</main>
+{{template "foot" .}}{{end}}
+
+{{define "runs"}}<table>
+<thead><tr><th scope="col">Run</th><th scope="col">Job</th><th scope="col">Status</th><th scope="col">Trigger</th><th scope="col">Started</th><th scope="col">Duration</th></tr></thead>
+<tbody>
+{{$tz := .Project.Timezone}}{{range .Runs}}
+<tr>
+<td><a href="/runs/{{.ID}}">#{{.ID}}</a></td>
+<td>{{.Job}}</td>
+<td>{{template "status" (status .Status)}}</td>
+<td>{{.Trigger}}</td>
+<td>{{template "time" (stamp .StartedAt $tz)}}</td>
+<td>{{duration .DurationMS}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>{{end}}

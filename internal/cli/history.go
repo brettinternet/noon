@@ -207,7 +207,7 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 		return err
 	}
 	if follow {
-		if err := app.FollowLog(ctx, cfg.StateDir, run.ID, query.After, query.Tail, cmd.Writer, cmd.ErrWriter, query.Timestamps); err != nil {
+		if err := app.FollowLog(ctx, cfg.StateDir, run.ID, query.After, query.Tail, cmd.Writer, cmd.Writer, cmd.ErrWriter, query.Timestamps); err != nil {
 			return logReadError(run, err)
 		}
 		return nil
@@ -267,12 +267,9 @@ func runLogs(ctx context.Context, cmd *urfave.Command) error {
 
 // printAgentResume prints the command that continues an agent run's session, if the profile can resume.
 func printAgentResume(out io.Writer, job config.Job, sessionID string) error {
-	if job.AgentResumeFlag == "" || sessionID == "" || len(job.AgentCommand) == 0 {
+	command := app.AgentResumeCommand(job, sessionID, job.CWD != "" && !sameDirectory(job.CWD))
+	if command == "" {
 		return nil
-	}
-	command := shellArgument(job.AgentCommand[0]) + " " + shellArgument(job.AgentResumeFlag) + " " + shellArgument(sessionID)
-	if job.CWD != "" && !sameDirectory(job.CWD) {
-		command = "cd " + shellArgument(job.CWD) + " && " + command
 	}
 	_, err := fmt.Fprintln(out, "Resume: "+command)
 	return err

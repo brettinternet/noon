@@ -153,24 +153,27 @@ must be absolute.
 serve:
   listen: 127.0.0.1:8787               # signed webhooks; --listen overrides
   api_token_file: ~/.config/noon/api-token  # remote API and MCP; --api-token-file overrides
+  web_token_file: ~/.config/noon/web-token  # web viewer; --web-token-file overrides
 ```
 
 | Key | Flag | Notes |
 | --- | --- | --- |
 | `serve.listen` | `--listen` | `HOST:PORT` |
 | `serve.api_token_file` | `--api-token-file` | Needs a listen address; a leading `~` expands |
+| `serve.web_token_file` | `--web-token-file` | Needs a listen address; must differ from the API token; see [web viewer](web.md) |
 
 Only user config may set `serve`, so a cloned or pulled repository can never open a port. There
 are no environment variables. `noon serve` reads the settings once at startup; restart it (or
-`noon service restart`) to apply changes. Create a token of at least 32 bytes:
+`noon service restart`) to apply changes. Create each token of at least 32 bytes:
 
 ```sh
 (umask 077; openssl rand -base64 32 > ~/.config/noon/api-token)
 ```
 
-`noon config` shows `Listener: ADDR`, with `(API)` when a token file is set, or `Listener: off`.
-`noon doctor` fails when the token file is unreadable or too short, and warns when it is readable
-by group or others or the address isn't loopback. The token itself is never printed.
+`noon config` shows `Listener: ADDR`, with `(API)`, `(web)`, or `(API, web)` for the token files
+set, or `Listener: off`. `noon doctor` fails when a token file is unreadable or too short, or when
+the two tokens match, and warns when one is readable by group or others or the address isn't
+loopback. Tokens are never printed.
 
 ## User project
 
