@@ -385,6 +385,68 @@ func TestRunsReportOrphansWithoutChangingStoredStatus(t *testing.T) {
 	}
 }
 
+func TestFinishedRunsExcludesUnstartedAndUnfinishedAndKeepsNewest(t *testing.T) {
+	stateDir := t.TempDir()
+	state, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	projectPath, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	projectID, err := state.RegisterProject(projectPath, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish := func(job, status string) int64 {
+		t.Helper()
+		now = now.Add(time.Minute)
+		run, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: job, Trigger: "manual", Digest: "test", Now: now, OwnerPID: os.Getpid(), OwnerStart: "test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := state.FinishRun(run.ID, projectID, job, store.Outcome{Status: status, FinishedAt: now.Add(time.Second)}); err != nil {
+			t.Fatal(err)
+		}
+		return run.ID
+	}
+	var want []int64
+	for i := range 52 {
+		want = append(want, finish("build", []string{"succeeded", "failed", "timed_out", "interrupted", "noop", "cancelled"}[i%6]))
+	}
+	finish("other", "succeeded")
+	finish("build", "skipped")
+	if err := state.EnableProject(projectPath, nil, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := state.QueueRun(store.QueueRunInput{ProjectID: projectID, Job: "build", Digest: "test", RequestedBy: "test", DueAt: now, Now: now, JobExists: true, JobEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.RequestCancelRun(queued.Run.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.CreateRun(store.NewRun{ProjectID: projectID, Job: "build", Trigger: "manual", Digest: "test", Now: now.Add(time.Minute), OwnerPID: os.Getpid(), OwnerStart: "test"}); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := FinishedRuns(stateDir, projectPath, "build", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 50 {
+		t.Fatalf("got %d runs; want 50", len(runs))
+	}
+	for i, run := range runs {
+		if run.ID != want[len(want)-1-i] || run.DurationMS == nil {
+			t.Fatalf("runs[%d] = #%d %s duration=%v; want #%d with a duration", i, run.ID, run.Status, run.DurationMS, want[len(want)-1-i])
+		}
+	}
+}
+
 func int64Pointer(value int64) *int64    { return &value }
 func intPointer(value int) *int          { return &value }
 func stringPointer(value string) *string { return &value }

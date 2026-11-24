@@ -29,6 +29,7 @@ var templates = template.Must(template.New("").Funcs(template.FuncMap{
 	"ansi":     renderANSI,
 	"deref":    func(value *string) string { return derefString(value) },
 	"add":      func(a, b int64) int64 { return a + b },
+	"pct":      func(value float64) string { return strconv.FormatFloat(value, 'f', 2, 64) + "%" },
 }).ParseFS(templateFiles, "templates/*.html"))
 
 // layout carries what every page shows around its main content.
@@ -102,6 +103,7 @@ type projectPage struct {
 	Job      string
 	Status   string
 	Statuses []string
+	Chart    *durationChart
 }
 
 func (h *Handler) project(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +123,17 @@ func (h *Handler) project(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page.ProjectView = view
+	for _, job := range view.Dashboard.Jobs {
+		if job.Name != page.Job {
+			continue
+		}
+		runs, err := app.FinishedRuns(h.options.StateDir, view.Project.Path, job.Name, chartRuns)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		page.Chart = newDurationChart(job.Name, runs, job.Timeout)
+	}
 	h.render(w, r, http.StatusOK, "project", h.layout(r, view.Project.Name+" · noon", page))
 }
 

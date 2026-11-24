@@ -44,6 +44,11 @@ An unreadable or short token file stops `serve` with exit 1 before it schedules 
 | `/projects/{id}` | Jobs and recent runs, filterable by job and status |
 | `/runs/{id}` | Run details, the prompt and resume command for prompt jobs, and the log |
 
+Selecting a job (`/projects/{id}?job=NAME`) also charts its last 50 finished runs' durations,
+oldest left, one bar per run colored by status and linked to it. The job's timeout is a dashed line
+when it's within twice the slowest run. Runs that were skipped, cancelled before starting, or are
+still running are left out, and a job needs two finished runs for a chart.
+
 Only enabled projects and their runs are reachable; anything else is 404. The log shows its last
 256 KiB with an Earlier link, `#L42` links to line 42, and ANSI colors render as colors while
 other control sequences are dropped. Pages update live over one server-sent event stream per tab,

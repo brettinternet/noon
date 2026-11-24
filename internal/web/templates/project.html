@@ -28,6 +28,20 @@
 {{end}}
 </section>
 
+{{with .Chart}}
+<section>
+<h2>Durations</h2>
+<svg class="chart" aria-labelledby="chart-title" aria-describedby="chart-desc">
+<title id="chart-title">{{.Title}}</title>
+<desc id="chart-desc">{{.Desc}}</desc>
+{{range .Bars}}<a href="/runs/{{.ID}}"><title>#{{.ID}} {{.Status.Name}} {{.Duration}}</title><rect class="hit" x="{{pct .SlotX}}" y="0" width="{{pct .SlotW}}" height="100%"/><rect class="bar {{.Status.Class}}" x="{{pct .X}}" y="{{pct .Y}}" width="{{pct .W}}" height="{{pct .Height}}"/></a>
+{{end}}<line class="axis" x1="0" y1="100%" x2="100%" y2="100%"/>
+{{with .Timeout}}<line class="limit" x1="0" y1="{{pct .Y}}" x2="100%" y2="{{pct .Y}}"/><text x="100%" y="{{pct .Y}}" dy="-4" text-anchor="end">{{.Label}}</text>{{end}}
+</svg>
+<p class="legend">{{range .Legend}}{{template "status" .}} {{end}}</p>
+</section>
+{{end}}
+
 <section>
 <h2>Runs</h2>
 <form class="filter" method="get">

@@ -180,6 +180,19 @@ func RunsWithStatuses(stateDir, project, job string, statuses []string, limit in
 	if err := ValidateRunStatuses(statuses); err != nil {
 		return nil, err
 	}
+	return storedRuns(stateDir, project, job, statuses, false, limit)
+}
+
+// finishedStatuses are the outcomes of a run that started and ended.
+var finishedStatuses = []string{"succeeded", "noop", "failed", "timed_out", "interrupted", "cancelled"}
+
+// FinishedRuns returns newest-first runs of one job that started and ended,
+// so each has a duration. Runs cancelled before start are excluded.
+func FinishedRuns(stateDir, project, job string, limit int) ([]Run, error) {
+	return storedRuns(stateDir, project, job, finishedStatuses, true, limit)
+}
+
+func storedRuns(stateDir, project, job string, statuses []string, startedOnly bool, limit int) ([]Run, error) {
 	state, err := store.OpenExisting(stateDir)
 	if errors.Is(err, store.ErrNoDatabase) {
 		return []Run{}, nil
@@ -188,7 +201,7 @@ func RunsWithStatuses(stateDir, project, job string, statuses []string, limit in
 		return nil, err
 	}
 	defer state.Close()
-	stored, err := state.RunsForProjectFiltered(project, job, statuses, false, limit)
+	stored, err := state.RunsForProjectFiltered(project, job, statuses, startedOnly, limit)
 	if err != nil {
 		return nil, err
 	}

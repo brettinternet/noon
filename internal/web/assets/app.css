@@ -57,6 +57,17 @@ td > code { white-space: nowrap; }
 .strip .tick { width: 24px; height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 .strip .tick::before { content: ""; width: 8px; height: 24px; border-radius: 2px; background: currentColor; }
 
+.chart { display: block; width: 100%; height: 10rem; overflow: visible; }
+.chart .hit { fill: transparent; }
+.chart .bar { fill: currentColor; }
+.chart a:hover .bar { opacity: 0.75; }
+.chart a:focus { outline: none; }
+.chart a:focus-visible .hit { stroke: var(--link); stroke-width: 2px; }
+.chart .axis { stroke: var(--line); }
+.chart .limit { stroke: var(--muted); stroke-dasharray: 4 3; }
+.chart text { fill: var(--muted); font-size: 0.75rem; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+.legend { display: flex; flex-wrap: wrap; gap: 0 1rem; margin: 0.5rem 0 0; font-size: 0.875rem; }
+
 .command { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; line-height: 1.5; }
 .command code { background: var(--panel); padding: 0.25rem 0.5rem; border-radius: 4px; overflow-wrap: anywhere; }
 [data-copy] { display: none; }
