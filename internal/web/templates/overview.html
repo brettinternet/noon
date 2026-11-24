@@ -1,64 +1,62 @@
 {{define "overview"}}{{template "head" .}}
 <main data-swap id="overview">
 {{with .Data}}
+{{if .Failing}}
+<section>
+<h2>Failing</h2>
+<table class="failing">
+<thead><tr><th scope="col">Job</th><th scope="col">Project</th><th scope="col">Run</th><th scope="col">Finished</th></tr></thead>
+<tbody>
+{{range .Failing}}
+<tr class="linked">
+<td>{{.Job}}</td>
+<td>{{.Project}}</td>
+<td><a class="row-link" href="/runs/{{.Run.ID}}">#{{.Run.ID}}</a> {{template "status" (status .Run.Status)}}</td>
+<td class="when">{{template "time" (stamp .Run.FinishedAt "")}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
 <section>
 <h2>Projects</h2>
 {{if .Projects}}
-<table>
-<thead><tr><th scope="col">Project</th><th scope="col">State</th><th scope="col">Next</th><th scope="col">Recent</th></tr></thead>
+<table class="projects">
+<thead><tr><th scope="col">Project</th><th scope="col">Next</th><th scope="col">Recent</th></tr></thead>
 <tbody>
 {{range .Projects}}{{$tz := .Timezone}}
-<tr>
-<td><a href="/projects/{{.ID}}">{{.Name}}</a><div class="path">{{.Path}}</div></td>
-<td>{{template "state" .State}}{{if .Command}}<div>{{template "command" .Command}}</div>{{end}}</td>
-<td>{{template "time" (stamp .NextAt $tz)}}</td>
-<td><span class="strip">{{range .Recent}}{{$s := status .Status}}<a class="tick {{$s.Class}}" href="/runs/{{.ID}}" title="#{{.ID}} {{.Job}} {{$s.Name}}" aria-label="Run {{.ID}} {{.Job}} {{$s.Name}}"></a>{{end}}</span></td>
+<tr class="linked">
+<td><a class="name row-link" href="/projects/{{.ID}}">{{.Name}}</a>{{if ne .State "ok"}} {{template "state" .State}}{{end}}<div class="path">{{home .Path}}</div>{{with .Command}}<div>{{template "command" .}}</div>{{end}}</td>
+<td class="when">{{template "time" (stamp .NextAt $tz)}}</td>
+<td>{{if .Recent}}<span class="strip">{{range oldestFirst .Recent}}{{$s := status .Status}}<a class="tick {{$s.Class}}" href="/runs/{{.ID}}" title="#{{.ID}} {{.Job}} {{$s.Name}}" aria-label="Run {{.ID}} {{.Job}} {{$s.Name}}"></a>{{end}}</span>{{else}}<span class="muted">No runs</span>{{end}}</td>
 </tr>
 {{end}}
 </tbody>
 </table>
 {{else}}
-<p>No enabled projects. Run <code>noon enable</code> in a project.</p>
+<p class="empty">No enabled projects. Run <code>noon enable</code> in a project.</p>
 {{end}}
 </section>
-
-{{if .Failing}}
-<section>
-<h2>Failing</h2>
-<table>
-<thead><tr><th scope="col">Job</th><th scope="col">Project</th><th scope="col">Run</th><th scope="col">Finished</th></tr></thead>
-<tbody>
-{{range .Failing}}
-<tr>
-<td>{{.Job}}</td>
-<td><a href="/projects/{{.ProjectID}}">{{.Project}}</a></td>
-<td><a href="/runs/{{.Run.ID}}">#{{.Run.ID}}</a> {{template "status" (status .Run.Status)}}</td>
-<td>{{template "time" (stamp .Run.FinishedAt "")}}</td>
-</tr>
-{{end}}
-</tbody>
-</table>
-</section>
-{{end}}
 
 <section>
 <h2>Upcoming</h2>
 {{if .Upcoming}}
-<table>
-<thead><tr><th scope="col">Time</th><th scope="col">Job</th><th scope="col">Project</th><th scope="col">Jitter</th></tr></thead>
+<table class="upcoming">
+<thead><tr><th scope="col">Next</th><th scope="col">Job</th><th scope="col">Project</th></tr></thead>
 <tbody>
 {{range .Upcoming}}
 <tr>
-<td>{{if .Every}}{{.Every}} · next {{end}}{{template "time" (stamp .At .Timezone)}}</td>
+<td class="when">{{template "time" (stamp .At .Timezone)}}{{with .Every}} <code class="every" title="Starts more than hourly">{{.}}</code>{{end}}{{with .Jitter}} <span class="muted" title="Jitter">±{{.}}</span>{{end}}</td>
 <td>{{.Job}}</td>
 <td><a href="/projects/{{.ProjectID}}">{{.Project}}</a></td>
-<td>{{if .Jitter}}±{{.Jitter}}{{else}}—{{end}}</td>
 </tr>
 {{end}}
 </tbody>
 </table>
 {{else}}
-<p>Nothing scheduled in the next 24 hours.</p>
+<p class="empty">Nothing scheduled in the next 24 hours.</p>
 {{end}}
 </section>
 {{end}}

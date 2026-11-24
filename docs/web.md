@@ -41,9 +41,9 @@ An unreadable or short token file stops `serve` with exit 1 before it schedules 
 
 | Route | Shows |
 | --- | --- |
-| `/` | Projects with state, next run, and recent runs; failing jobs; runs in the next 24 hours |
+| `/` | Failing jobs, then projects with state, next run, and recent runs, then runs in the next 24 hours |
 | `/projects/{id}` | Jobs and recent runs, filterable by job and status |
-| `/runs/{id}` | Run details, the prompt and resume command for prompt jobs, and the log |
+| `/runs/{id}` | Run details with Cancel or Run again, the prompt and resume command for prompt jobs, and the log |
 
 Selecting a job (`/projects/{id}?job=NAME`) also charts its last 50 finished runs' durations,
 oldest left, one bar per run colored by status and linked to it. The job's timeout is a dashed line
@@ -53,8 +53,9 @@ still running are left out, and a job needs two finished runs for a chart.
 Only enabled projects and their runs are reachable; anything else is 404. The log shows its last
 256 KiB with an Earlier link, `#L42` links to line 42, and ANSI colors render as colors while
 other control sequences are dropped. Pages update live over one server-sent event stream per tab,
-closed while the tab is hidden. The tab title and icon show the failing-job count. Times show in
-the browser's timezone; without JavaScript they show in the project's timezone.
+closed while the tab is hidden; "Reconnecting…" shows while it's down. The tab title and icon
+show the failing-job count. Times show in the browser's timezone; without JavaScript they show in
+the project's timezone.
 
 ## Actions
 
@@ -78,8 +79,8 @@ signalled), pausing every job in a project, and a pause that ends a temporary sc
 doesn't restore it). Without JavaScript the server shows a confirmation page; with it, a dialog
 asks first.
 
-Keys: `j` and `k` move between jobs, `r` runs the selected job, `p` pauses or resumes it, `c`
-cancels the run on a run page, and `?` lists them.
+Keys: `j` and `k` move between jobs, `r` runs the selected job, `p` pauses or resumes it, and `?`
+lists them. On a run page, `c` cancels it and `r` runs its job again.
 
 The viewer never enables, disables, approves, adds, edits, or removes jobs. Needs-approval
 projects show the command to run on the host.

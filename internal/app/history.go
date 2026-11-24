@@ -725,10 +725,15 @@ func shortDuration(value time.Duration) string {
 	return fmt.Sprintf("%dd", int(value/(24*time.Hour)))
 }
 
-// DurationText formats stored elapsed time compactly for human output.
+// DurationText formats stored elapsed time compactly for human output. Runs
+// under a second keep milliseconds rather than rounding to "0s".
 func DurationText(durationMS *int64) string {
 	if durationMS == nil {
 		return "—"
 	}
-	return (time.Duration(*durationMS) * time.Millisecond).Round(time.Second).String()
+	value := time.Duration(*durationMS) * time.Millisecond
+	if value < time.Second {
+		return value.String()
+	}
+	return value.Round(time.Second).String()
 }

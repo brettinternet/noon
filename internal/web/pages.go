@@ -6,6 +6,9 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,12 +26,17 @@ const (
 var templateFiles embed.FS
 
 var templates = template.Must(template.New("").Funcs(template.FuncMap{
-	"stamp":           stamp,
-	"status":          statusInfo,
-	"duration":        app.DurationText,
-	"ansi":            renderANSI,
-	"deref":           func(value *string) string { return derefString(value) },
-	"add":             func(a, b int64) int64 { return a + b },
+	"stamp":       stamp,
+	"status":      statusInfo,
+	"duration":    app.DurationText,
+	"ansi":        renderANSI,
+	"home":        homePath,
+	"oldestFirst": oldestFirst,
+	"anyPaused": func(jobs []app.Job) bool {
+		return slices.ContainsFunc(jobs, func(job app.Job) bool { return job.Paused })
+	},
+	"anyPausable":     func(jobs []app.Job) bool { return slices.ContainsFunc(jobs, pausable) },
+	"pausable":        pausable,
 	"confirmCancel":   confirmCancel,
 	"confirmPauseJob": confirmPauseJob,
 	"confirmPauseAll": confirmPauseAll,
@@ -47,8 +55,12 @@ type layout struct {
 	Seq      uint64
 	Failing  int
 	Flash    string
-	Data     any
+	// Crumbs follow "noon" in the header, leading to the page.
+	Crumbs []crumb
+	Data   any
 }
+
+type crumb struct{ Href, Text string }
 
 func (h *Handler) layout(r *http.Request, title string, data any) layout {
 	page := layout{Title: title, Version: h.options.Version, Assets: "/assets/" + assetHash + "/", Data: data}
@@ -188,7 +200,9 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 	}
 	// Only the newest page streams; an earlier page is history.
 	page.Active = page.Active && before == nil
-	h.render(w, r, http.StatusOK, "run", h.layout(r, "#"+strconv.FormatInt(id, 10)+" "+view.Run.Job+" · noon", page))
+	full := h.layout(r, "#"+strconv.FormatInt(id, 10)+" "+view.Run.Job+" · noon", page)
+	full.Crumbs = []crumb{{projectPath(view.Project.ID), view.Project.Name}}
+	h.render(w, r, http.StatusOK, "run", full)
 }
 
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
@@ -261,11 +275,27 @@ func statusInfo(name string) status {
 	}
 }
 
-func derefString(value *string) string {
-	if value == nil {
-		return ""
+// homeDir shortens displayed paths to "~/...", as the TUI does.
+var homeDir, _ = os.UserHomeDir()
+
+func homePath(path string) string {
+	if homeDir != "" && (path == homeDir || strings.HasPrefix(path, homeDir+string(filepath.Separator))) {
+		return "~" + path[len(homeDir):]
 	}
-	return *value
+	return path
+}
+
+// oldestFirst reverses newest-first runs so strips read left to right in
+// time, like the duration chart.
+func oldestFirst(runs []app.Run) []app.Run {
+	runs = slices.Clone(runs)
+	slices.Reverse(runs)
+	return runs
+}
+
+// pausable is whether a job offers Pause: an enabled, approved, unpaused job.
+func pausable(job app.Job) bool {
+	return job.Enabled && job.Approval != "needs_approval" && !job.Paused
 }
 
 // pausedBy names the surface in a pause requester: "web" for web:ADDR.

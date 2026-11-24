@@ -255,6 +255,10 @@ type RunPageView struct {
 	Run      Run            `json:"run"`
 	Prompt   string         `json:"prompt,omitempty"`
 	Resume   string         `json:"resume,omitempty"`
+	// HasJob is whether the run's job is still configured, so the viewer can
+	// offer to run it again; Block explains why it can't be queued, if so.
+	HasJob bool       `json:"-"`
+	Block  QueueBlock `json:"-"`
 }
 
 // EnabledRun reads a run that belongs to an enabled project.
@@ -289,6 +293,18 @@ func EnabledRun(input config.Input, stateDir string, id int64, now time.Time) (R
 			}
 			if run.AgentSessionID != nil {
 				result.Resume = AgentResumeCommand(job, *run.AgentSessionID, true)
+			}
+		}
+	}
+	if dashboard, err := Dashboard(values, now); err == nil {
+		configFile := ""
+		if values.File != nil {
+			configFile = *values.File
+		}
+		for _, job := range dashboard.Jobs {
+			if job.Name == run.Job {
+				result.HasJob = true
+				result.Block = queueBlocks([]Job{job}, project.Path, configFile)[job.Name]
 			}
 		}
 	}

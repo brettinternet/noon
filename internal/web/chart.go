@@ -23,9 +23,11 @@ const (
 // and its text keeps its size.
 type durationChart struct {
 	Title, Desc string
-	Bars        []chartBar
-	Legend      []status
-	Timeout     *chartLine
+	// Summary is the visible caption: the median and slowest durations.
+	Summary string
+	Bars    []chartBar
+	Legend  []status
+	Timeout *chartLine
 }
 
 type chartBar struct {
@@ -96,6 +98,11 @@ func newDurationChart(job string, runs []app.Run, timeout string) *durationChart
 		len(runs), app.DurationText(&median), app.DurationText(slowest.DurationMS), strconv.FormatInt(slowest.ID, 10))
 	if timeoutText != "" {
 		chart.Desc += " Timeout " + timeoutText + "."
+	}
+	chart.Summary = "median " + app.DurationText(&median) + " · slowest " + app.DurationText(slowest.DurationMS)
+	// One status needs no key; its color only repeats the bars.
+	if len(chart.Legend) < 2 {
+		chart.Legend = nil
 	}
 	return chart
 }

@@ -1,20 +1,21 @@
 {{define "run"}}{{template "head" .}}
 <main id="run">
-{{with .Data}}{{$tz := .Timezone}}
+{{with .Data}}{{$tz := .Timezone}}{{$active := or (eq .Run.Status "queued") (eq .Run.Status "running")}}
 <section data-swap id="summary">
 <div class="title">
 <h1>#{{.Run.ID}} {{.Run.Job}}</h1>
-{{if or (eq .Run.Status "queued") (eq .Run.Status "running")}}<form class="actions" method="post" action="/runs/{{.Run.ID}}/cancel"{{if eq .Run.Status "running"}} data-confirm="{{confirmCancel .Run.ID .Run.Job}}"{{end}}><button type="submit" data-key="c">Cancel</button></form>{{end}}
+<div class="actions">
+{{if $active}}<form method="post" action="/runs/{{.Run.ID}}/cancel"{{if eq .Run.Status "running"}} data-confirm="{{confirmCancel .Run.ID .Run.Job}}"{{end}}><button type="submit" data-key="c">Cancel</button></form>
+{{else if .HasJob}}{{if .Block.Reason}}<button type="button" disabled title="{{.Block.Reason}}">Run again</button>
+{{else}}<form method="post" action="/projects/{{.Project.ID}}/jobs/{{.Run.Job}}/runs"><button type="submit" class="primary" data-key="r">Run again</button></form>{{end}}{{end}}
 </div>
+</div>
+<p class="headline" data-status="{{.Run.Status}}">{{template "status" (status .Run.Status)}}{{if eq (status .Run.Status).Class "bad"}}{{with .Run.ExitCode}} <span class="muted">exit {{.}}</span>{{end}}{{end}}</p>
 <dl>
-<dt>Project</dt><dd><a href="/projects/{{.Project.ID}}">{{.Project.Name}}</a></dd>
-<dt>Status</dt><dd aria-live="polite">{{template "status" (status .Run.Status)}}</dd>
-<dt>Trigger</dt><dd>{{.Run.Trigger}}</dd>
-{{with .Run.RequestedBy}}<dt>Requested by</dt><dd>{{.}}</dd>{{end}}
 <dt>Started</dt><dd>{{template "time" (stamp .Run.StartedAt $tz)}}</dd>
-<dt>Duration</dt><dd>{{duration .Run.DurationMS}}</dd>
-<dt>Exit code</dt><dd>{{with .Run.ExitCode}}{{.}}{{else}}—{{end}}</dd>
-{{with .Run.Error}}<dt>Error</dt><dd>{{.}}</dd>{{end}}
+<dt>Duration</dt><dd class="num">{{template "elapsed" (dict "Run" .Run "TZ" $tz)}}</dd>
+<dt>Trigger</dt><dd>{{.Run.Trigger}}{{with .Run.RequestedBy}} <span class="muted">by {{.}}</span>{{end}}</dd>
+{{with .Run.Error}}<dt>Error</dt><dd class="bad">{{.}}</dd>{{end}}
 </dl>
 {{with .Prompt}}<h2>Prompt</h2><pre class="prompt">{{.}}</pre>{{end}}
 {{with .Resume}}<h2>Resume</h2><p>{{template "command" .}}</p>{{end}}
@@ -23,7 +24,7 @@
 <h2>Log</h2>
 {{with .Log.Earlier}}<p><a class="earlier" href="?before={{.}}">Earlier</a></p>{{end}}
 {{if .Log.Lines}}<div class="log">{{range .Log.Lines}}<div class="line" id="L{{.Number}}"><a href="#L{{.Number}}">{{.Number}}</a><span>{{ansi .Text}}</span></div>{{end}}</div>
-{{else}}<div class="log"></div><p class="empty">No output.</p>{{end}}
+{{else}}<div class="log"></div><p class="empty">{{if .Active}}Waiting for output…{{else}}No output.{{end}}</p>{{end}}
 </section>
 {{end}}
 </main>
