@@ -45,6 +45,10 @@ tasks:
     cmds:
       - task: cli:build
       - sh scripts/smoke.sh
+  web:demo:
+    desc: Serve the web viewer on 127.0.0.1:8788 from an isolated sandbox with demo jobs
+    deps: [cli:build]
+    cmd: sh scripts/web-demo.sh
   release:smoke:
     desc: Verify isolated no-argument behavior of the native Noon binary
     deps: [cli:build]

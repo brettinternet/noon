@@ -27,6 +27,7 @@ task cli:run -- --help                 # run from source
 | `task security` | Secret scan of Git history; govulncheck |
 | `task check:staged` | Format and re-stage Go; scan staged secrets |
 | `task ci` | Full gate: security, check, test, race, smoke |
+| `task web:demo` | Serve the [web viewer](web.md) at `127.0.0.1:8788` from a sandbox in `$TMPDIR/noon-web-demo` with passing, failing, and long jobs; prints the token |
 | `task docker:smoke` | Build the image; check it read-only |
 | `task docker:integration` | Compose scheduling, signals, persistence (Linux engine) |
 | `task backlog` / `backlog:next` | Ready, unclaimed work |
