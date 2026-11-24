@@ -69,6 +69,11 @@ automation, including agents.
 - Listener changes in user config take effect only after `noon service restart` or a new
   `noon serve`.
 - Pause rows gain a `requested_by` column (a store migration). Existing rows read as `cli`.
+- Logs can contain secrets, so signed-in pages are never cached, and log rendering drops terminal
+  control sequences.
+- The viewer shares the scheduler process, so its cost must not grow with open tabs: one SQLite
+  change watcher, one stream per tab, bounded streams, and streams closed at shutdown.
 - Delivery is phased: listener settings in user config so the background service can serve the
   listener (NOON-97), a read-only viewer (NOON-98), then queue, cancel, pause, and resume
-  (NOON-99).
+  (NOON-99). Run links in hook notifications (NOON-100) and per-job duration charts (NOON-101)
+  follow the viewer.
