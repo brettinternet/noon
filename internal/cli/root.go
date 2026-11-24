@@ -400,6 +400,9 @@ func showConfig(_ context.Context, cmd *urfave.Command) error {
 		fmt.Fprintf(cmd.Writer, "Default agent: %s\n", cell(cfg.DefaultAgent, 80))
 	}
 	fmt.Fprintf(cmd.Writer, "Listener:      %s\n", listenerSummary(cfg.Serve))
+	if cfg.Serve.PublicURL != "" {
+		fmt.Fprintf(cmd.Writer, "Public URL:    %s\n", cell(cfg.Serve.PublicURL, 80))
+	}
 	fmt.Fprintln(cmd.Writer, "Files (low → high precedence):")
 	if len(cfg.Sources) == 0 {
 		fmt.Fprintln(cmd.Writer, "  none; using defaults and invocation overrides")

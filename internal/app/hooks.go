@@ -39,8 +39,9 @@ type hookPayload struct {
 }
 
 // FinishRunWithHook records the run's terminal result and, when configured,
-// executes its matching hook after that durable transition.
-func FinishRunWithHook(state *store.Store, run store.Run, project string, job config.Job, hookEnvironment []string, outcome store.Outcome) (*HookResult, error) {
+// executes its matching hook after that durable transition. A non-empty
+// publicURL, the web viewer's base, gives the hook NOON_RUN_URL.
+func FinishRunWithHook(state *store.Store, run store.Run, project string, job config.Job, hookEnvironment []string, publicURL string, outcome store.Outcome) (*HookResult, error) {
 	event, command := matchingHook(outcome.Status, job)
 	var previousStatus string
 	var consecutiveFailures int
@@ -85,6 +86,12 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 	env := setHookEnvironment(hookEnvironment, "NOON_PROJECT", project)
 	env = setHookEnvironment(env, "NOON_JOB", job.Name)
 	env = setHookEnvironment(env, "NOON_RUN_ID", strconv.FormatInt(stored.ID, 10))
+	runURL := ""
+	if publicURL != "" {
+		runURL = publicURL + "/runs/" + strconv.FormatInt(stored.ID, 10)
+	}
+	// Empty unsets it, so an inherited value never leaks into the hook.
+	env = setHookEnvironment(env, "NOON_RUN_URL", runURL)
 	sessionID := ""
 	if stored.AgentSessionID.Valid {
 		sessionID = stored.AgentSessionID.String

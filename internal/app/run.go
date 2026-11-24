@@ -167,7 +167,7 @@ func JobEnvironment(project string, job config.Job, inherited []string) []string
 	// Run and hook metadata from a parent run (e.g. a hook calling noon run) must not leak.
 	for _, key := range []string{"NOON_RUN_ID", "NOON_LAST_SUCCESS_AT", "NOON_DEPTH", "NOON_EVENT_FILE",
 		"NOON_AGENT", "NOON_AGENT_SESSION_ID", "NOON_SCHEDULED_AT", "NOON_STATUS", "NOON_PREVIOUS_STATUS",
-		"NOON_CONSECUTIVE_FAILURES", "NOON_EXIT_CODE", "NOON_LOG_FILE"} {
+		"NOON_CONSECUTIVE_FAILURES", "NOON_EXIT_CODE", "NOON_LOG_FILE", "NOON_RUN_URL"} {
 		delete(env, key)
 	}
 	if job.Prompt != nil || job.PromptFile != nil {

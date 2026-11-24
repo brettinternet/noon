@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,8 @@ type Serve struct {
 	Listen       string `json:"listen,omitempty"`
 	APITokenFile string `json:"api_token_file,omitempty"`
 	WebTokenFile string `json:"web_token_file,omitempty"`
+	// PublicURL is the web viewer's external base URL, without a trailing slash.
+	PublicURL string `json:"public_url,omitempty"`
 }
 
 // MinTokenBytes is the shortest accepted bearer token.
@@ -44,6 +47,12 @@ func (cfg *Config) applyServe(path string, node *yaml.Node, requirePair bool) er
 		switch key.Value {
 		case "listen":
 			serve.Listen = value.Value
+		case "public_url":
+			public, err := parsePublicURL(value.Value)
+			if err != nil {
+				return jobError(path, value, field, err.Error())
+			}
+			serve.PublicURL = public
 		case "api_token_file", "web_token_file":
 			file, err := expandHome(value.Value)
 			if err != nil {
@@ -58,6 +67,9 @@ func (cfg *Config) applyServe(path string, node *yaml.Node, requirePair bool) er
 			return jobError(path, key, field, "unknown field")
 		}
 	}
+	if serve.PublicURL != "" && serve.WebTokenFile == "" {
+		return jobError(path, node, "serve.public_url", "requires serve.web_token_file")
+	}
 	if requirePair && serve.Listen == "" {
 		if serve.APITokenFile != "" {
 			return jobError(path, node, "serve.api_token_file", "requires serve.listen")
@@ -68,6 +80,19 @@ func (cfg *Config) applyServe(path string, node *yaml.Node, requirePair bool) er
 	}
 	cfg.Serve = serve
 	return nil
+}
+
+// parsePublicURL accepts an absolute http(s) URL without a query or fragment
+// and drops one trailing slash so run paths join cleanly.
+func parsePublicURL(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return "", errors.New("must be an absolute http or https URL")
+	}
+	if parsed.RawQuery != "" || parsed.ForceQuery || strings.Contains(raw, "#") {
+		return "", errors.New("must not include a query or fragment")
+	}
+	return strings.TrimSuffix(raw, "/"), nil
 }
 
 // ErrTokenReuse reports a web token equal to the API token. The two grant

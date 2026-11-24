@@ -62,7 +62,7 @@ func serveAction(build config.BuildOpts) func(context.Context, *urfave.Command) 
 		}
 		options := scheduler.ServeOptions{
 			StateDir: stateDir, StateDirDefault: values.StateDirDefault,
-			UserConfigDir: values.UserConfigDir, Version: build.Version, Commit: build.Commit, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: settings.Listen, APITokenFile: settings.APITokenFile, WebTokenFile: settings.WebTokenFile,
+			UserConfigDir: values.UserConfigDir, Version: build.Version, Commit: build.Commit, Environment: os.Environ(), Logger: cmd.ErrWriter, ListenAddr: settings.Listen, APITokenFile: settings.APITokenFile, WebTokenFile: settings.WebTokenFile, PublicURL: settings.PublicURL,
 		}
 		if err := scheduler.Serve(ctx, options); err != nil {
 			var running *scheduler.SchedulerRunningError

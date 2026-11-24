@@ -66,6 +66,21 @@ Either works without the other, and neither is accepted in the other's place. Si
 `Secure` when the request arrived over HTTPS. Rotate the token and restart to sign every browser
 out. Neither token is logged, shown, or passed to jobs or hooks.
 
+## Notification links
+
+Noon can't know the viewer's address behind a reverse proxy, so give it in user config:
+
+```yaml
+serve:
+  web_token_file: ~/.config/noon/web-token
+  public_url: https://noon.example.com
+```
+
+Every [hook](hooks.md) then gets `NOON_RUN_URL=https://noon.example.com/runs/RUN_ID`, from
+scheduled and foreground runs alike; jobs never do. The URL must be absolute `http` or `https`
+with no query or fragment, a trailing slash is ignored, and it needs `serve.web_token_file`;
+otherwise `noon config check` and `noon serve` fail. The viewer uses it for nothing else.
+
 ## Remote access
 
 Logs can contain secrets, so reach the viewer only over a private link: loopback, SSH forwarding,

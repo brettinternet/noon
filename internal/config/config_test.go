@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -508,5 +509,33 @@ func TestServeSettingsAreUserOnly(t *testing.T) {
 	}
 	if _, err := config.Load(config.Input{CWD: project, UserConfigDir: userDir, StateDirDefault: defaultState}); err == nil || !strings.Contains(err.Error(), "requires serve.listen") {
 		t.Fatalf("lone token file should fail validation: %v", err)
+	}
+
+	// Hooks build NOON_RUN_URL from public_url, so only clean absolute bases pass.
+	for raw, want := range map[string]string{
+		"https://noon.example.com/":     "https://noon.example.com",
+		"http://host:8080/noon":         "http://host:8080/noon",
+		"/noon":                         "absolute http or https",
+		"noon.example.com":              "absolute http or https",
+		"ftp://noon.example.com":        "absolute http or https",
+		"https:noon.example.com":        "absolute http or https",
+		"https://noon.example.com/?a=1": "query or fragment",
+		"https://noon.example.com/?":    "query or fragment",
+		"https://noon.example.com/#top": "query or fragment",
+		"https://noon.example.com/#":    "query or fragment",
+	} {
+		put(t, userFile, "serve:\n  listen: 127.0.0.1:8787\n  web_token_file: /web-token\n  public_url: "+strconv.Quote(raw)+"\n")
+		cfg, err := config.Load(config.Input{CWD: project, UserConfigDir: userDir, StateDirDefault: defaultState})
+		if strings.HasPrefix(want, "http") {
+			if err != nil || cfg.Serve.PublicURL != want {
+				t.Fatalf("public_url %q = %q, err=%v", raw, cfg.Serve.PublicURL, err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("public_url %q should fail with %q: %v", raw, want, err)
+		}
+	}
+	put(t, userFile, "serve:\n  listen: 127.0.0.1:8787\n  public_url: https://noon.example.com\n")
+	if _, _, err := config.ServeSettings(config.Input{CWD: root, UserConfigDir: userDir, StateDirDefault: defaultState}); err == nil || !strings.Contains(err.Error(), "requires serve.web_token_file") {
+		t.Fatalf("public_url without a web token should fail startup: %v", err)
 	}
 }

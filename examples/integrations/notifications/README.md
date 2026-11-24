@@ -28,7 +28,9 @@ How hooks fit together:
 - `on_failure` fires for `failed` and `timed_out`; cancelled, skipped, and interrupted runs have
   no hook. Hook failures never change the job's result.
 - Each hook gets `NOON_JOB`, `NOON_STATUS`, `NOON_EXIT_CODE`, `NOON_LOG_FILE`, `NOON_PROJECT`,
-  `NOON_AGENT_SESSION_ID` (prompt runs whose profile sets `session_id_flag`; empty otherwise), and
+  `NOON_AGENT_SESSION_ID` (prompt runs whose profile sets `session_id_flag`; empty otherwise),
+  `NOON_RUN_URL` (the [web viewer](../../../docs/web.md#notification-links) run page, when
+  `serve.public_url` is set; `noon-ntfy` and `noon-slack` link to it), and
   the run as JSON on stdin; 30 seconds to finish; output is appended to the run log.
 
 ## Pause after repeated failures

@@ -5,3 +5,9 @@ on_failure: [/Users/me/.local/bin/noon-notify]
 
 # Phone push instead (or as well, by writing a wrapper that calls both):
 # on_failure: [/Users/me/.local/bin/noon-ntfy]
+
+# Link notifications to the run page in the web viewer (needs serve.web_token_file):
+# serve:
+#   listen: 127.0.0.1:8787
+#   web_token_file: /Users/me/.config/noon/web-token
+#   public_url: https://noon.example.com

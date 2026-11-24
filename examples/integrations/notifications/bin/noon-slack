@@ -1,8 +1,9 @@
 #!/bin/sh
 # Post a Slack message through an incoming webhook. SLACK_WEBHOOK_URL comes from the scheduler's
 # environment, never from YAML. The message is built from the hook's JSON stdin with jq.
+# With serve.public_url set, the run ID links to the run page.
 set -eu
 : "${SLACK_WEBHOOK_URL:?set SLACK_WEBHOOK_URL}"
-jq -c '{
-  text: "\(if .run.status == "succeeded" then ":white_check_mark:" else ":x:" end) *\(.project.name)* / `\(.run.job)` \(.run.status) (run \(.run.id))"
+jq -c --arg url "${NOON_RUN_URL-}" '{
+  text: "\(if .run.status == "succeeded" then ":white_check_mark:" else ":x:" end) *\(.project.name)* / `\(.run.job)` \(.run.status) (\(if $url == "" then "run \(.run.id)" else "<\($url)|run \(.run.id)>" end))"
 }' | curl --fail --silent --show-error -H 'Content-Type: application/json' --data-binary @- "$SLACK_WEBHOOK_URL"

@@ -60,6 +60,7 @@ The hook runs in the job's directory with that run's environment, including `env
 | `NOON_LOG_FILE` | Absolute path to the run log; unset if there is none |
 | `NOON_CONSECUTIVE_FAILURES` | Consecutive retained failures including this run; decimal integer, 0 on success |
 | `NOON_PREVIOUS_STATUS` | This job's previous `succeeded`/`failed`/`timed_out` result; unset if none is retained |
+| `NOON_RUN_URL` | The run's [web viewer](web.md#notification-links) page, `PUBLIC_URL/runs/RUN_ID`; unset without `serve.public_url` |
 | `NOON_JOB`, `NOON_RUN_ID`, … | Same as the job ([Execution](design.md#execution)) |
 
 Stdin is one JSON object. `run` has the same shape as `noon history --json`:

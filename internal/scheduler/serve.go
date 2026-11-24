@@ -44,6 +44,7 @@ type ServeOptions struct {
 	ListenAddr      string
 	APITokenFile    string
 	WebTokenFile    string
+	PublicURL       string
 	Platform        *config.Platform
 	IgnoreSignals   bool
 	OnTick          func()
@@ -1033,7 +1034,7 @@ func executeScheduledRun(ctx context.Context, state *store.Store, run store.Run,
 			outcome.LogBytes, outcome.LogTruncated, _ = runLog.Close()
 			outcome.LogPath = runLog.Path()
 		}
-		_, finishErr := app.FinishRunWithHook(state, run, project, job, app.JobEnvironment(project, job, options.Environment), outcome)
+		_, finishErr := app.FinishRunWithHook(state, run, project, job, app.JobEnvironment(project, job, options.Environment), options.PublicURL, outcome)
 		if finishErr != nil {
 			logger.event("run finish error project=%q job=%q run=%d error=%q", project, run.Job, run.ID, finishErr.Error())
 			return
@@ -1121,7 +1122,7 @@ func executeScheduledRun(ctx context.Context, state *store.Store, run store.Run,
 		}
 		errorMessage += "log write failed: " + logErr.Error()
 	}
-	hookResult, finishErr := app.FinishRunWithHook(state, run, project, job, spec.Env, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: errorMessage, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated})
+	hookResult, finishErr := app.FinishRunWithHook(state, run, project, job, spec.Env, options.PublicURL, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: errorMessage, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated})
 	if finishErr != nil {
 		logger.event("run finish error project=%q job=%q run=%d error=%q", project, run.Job, run.ID, finishErr.Error())
 		return

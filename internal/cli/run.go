@@ -176,7 +176,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	log, err := state.RunLog(projectID, run.ID)
 	if err != nil {
 		code := 125
-		hook, finishErr := app.FinishRunWithHook(state, run, cfg.Project, job, app.JobEnvironment(cfg.Project, job, os.Environ()), store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: err.Error()})
+		hook, finishErr := app.FinishRunWithHook(state, run, cfg.Project, job, app.JobEnvironment(cfg.Project, job, os.Environ()), cfg.Serve.PublicURL, store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: err.Error()})
 		if finishErr != nil {
 			return stateError(errors.Join(err, finishErr))
 		}
@@ -186,7 +186,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 	if err := state.SetRunLog(run.ID, log.Path()); err != nil {
 		logBytes, truncated, closeErr := log.Close()
 		code := 125
-		hook, finishErr := app.FinishRunWithHook(state, run, cfg.Project, job, app.JobEnvironment(cfg.Project, job, os.Environ()), store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: errors.Join(err, closeErr).Error(), LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated})
+		hook, finishErr := app.FinishRunWithHook(state, run, cfg.Project, job, app.JobEnvironment(cfg.Project, job, os.Environ()), cfg.Serve.PublicURL, store.Outcome{Status: "failed", FinishedAt: time.Now(), ExitCode: &code, Error: errors.Join(err, closeErr).Error(), LogPath: log.Path(), LogBytes: logBytes, LogTruncated: truncated})
 		if finishErr != nil {
 			return stateError(errors.Join(err, closeErr, finishErr))
 		}
@@ -339,7 +339,7 @@ func runJob(ctx context.Context, cmd *urfave.Command) error {
 		}
 		outcomeError += "cancellation poll failed: " + cancellationPollError.Error()
 	}
-	hookResult, finishErr := app.FinishRunWithHook(state, run, cfg.Project, job, spec.Env, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: outcomeError, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: logTruncated})
+	hookResult, finishErr := app.FinishRunWithHook(state, run, cfg.Project, job, spec.Env, cfg.Serve.PublicURL, store.Outcome{Status: status, FinishedAt: result.FinishedAt, ExitCode: &result.ExitCode, Signal: result.Signal, Error: outcomeError, LogPath: log.Path(), LogBytes: logBytes, LogTruncated: logTruncated})
 	if finishErr != nil {
 		if hookResult == nil {
 			return stateError(finishErr)

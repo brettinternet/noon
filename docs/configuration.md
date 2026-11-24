@@ -1,3 +1,4 @@
+| `serve.public_url` | | Absolute `http` or `https` URL without a query or fragment; needs `serve.web_token_file`; see [notification links](web.md#notification-links) |
 # Configuration
 
 ## Files
@@ -154,6 +155,7 @@ serve:
   listen: 127.0.0.1:8787               # signed webhooks; --listen overrides
   api_token_file: ~/.config/noon/api-token  # remote API and MCP; --api-token-file overrides
   web_token_file: ~/.config/noon/web-token  # web viewer; --web-token-file overrides
+  public_url: https://noon.example.com     # viewer base for hook links
 ```
 
 | Key | Flag | Notes |
@@ -171,7 +173,7 @@ are no environment variables. `noon serve` reads the settings once at startup; r
 ```
 
 `noon config` shows `Listener: ADDR`, with `(API)`, `(web)`, or `(API, web)` for the token files
-set, or `Listener: off`. `noon doctor` fails when a token file is unreadable or too short, or when
+set, or `Listener: off`. It shows `Public URL: URL` when `serve.public_url` is set. `noon doctor` fails when a token file is unreadable or too short, or when
 the two tokens match, and warns when one is readable by group or others or the address isn't
 loopback. Tokens are never printed.
 
