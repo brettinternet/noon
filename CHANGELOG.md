@@ -6,7 +6,28 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- **web:** Refine viewer layout for phones and live runs
+- Queue, cancel, pause, and resume from the web viewer
+- Chart recent run durations per job in the web viewer
+- Link hook notifications to the web viewer run page
+- Add read-only web viewer
+- Configure the scheduler listener in user config
+
+### Documentation
+
+- Harden web viewer plan and add run links and duration charts
+- Add web pause/resume and stack to web viewer plan
+- Decide optional web viewer and plan its tasks
+
+## [v0.18.0](https://github.com/brettinternet/noon/compare/v0.17.0...v0.18.0) - 2026-11-19
+
+### Added
+
 - **tui:** Browse and switch between enabled projects
+
+### Documentation
+
+- Refresh changelog
 
 ## [v0.17.0](https://github.com/brettinternet/noon/compare/v0.16.1...v0.17.0) - 2026-11-17
 
