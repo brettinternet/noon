@@ -27,12 +27,16 @@ type eventFile struct {
 }
 
 func (s *Store) writeEvent(runID int64, source string, receivedAt time.Time, data []byte, headerSets ...map[string]string) (string, error) {
-	if len(data) == 0 && source != "webhook" {
+	// Webhook and web runs always record their source; others only carry data.
+	if len(data) == 0 && source != "webhook" && source != "web" {
 		return "", nil
 	}
 	var headers map[string]string
 	switch source {
-	case "cli", "mcp", "api":
+	case "cli", "mcp", "api", "web":
+		if len(data) == 0 {
+			break
+		}
 		if len(data) > MaxEventBytes || !json.Valid(data) {
 			return "", errors.New("event data must be valid JSON of at most 256 KiB")
 		}

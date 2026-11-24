@@ -1,7 +1,13 @@
 {{define "project"}}{{template "head" .}}
 <main data-swap id="project">
-{{with .Data}}{{$tz := .Project.Timezone}}
+{{with .Data}}{{$tz := .Project.Timezone}}{{$base := printf "/projects/%d" .Project.ID}}{{$blocked := .Blocked}}
+<div class="title">
 <h1>{{.Project.Name}}</h1>
+{{if .Dashboard.Jobs}}<div class="actions">
+{{template "pause" (dict "Action" (printf "%s/pause" $base) "Back" $base "Label" "Pause all" "Confirm" (confirmPauseAll (len .Dashboard.Jobs) (temporaryJobs .Dashboard.Jobs)) "Key" "")}}
+<form method="post" action="{{$base}}/resume"><input type="hidden" name="back" value="{{$base}}"><button type="submit">Resume all</button></form>
+</div>{{end}}
+</div>
 <p class="path">{{.Project.Path}} · {{template "state" .Project.State}}</p>
 {{if .Project.Command}}<p>{{template "command" .Project.Command}}</p>{{end}}
 {{if .Project.ConfigError}}<pre class="error">{{.Project.ConfigError}}</pre>{{end}}
@@ -9,16 +15,26 @@
 <section>
 <h2>Jobs</h2>
 {{if .Dashboard.Jobs}}
-<table>
-<thead><tr><th scope="col">Job</th><th scope="col">Schedule ({{$tz}})</th><th scope="col">Next</th><th scope="col">Last</th><th scope="col">State</th></tr></thead>
+<table class="jobs">
+<thead><tr><th scope="col">Job</th><th scope="col">Schedule ({{$tz}})</th><th scope="col">Next</th><th scope="col">Last</th><th scope="col">State</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
 <tbody>
-{{range .Dashboard.Jobs}}
-<tr>
+{{range .Dashboard.Jobs}}{{$job := printf "%s/jobs/%s" $base .Name}}{{$block := index $blocked .Name}}
+<tr data-job>
 <td><a href="?job={{.Name}}">{{.Name}}</a></td>
 <td>{{with .Schedule}}<code>{{.}}</code>{{else}}—{{end}}</td>
 <td>{{template "time" (stamp .NextAt $tz)}}</td>
 <td>{{with .LastRun}}<a href="/runs/{{.ID}}">#{{.ID}}</a> {{template "status" (status .Status)}}{{else}}—{{end}}</td>
-<td>{{if eq .Approval "needs_approval"}}<span class="status warn"><span aria-hidden="true">!</span> needs approval</span>{{else if .Paused}}<span class="status muted"><span aria-hidden="true">‖</span> paused</span>{{else if not .Enabled}}<span class="status muted">disabled</span>{{else if .Ended}}<span class="status muted">ended</span>{{else}}<span class="status ok"><span aria-hidden="true">✓</span> active</span>{{end}}</td>
+<td>{{if eq .Approval "needs_approval"}}<span class="status warn"><span aria-hidden="true">!</span> needs approval</span>{{else if .Paused}}<span class="status muted"><span aria-hidden="true">‖</span> paused{{with .PausedBy}} from {{pausedBy .}}{{end}}</span>{{with stamp .PausedAt $tz}} <time datetime="{{.ISO}}" data-relative>{{.Text}}</time>{{end}}{{with .PauseEndsAt}} · resumes {{template "time" (stamp . $tz)}}{{end}}{{else if not .Enabled}}<span class="status muted">disabled</span>{{else if not .PlatformSupported}}<span class="status muted">unsupported platform</span>{{else if .Ended}}<span class="status muted">ended</span>{{else}}<span class="status ok"><span aria-hidden="true">✓</span> active</span>{{end}}</td>
+<td class="actions">
+{{if $block.Reason}}<button type="button" disabled title="{{$block.Reason}}">Run</button>{{with $block.Command}} {{template "command" .}}{{end}}
+{{else}}<form method="post" action="{{$job}}/runs"><button type="submit" data-key="r">Run</button></form>
+<details class="menu"><summary>Later</summary><div class="popover">
+<form method="post" action="{{$job}}/runs"><input type="hidden" name="when" value="in"><label>In <input name="in" placeholder="1h" size="8" required></label><button type="submit">Queue</button></form>
+<form method="post" action="{{$job}}/runs"><input type="hidden" name="when" value="at"><label>At <input name="at" placeholder="09:00" size="8" required></label><button type="submit">Queue</button></form>
+</div></details>{{end}}
+{{if .Paused}}<form method="post" action="{{$job}}/resume"><input type="hidden" name="back" value="{{$base}}"><button type="submit" data-key="p">Resume</button></form>
+{{else if and .Enabled (ne .Approval "needs_approval")}}{{$confirm := ""}}{{if .TemporarySchedule}}{{$confirm = confirmPauseJob .Name}}{{end}}{{template "pause" (dict "Action" (printf "%s/pause" $job) "Back" $base "Label" "Pause" "Confirm" $confirm "Key" "p")}}{{end}}
+</td>
 </tr>
 {{end}}
 </tbody>
@@ -60,6 +76,15 @@
 {{end}}
 </main>
 {{template "foot" .}}{{end}}
+
+{{define "pause"}}<details class="menu"><summary{{with .Key}} data-key="{{.}}"{{end}}>{{.Label}}</summary><div class="popover">
+<form method="post" action="{{.Action}}"{{with .Confirm}} data-confirm="{{.}}"{{end}}><input type="hidden" name="back" value="{{.Back}}">
+<button type="submit" name="window" value="1h">1 hour</button>
+<button type="submit" name="window" value="1d">1 day</button>
+<button type="submit" name="window" value="tomorrow">Until 09:00</button>
+<button type="submit" name="window" value="open">Until resumed</button>
+</form>
+</div></details>{{end}}
 
 {{define "runs"}}<table>
 <thead><tr><th scope="col">Run</th><th scope="col">Job</th><th scope="col">Status</th><th scope="col">Trigger</th><th scope="col">Started</th><th scope="col">Duration</th></tr></thead>

@@ -41,7 +41,7 @@ th, td { text-align: left; vertical-align: top; padding: 0.375rem 0.75rem 0.375r
 th { color: var(--muted); font-weight: 500; font-size: 0.875rem; }
 /* 44px tap targets overlap the cell padding so wrapped text keeps a normal line height. */
 td { padding-block: 10px; }
-td a, td button { margin-block: -10px; }
+td a, td button, td .menu { margin-block: -10px; }
 td > code { white-space: nowrap; }
 
 .path { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; margin: 0; }
@@ -90,6 +90,33 @@ pre.prompt, pre.error { background: var(--panel); padding: 0.75rem; border-radiu
 
 .login form { display: grid; gap: 0.5rem; max-width: 24rem; }
 
+.title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.title h1 { margin-bottom: 0; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+td.actions { white-space: nowrap; }
+.actions form { display: inline; margin: 0; }
+button:disabled { cursor: not-allowed; color: var(--muted); }
+tr[data-job]:focus { outline: 2px solid var(--link); outline-offset: -2px; }
+.flash { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 1rem 0 0; }
+
+.menu { position: relative; display: inline-block; }
+.menu > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; min-height: 44px; padding: 0 0.75rem; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary::after { content: "▾"; margin-left: 0.375rem; color: var(--muted); }
+.popover { position: absolute; right: 0; z-index: 1; margin-top: 0.25rem; display: grid; gap: 0.5rem; padding: 0.5rem; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 12px rgb(0 0 0 / 0.15); }
+.popover button { margin-block: 0; white-space: nowrap; }
+.popover form { display: flex; gap: 0.5rem; align-items: center; }
+.popover form[data-confirm], .popover form:has(> button[name=window]) { display: grid; }
+.popover label { display: inline-flex; align-items: center; gap: 0.5rem; }
+
+dialog { color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; max-width: 32rem; }
+dialog::backdrop { background: rgb(0 0 0 / 0.4); }
+dialog h2 { margin-top: 0; }
+.buttons { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.keys { grid-template-columns: max-content 1fr; }
+kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.875rem; padding: 0.125rem 0.375rem; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.confirm form { display: flex; align-items: center; gap: 1rem; }
+
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -100,6 +127,7 @@ pre.prompt, pre.error { background: var(--panel); padding: 0.75rem; border-radiu
 @media (max-width: 40rem) {
   th:nth-child(n+4), td:nth-child(n+4) { display: none; }
   #overview table:first-of-type th:nth-child(4), #overview table:first-of-type td:nth-child(4) { display: table-cell; }
+  .jobs th:last-child, .jobs td.actions { display: table-cell; }
   .line { grid-template-columns: 3rem 1fr; }
 }
 

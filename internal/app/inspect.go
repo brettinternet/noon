@@ -54,6 +54,8 @@ type Job struct {
 	Paused              bool                     `json:"paused"`
 	PauseStartsAt       *time.Time               `json:"pause_starts_at,omitempty"`
 	PauseEndsAt         *time.Time               `json:"pause_ends_at,omitempty"`
+	PausedBy            string                   `json:"paused_by,omitempty"`
+	PausedAt            *time.Time               `json:"-"`
 	LastRun             *Run                     `json:"last_run"`
 	ConsecutiveFailures int                      `json:"consecutive_failures,omitempty"`
 	FailingSince        *time.Time               `json:"failing_since,omitempty"`

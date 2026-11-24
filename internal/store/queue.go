@@ -188,7 +188,7 @@ VALUES(?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`, input.ProjectID, input.Job, tri
 	if err != nil {
 		return QueueRunResult{}, fmt.Errorf("get queued run ID: %w", err)
 	}
-	if len(input.EventData) > 0 || input.EventSource == "webhook" {
+	if len(input.EventData) > 0 || input.EventSource == "webhook" || input.EventSource == "web" {
 		eventPath, err = s.writeEvent(id, input.EventSource, input.Now, input.EventData, input.EventHeaders)
 		if err != nil {
 			return QueueRunResult{}, err

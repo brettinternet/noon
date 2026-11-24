@@ -213,7 +213,7 @@ func SetPaused(stateDir, project, name string, paused bool, now time.Time) error
 
 func SetJobsPaused(stateDir, project string, names []string, paused bool, now time.Time) (int, error) {
 	if paused {
-		return PauseJobs(stateDir, project, names, store.PauseWindow{}, now)
+		return PauseJobs(stateDir, project, names, store.PauseWindow{}, "cli", now)
 	}
 	return withPauses(stateDir, project, names, now, func(state *store.Store) (int, error) {
 		return state.SetJobsPaused(project, names, false, now)
@@ -221,9 +221,10 @@ func SetJobsPaused(stateDir, project string, names []string, paused bool, now ti
 }
 
 // PauseJobs records a validated window; the zero window is open-ended.
-func PauseJobs(stateDir, project string, names []string, window store.PauseWindow, now time.Time) (int, error) {
+// requestedBy is "cli" or "web:ADDR".
+func PauseJobs(stateDir, project string, names []string, window store.PauseWindow, requestedBy string, now time.Time) (int, error) {
 	return withPauses(stateDir, project, names, now, func(state *store.Store) (int, error) {
-		return state.PauseJobs(project, names, window, now)
+		return state.PauseJobs(project, names, window, requestedBy, now)
 	})
 }
 

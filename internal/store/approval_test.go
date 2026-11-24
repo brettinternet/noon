@@ -222,7 +222,8 @@ func TestEnableAddedJobIsSelectiveAndResetsState(t *testing.T) {
 	}
 }
 
-// Pre-migration pauses stay open-ended; timed windows gate manual queueing and
+// Pre-migration pauses stay open-ended and read as requested by cli; a replaced
+// window keeps its new requester; timed windows gate manual queueing and
 // temporary schedules by time alone, without a scheduler to expire them.
 func TestPauseWindows(t *testing.T) {
 	dir := t.TempDir()
@@ -256,10 +257,10 @@ func TestPauseWindows(t *testing.T) {
 	defer state.Close()
 	now := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
 	pauses, err := state.Pauses("/paused", now.Add(24*time.Hour))
-	if pause := pauses["probe"]; err != nil || !pause.Active || pause.StartsAt != nil || pause.EndsAt != nil {
+	if pause := pauses["probe"]; err != nil || !pause.Active || pause.StartsAt != nil || pause.EndsAt != nil || pause.RequestedBy != "cli" {
 		t.Fatalf("upgraded pause: %+v %v", pauses, err)
 	}
-	if n, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{End: ptr(now.Add(time.Hour))}, now); err != nil || n != 0 {
+	if n, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{End: ptr(now.Add(time.Hour))}, "cli", now); err != nil || n != 0 {
 		t.Fatalf("timed pause shortened open-ended pause: %d %v", n, err)
 	}
 	if n, err := state.SetJobsPaused("/paused", []string{"probe"}, false, now); err != nil || n != 1 {
@@ -274,7 +275,7 @@ func TestPauseWindows(t *testing.T) {
 		_, _, _, err := state.CreateTemporarySchedule(TemporarySchedule{ProjectID: 1, Job: "probe", Schedule: "every 1m", Until: at.Add(time.Hour), NextAt: at.Add(time.Minute), CreatedAt: at, Key: "k", Digest: "d", RequestedBy: "cli", EventSource: "cli"}, QueueRunInput{ProjectID: 1, Job: "probe", JobExists: true, JobEnabled: true, Now: at})
 		return err
 	}
-	if _, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{End: ptr(now.Add(time.Hour))}, now); err != nil {
+	if _, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{End: ptr(now.Add(time.Hour))}, "cli", now); err != nil {
 		t.Fatal(err)
 	}
 	if err := queue(now); !errors.Is(err, ErrJobPaused) {
@@ -283,8 +284,11 @@ func TestPauseWindows(t *testing.T) {
 	if err := temporary(now); !errors.Is(err, ErrJobPaused) {
 		t.Fatalf("temporary schedule during active window: %v", err)
 	}
-	if _, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{Start: ptr(now.Add(2 * time.Hour)), End: ptr(now.Add(3 * time.Hour))}, now); err != nil {
+	if _, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{Start: ptr(now.Add(2 * time.Hour)), End: ptr(now.Add(3 * time.Hour))}, "web:192.0.2.1", now); err != nil {
 		t.Fatal(err)
+	}
+	if pauses, err := state.Pauses("/paused", now); err != nil || pauses["probe"].RequestedBy != "web:192.0.2.1" || !pauses["probe"].PausedAt.Equal(now) {
+		t.Fatalf("replaced window requester: %+v %v", pauses, err)
 	}
 	if err := queue(now); err != nil {
 		t.Fatalf("queue before pending window: %v", err)
@@ -295,6 +299,9 @@ func TestPauseWindows(t *testing.T) {
 	if err := queue(now.Add(2 * time.Hour)); !errors.Is(err, ErrJobPaused) {
 		t.Fatalf("queue once window started: %v", err)
 	}
+	if pauses, err := state.Pauses("/paused", now.Add(2*time.Hour)); err != nil || !pauses["probe"].Active || pauses["probe"].RequestedBy != "web:192.0.2.1" {
+		t.Fatalf("started window requester: %+v %v", pauses, err)
+	}
 	expired := now.Add(3 * time.Hour)
 	if err := queue(expired); err != nil {
 		t.Fatalf("queue after expiry: %v", err)
@@ -304,6 +311,19 @@ func TestPauseWindows(t *testing.T) {
 	}
 	if pauses, err := state.Pauses("/paused", expired); err != nil || len(pauses) != 0 {
 		t.Fatalf("expired pause listed: %+v %v", pauses, err)
+	}
+	// A later pause over the expired row, and a resume, never keep the old requester.
+	if _, err := state.PauseJobs("/paused", []string{"probe"}, PauseWindow{}, "cli", expired); err != nil {
+		t.Fatal(err)
+	}
+	if pauses, err := state.Pauses("/paused", expired); err != nil || pauses["probe"].RequestedBy != "cli" {
+		t.Fatalf("pause after expiry requester: %+v %v", pauses, err)
+	}
+	if _, err := state.SetJobsPaused("/paused", []string{"probe"}, false, expired); err != nil {
+		t.Fatal(err)
+	}
+	if pauses, err := state.Pauses("/paused", expired); err != nil || len(pauses) != 0 {
+		t.Fatalf("resumed pause listed: %+v %v", pauses, err)
 	}
 }
 

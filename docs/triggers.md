@@ -20,7 +20,7 @@ is queued. The job reads `$NOON_EVENT_FILE`:
 {"schema_version":1,"source":"cli","received_at":"2026-10-16T22:54:31.711Z","data":{"commit":"abc123"}}
 ```
 
-`source` is `cli`, `mcp`, `api`, or `webhook`. Data never becomes part of a command. Event files
+`source` is `cli`, `mcp`, `api`, `webhook`, or `web`. Data never becomes part of a command. Event files
 are kept with the newest 10 logs per job.
 
 ## Cooldown

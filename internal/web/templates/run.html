@@ -2,7 +2,10 @@
 <main id="run">
 {{with .Data}}{{$tz := .Timezone}}
 <section data-swap id="summary">
+<div class="title">
 <h1>#{{.Run.ID}} {{.Run.Job}}</h1>
+{{if or (eq .Run.Status "queued") (eq .Run.Status "running")}}<form class="actions" method="post" action="/runs/{{.Run.ID}}/cancel"{{if eq .Run.Status "running"}} data-confirm="{{confirmCancel .Run.ID .Run.Job}}"{{end}}><button type="submit" data-key="c">Cancel</button></form>{{end}}
+</div>
 <dl>
 <dt>Project</dt><dd><a href="/projects/{{.Project.ID}}">{{.Project.Name}}</a></dd>
 <dt>Status</dt><dd aria-live="polite">{{template "status" (status .Run.Status)}}</dd>

@@ -635,7 +635,7 @@ func TestServePauseWindows(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer state.Close()
-		if _, err := state.PauseJobs(f.project, []string{"tests"}, window, serveTestStart); err != nil {
+		if _, err := state.PauseJobs(f.project, []string{"tests"}, window, "cli", serveTestStart); err != nil {
 			t.Fatal(err)
 		}
 	}

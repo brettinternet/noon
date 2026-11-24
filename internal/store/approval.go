@@ -173,7 +173,7 @@ func (s *Store) SetPaused(project, job string, paused bool, now time.Time) error
 // and returns the number changed.
 func (s *Store) SetJobsPaused(project string, jobs []string, paused bool, now time.Time) (int, error) {
 	if paused {
-		return s.PauseJobs(project, jobs, PauseWindow{}, now)
+		return s.PauseJobs(project, jobs, PauseWindow{}, "cli", now)
 	}
 	return s.updatePauses(project, jobs, func(tx *sql.Tx, id int64, job string) (int64, error) {
 		result, err := tx.Exec(`DELETE FROM pauses WHERE project_id=? AND job=?`, id, job)
@@ -192,8 +192,9 @@ type PauseWindow struct{ Start, End *time.Time }
 
 // PauseJobs atomically records the window for the selected jobs and returns the
 // number of rows written. An open-ended pause is never shortened, a timed pause
-// replaces a timed one, and an open-ended pause replaces any row.
-func (s *Store) PauseJobs(project string, jobs []string, window PauseWindow, now time.Time) (int, error) {
+// replaces a timed one, and an open-ended pause replaces any row. requestedBy
+// names who asked (cli, web:ADDR) and is kept with the row it wrote.
+func (s *Store) PauseJobs(project string, jobs []string, window PauseWindow, requestedBy string, now time.Time) (int, error) {
 	var start, end any
 	if window.Start != nil {
 		start = FormatTime(*window.Start)
@@ -207,9 +208,9 @@ func (s *Store) PauseJobs(project string, jobs []string, window PauseWindow, now
 		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM pauses WHERE project_id=? AND job=? AND `+active+`)`, append([]any{id, job}, activeArgs...)...).Scan(&wasActive); err != nil {
 			return 0, err
 		}
-		result, err := tx.Exec(`INSERT INTO pauses(project_id,job,paused_at,starts_at,resumes_at) VALUES(?,?,?,?,?)
- ON CONFLICT(project_id,job) DO UPDATE SET paused_at=excluded.paused_at, starts_at=excluded.starts_at, resumes_at=excluded.resumes_at
- WHERE pauses.resumes_at IS NOT NULL`, id, job, FormatTime(now), start, end)
+		result, err := tx.Exec(`INSERT INTO pauses(project_id,job,paused_at,starts_at,resumes_at,requested_by) VALUES(?,?,?,?,?,?)
+ ON CONFLICT(project_id,job) DO UPDATE SET paused_at=excluded.paused_at, starts_at=excluded.starts_at, resumes_at=excluded.resumes_at, requested_by=excluded.requested_by
+ WHERE pauses.resumes_at IS NOT NULL`, id, job, FormatTime(now), start, end, requestedBy)
 		if err != nil {
 			return 0, err
 		}
@@ -292,6 +293,8 @@ func (s *Store) pausePredicate(now time.Time, pending bool) (string, []any) {
 // Pause is an unexpired pause row. Active is false for a window that has not started.
 type Pause struct {
 	Active           bool
+	PausedAt         time.Time
+	RequestedBy      string
 	StartsAt, EndsAt *time.Time
 }
 
@@ -307,17 +310,24 @@ func (s *Store) Pauses(project string, now time.Time) (map[string]Pause, error) 
 	if s.hasPauseWindows {
 		columns = "starts_at, resumes_at"
 	}
+	requester := "'cli'"
+	if s.hasPauseRequester {
+		requester = "requested_by"
+	}
 	args = append(append(args, project), unexpiredArgs...)
-	rows, err := s.db.Query(`SELECT pauses.job, `+columns+`, `+active+` FROM pauses JOIN projects ON projects.id=pauses.project_id WHERE projects.path=? AND `+unexpired, args...)
+	rows, err := s.db.Query(`SELECT pauses.job, paused_at, `+requester+`, `+columns+`, `+active+` FROM pauses JOIN projects ON projects.id=pauses.project_id WHERE projects.path=? AND `+unexpired, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var name string
+		var name, pausedAt string
 		var start, end sql.NullString
 		var pause Pause
-		if err := rows.Scan(&name, &start, &end, &pause.Active); err != nil {
+		if err := rows.Scan(&name, &pausedAt, &pause.RequestedBy, &start, &end, &pause.Active); err != nil {
+			return nil, err
+		}
+		if pause.PausedAt, err = time.Parse(TimestampLayout, pausedAt); err != nil {
 			return nil, err
 		}
 		for _, item := range []struct {

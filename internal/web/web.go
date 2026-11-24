@@ -64,6 +64,12 @@ func New(options Options) *Handler {
 	mux.HandleFunc("GET /{$}", h.page(h.overview))
 	mux.HandleFunc("GET /projects/{id}", h.page(h.project))
 	mux.HandleFunc("GET /runs/{id}", h.page(h.run))
+	mux.HandleFunc("POST /runs/{id}/cancel", h.action(h.cancel))
+	mux.HandleFunc("POST /projects/{id}/jobs/{name}/runs", h.action(h.queue))
+	mux.HandleFunc("POST /projects/{id}/jobs/{name}/pause", h.action(h.pause))
+	mux.HandleFunc("POST /projects/{id}/jobs/{name}/resume", h.action(h.resume))
+	mux.HandleFunc("POST /projects/{id}/pause", h.action(h.pause))
+	mux.HandleFunc("POST /projects/{id}/resume", h.action(h.resume))
 	mux.HandleFunc("GET /events", h.events)
 	mux.HandleFunc("GET /assets/{hash}/{name}", serveAsset)
 	h.mux = mux

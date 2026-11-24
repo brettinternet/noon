@@ -195,8 +195,9 @@ pause. Human NEXT shows `paused until DAY HH:MM` or `paused`; `next_at` skips oc
 pending window.
 
 JSON has sorted `jobs` (or one `job`), `paused`, `changed`, and, when a timed pause changed,
-`starts_at` and `ends_at`. `list --json` and MCP add `pause_starts_at` and `pause_ends_at` to jobs
-with a timed or pending pause; `paused` is true only while the window is active.
+`starts_at` and `ends_at`. `list --json`, `status --json`, and MCP add `pause_starts_at` and `pause_ends_at` to jobs
+with a timed or pending pause, and `paused_by` (`cli`, or `web:ADDRESS` from the web viewer) to
+any paused job; `paused` is true only while the window is active.
 
 ## Multiple targets
 

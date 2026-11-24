@@ -23,13 +23,19 @@ const (
 var templateFiles embed.FS
 
 var templates = template.Must(template.New("").Funcs(template.FuncMap{
-	"stamp":    stamp,
-	"status":   statusInfo,
-	"duration": app.DurationText,
-	"ansi":     renderANSI,
-	"deref":    func(value *string) string { return derefString(value) },
-	"add":      func(a, b int64) int64 { return a + b },
-	"pct":      func(value float64) string { return strconv.FormatFloat(value, 'f', 2, 64) + "%" },
+	"stamp":           stamp,
+	"status":          statusInfo,
+	"duration":        app.DurationText,
+	"ansi":            renderANSI,
+	"deref":           func(value *string) string { return derefString(value) },
+	"add":             func(a, b int64) int64 { return a + b },
+	"confirmCancel":   confirmCancel,
+	"confirmPauseJob": confirmPauseJob,
+	"confirmPauseAll": confirmPauseAll,
+	"temporaryJobs":   temporaryJobs,
+	"pausedBy":        pausedBy,
+	"dict":            dict,
+	"pct":             func(value float64) string { return strconv.FormatFloat(value, 'f', 2, 64) + "%" },
 }).ParseFS(templateFiles, "templates/*.html"))
 
 // layout carries what every page shows around its main content.
@@ -40,11 +46,15 @@ type layout struct {
 	SignedIn bool
 	Seq      uint64
 	Failing  int
+	Flash    string
 	Data     any
 }
 
 func (h *Handler) layout(r *http.Request, title string, data any) layout {
 	page := layout{Title: title, Version: h.options.Version, Assets: "/assets/" + assetHash + "/", Data: data}
+	if r.Method == http.MethodGet {
+		page.Flash = flashes[r.URL.Query().Get("done")]
+	}
 	if h.signedIn(r) {
 		current, _ := h.watcher.state()
 		page.SignedIn, page.Seq, page.Failing = true, current.Seq, current.Failing
@@ -69,7 +79,9 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, status int, nam
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	status, message := http.StatusInternalServerError, "Noon could not read its state."
 	var appErr *app.Error
-	if errors.As(err, &appErr) {
+	if mapped, text, ok := failStatus(err); ok {
+		status, message = mapped, text
+	} else if errors.As(err, &appErr) {
 		switch {
 		case appErr.Code == "not_found":
 			status, message = http.StatusNotFound, "Not found."
@@ -254,4 +266,20 @@ func derefString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+// pausedBy names the surface in a pause requester: "web" for web:ADDR.
+func pausedBy(requester string) string {
+	surface, _, _ := strings.Cut(requester, ":")
+	return surface
+}
+
+// dict builds a map from key-value pairs so a template can pass several values.
+func dict(pairs ...any) map[string]any {
+	result := make(map[string]any, len(pairs)/2)
+	for i := 0; i+1 < len(pairs); i += 2 {
+		key, _ := pairs[i].(string)
+		result[key] = pairs[i+1]
+	}
+	return result
 }

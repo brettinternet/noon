@@ -668,7 +668,7 @@ func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
 	}
 	set := func(names []string) (int, error) {
 		if paused {
-			return app.PauseJobs(cfg.StateDir, cfg.Project, names, window, now)
+			return app.PauseJobs(cfg.StateDir, cfg.Project, names, window, "cli", now)
 		}
 		return app.SetJobsPaused(cfg.StateDir, cfg.Project, names, false, now)
 	}

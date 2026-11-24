@@ -417,7 +417,7 @@ Scheduling unattended commands from repository content is a supply-chain risk, e
   `NOON_JOB`, `NOON_RUN_ID`, `NOON_TRIGGER`, `NOON_SCHEDULED_AT`, `NOON_LAST_SUCCESS_AT` (start of the
   last successful run), `NOON_DEPTH` (stored request depth + 1), `NOON_AGENT` for prompt jobs,
   `NOON_AGENT_SESSION_ID` only for prompt profiles with `session_id_flag`, and
-  `NOON_EVENT_FILE` when there's a payload. Inherited run and hook metadata (`NOON_RUN_ID`,
+  `NOON_EVENT_FILE` when there's a payload or the run came from a webhook or the web viewer. Inherited run and hook metadata (`NOON_RUN_ID`,
   `NOON_STATUS`, `NOON_EXIT_CODE`, `NOON_SCHEDULED_AT`, and the rest of the names above and in
   hooks) is stripped, so a job started from a hook never sees its parent's values. Depth comes from the stored run,
   not the scheduler's environment. Noon never sources shell rc files, creates worktrees, or changes
@@ -491,6 +491,7 @@ worktrees, and lets one scheduler see every enabled project.
   optional key, ended_at) and `temporary_job_names` (project/name only, retained for empty history
   resolution after removal). Temporary schedules and job definitions are separate tables.
   Version 15 adds nullable pause `starts_at` and `resumes_at`; existing rows stay open-ended.
+  Version 16 adds pause `requested_by` (`cli` or `web:ADDRESS`); existing rows read `cli`.
   Older binaries refuse the newer database.
 - Run `status`: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`,
   `interrupted`, `skipped`, `missed`, `expired`. `noop` is a terminal run status, distinct from
@@ -544,8 +545,9 @@ No plugin system; commands are the integration boundary (decision-4).
   override settings, read once at startup). `POST /hooks/{project_id}/{job}`
   needs an HMAC-SHA256 signature; the secret comes from the scheduler's startup environment.
   Delivery IDs are idempotency keys. Payloads choose data, never commands.
-- **Event files**: `schema_version`, `source` (`cli`, `mcp`, `api`, `webhook`), `received_at`, `data`, and
-  allowlisted `headers` for webhooks. Signature and authorization headers are never stored.
+- **Event files**: `schema_version`, `source` (`cli`, `mcp`, `api`, `webhook`, `web`), `received_at`, `data`, and
+  allowlisted `headers` for webhooks. Webhook and web runs always get one, with `data` null when
+  there's no payload. Signature and authorization headers are never stored.
 - **MCP** ([doc](agents.md)): stdio and stateless Streamable HTTP, official Go SDK. Tools: `status`,
   `list_projects`, `list_jobs`, `run_job`, `list_runs`, `get_run`, `cancel_run`. HTTP MCP has no
   default project and only reaches enabled projects. Agents can't approve, add, or edit unattended
@@ -556,12 +558,13 @@ No plugin system; commands are the integration boundary (decision-4).
   once from a file, checked before routing, and never inherited by jobs or hooks. Only enabled
   projects and their runs are reachable; `/healthz` remains unauthenticated, and webhooks retain HMAC authentication.
 - **Web viewer** ([doc](web.md)): with a listener and a web token file (`--web-token-file` or
-  `serve.web_token_file`), the scheduler serves read-only pages at `/` from `internal/web`, using
-  the same `internal/app` reads as the CLI, TUI, and MCP. Only enabled projects and their runs are
+  `serve.web_token_file`), the scheduler serves pages at `/` from `internal/web`, using the same
+  `internal/app` reads and actions as the CLI, TUI, and MCP. Only enabled projects and their runs are
   reachable. One watcher polls SQLite's `data_version` and pushes changes over server-sent events,
   capped at 32 streams and closed at shutdown. Standard library only: server-rendered
   `html/template` pages, one embedded script and stylesheet, no third-party code. Without the
-  token file every web route is 404. It never queues, cancels, enables, or approves.
+  token file every web route is 404. Form posts queue approved jobs, cancel runs, and pause or
+  resume jobs; it never enables, disables, approves, adds, edits, or removes them.
 - **Crontab import** ([doc](crontab.md)): preview by default; unsupported features fail with line
   numbers.
 - Outbound HTTP is a command (`run: [curl, -fsS, …]`), not a built-in action.
@@ -583,7 +586,7 @@ can't express. Even then, prefer `noon-NAME` subprocesses speaking versioned JSO
 | Scripts, prompt files, and env files | Not pinned | Approval covers what and when, not file contents |
 | MCP clients and authenticated HTTP API clients | Inspect, queue approved jobs, read logs, cancel runs; MCP also attaches bounded temporary schedules to approved jobs | Can't add, edit, enable, disable, approve, pause, or resume jobs; identity is metadata |
 | HTTP API bearer token | One shared token read from `--api-token-file` or user `serve.api_token_file` | Required before `/v1/` and `/mcp` routing; never logged, persisted, echoed, or passed to jobs/hooks |
-| Web token and session cookie | One shared token read from `--web-token-file` or user `serve.web_token_file`, distinct from the API token; login sets a 30-day `HttpOnly`, `SameSite=Strict` cookie holding an expiry and an HMAC keyed by the token | Reads every enabled project's runs and logs; never accepted by `/v1/` or `/mcp`; cross-origin posts refused; pages send a strict CSP and `no-store`; never logged, echoed, or passed to jobs/hooks |
+| Web token and session cookie | One shared token read from `--web-token-file` or user `serve.web_token_file`, distinct from the API token; login sets a 30-day `HttpOnly`, `SameSite=Strict` cookie holding an expiry and an HMAC keyed by the token | Reads every enabled project's runs and logs; queues approved jobs, cancels runs, and pauses or resumes jobs (pauses record `web:ADDRESS`); cancelling a running run, pausing a project, and ending a temporary schedule need `confirm=1`; never accepted by `/v1/` or `/mcp`; cross-origin posts refused; pages send a strict CSP and `no-store`; never logged, echoed, or passed to jobs/hooks |
 | Webhooks | HMAC-authenticated data | Never select or build commands; payload is a file |
 | Job and hook output | Untrusted bytes | Stored raw and bounded; never interpreted |
 | Environment values | Secret by default | Never printed by list, status, JSON, or MCP |

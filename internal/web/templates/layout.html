@@ -15,9 +15,13 @@
 {{if .SignedIn}}<form method="post" action="/logout"><button type="submit">Sign out</button></form>{{end}}
 </header>
 <p id="announce" class="visually-hidden" role="status" aria-live="polite"></p>
+{{with .Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 {{end}}
 
-{{define "foot"}}</body>
+{{define "foot"}}{{if .SignedIn}}
+<dialog id="confirm"><form method="dialog"><p></p><div class="buttons"><button value="keep">Keep</button><button value="ok" autofocus>Confirm</button></div></form></dialog>
+<dialog id="help"><form method="dialog"><h2>Keys</h2><dl class="keys"><dt><kbd>j</kbd> <kbd>k</kbd></dt><dd>Next or previous job</dd><dt><kbd>r</kbd></dt><dd>Run job</dd><dt><kbd>p</kbd></dt><dd>Pause or resume job</dd><dt><kbd>c</kbd></dt><dd>Cancel run</dd><dt><kbd>?</kbd></dt><dd>Keys</dd></dl><div class="buttons"><button value="close" autofocus>Close</button></div></form></dialog>
+{{end}}</body>
 </html>
 {{end}}
 
@@ -26,6 +30,20 @@
 {{define "status"}}<span class="status {{.Class}}"><span aria-hidden="true">{{.Glyph}}</span> {{.Name}}</span>{{end}}
 
 {{define "command"}}<span class="command"><code>{{.}}</code><button type="button" data-copy="{{.}}">Copy</button></span>{{end}}
+
+{{define "confirm"}}{{template "head" .}}
+<main class="confirm">
+{{with .Data}}
+<h1>Confirm</h1>
+<p>{{.Message}}</p>
+<form method="post" action="{{.Action}}">
+{{range $name, $value := .Fields}}<input type="hidden" name="{{$name}}" value="{{$value}}">{{end}}
+<input type="hidden" name="confirm" value="1">
+<button type="submit" autofocus>Confirm</button> <a href="{{.Back}}">Keep</a>
+</form>
+{{end}}
+</main>
+{{template "foot" .}}{{end}}
 
 {{define "error"}}{{template "head" .}}
 <main><h1>{{.Data}}</h1><p><a href="/">Overview</a></p></main>

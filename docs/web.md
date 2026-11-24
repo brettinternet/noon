@@ -1,7 +1,8 @@
 # Web viewer
 
-The scheduler can serve a read-only web viewer on its HTTP listener: every enabled project, what's
-failing, what runs next, and live run logs. It's off unless you give it a web token.
+The scheduler can serve a web viewer on its HTTP listener: every enabled project, what's failing,
+what runs next, and live run logs, with buttons to queue, cancel, pause, and resume. It's off
+unless you give it a web token.
 
 ## Enable
 
@@ -55,8 +56,33 @@ other control sequences are dropped. Pages update live over one server-sent even
 closed while the tab is hidden. The tab title and icon show the failing-job count. Times show in
 the browser's timezone; without JavaScript they show in the project's timezone.
 
-The viewer never queues, cancels, enables, or approves. Needs-approval projects show the command
-to run on the host.
+## Actions
+
+| Route (`POST`, form-encoded) | Does |
+| --- | --- |
+| `/projects/{id}/jobs/{name}/runs` | Queue the job: `when=now` (default), `when=in&in=DURATION`, or `when=at&at=TIME`, as `noon run --detach`, `--in`, and `--at`. Lands on the run |
+| `/runs/{id}/cancel` | Cancel a queued or running run |
+| `/projects/{id}/jobs/{name}/pause`, `/projects/{id}/pause` | Pause one job or every job: `window=1h`, `1d` (24 hours), `tomorrow` (until the next 09:00 in the project timezone), or `open` (until resumed) |
+| `/projects/{id}/jobs/{name}/resume`, `/projects/{id}/resume` | Resume one job or every job |
+
+Each action needs a session, refuses cross-origin posts, and redirects back to its page with a
+short result. Errors use the remote API's statuses: 404 for anything outside an enabled project,
+409 with the reason (paused, needs approval, ended, unsupported platform), and 429 for a full
+queue. Run is disabled, with the reason and any host command, for jobs that can't be queued; a
+paused job offers Resume instead. A pause is recorded as `web:CLIENT_ADDRESS`, so the job shows
+"paused from web" and `noon list --json` has `paused_by`. Queued runs record the same
+`requested_by` and an event file with source `web` and no data.
+
+Three actions change nothing until confirmed: cancelling a running run (its process group is
+signalled), pausing every job in a project, and a pause that ends a temporary schedule (resume
+doesn't restore it). Without JavaScript the server shows a confirmation page; with it, a dialog
+asks first.
+
+Keys: `j` and `k` move between jobs, `r` runs the selected job, `p` pauses or resumes it, `c`
+cancels the run on a run page, and `?` lists them.
+
+The viewer never enables, disables, approves, adds, edits, or removes jobs. Needs-approval
+projects show the command to run on the host.
 
 ## Web and API tokens
 
@@ -64,7 +90,7 @@ to run on the host.
 | --- | --- | --- |
 | Setting | `serve.web_token_file` | `serve.api_token_file` |
 | Used by | Browsers, through `/login` | `/v1/` and `/mcp` clients, as a bearer token |
-| Grants | Reading every enabled project and its logs | Reading, queueing, and cancelling runs |
+| Grants | Reading every enabled project and its logs; queueing, cancelling, pausing, and resuming | Reading, queueing, and cancelling runs |
 
 Either works without the other, and neither is accepted in the other's place. Signing in sets an
 `HttpOnly`, `SameSite=Strict` session cookie for 30 days, signed with the web token; it is

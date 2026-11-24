@@ -78,6 +78,8 @@ func WithScheduler(view Inspection, now time.Time) (Inspection, error) {
 			continue
 		}
 		job.Paused = pause.Active
+		pausedAt := pause.PausedAt.In(location)
+		job.PausedBy, job.PausedAt = pause.RequestedBy, &pausedAt
 		if pause.StartsAt != nil {
 			at := pause.StartsAt.In(location)
 			job.PauseStartsAt = &at

@@ -186,6 +186,31 @@ type ProjectView struct {
 	Project   OverviewProject `json:"project"`
 	Dashboard DashboardView   `json:"dashboard"`
 	Runs      []Run           `json:"runs"`
+	// Blocked explains, by job, why the viewer can't queue it.
+	Blocked map[string]QueueBlock `json:"-"`
+}
+
+// QueueBlock is why a job can't be queued, with the host command that fixes it, if any.
+type QueueBlock struct{ Reason, Command string }
+
+// queueBlocks explains each job that a queue request would refuse.
+func queueBlocks(jobs []Job, project, configFile string) map[string]QueueBlock {
+	result := map[string]QueueBlock{}
+	for _, job := range jobs {
+		switch {
+		case job.Approval == "needs_approval":
+			result[job.Name] = QueueBlock{"Needs approval", ProjectCommand(project, configFile, "noon enable")}
+		case !job.Enabled:
+			result[job.Name] = QueueBlock{"Disabled", ""}
+		case !job.PlatformSupported:
+			result[job.Name] = QueueBlock{"Unsupported platform", ""}
+		case job.Ended:
+			result[job.Name] = QueueBlock{"Ended", ""}
+		case job.Paused:
+			result[job.Name] = QueueBlock{"Paused", ""}
+		}
+	}
+	return result
 }
 
 // EnabledProject reads one enabled project for an adapter. Disabled and
@@ -212,6 +237,7 @@ func EnabledProject(input config.Input, id int64, job string, statuses []string,
 			if result.Project.State == "needs_approval" {
 				result.Project.Command = ProjectCommand(result.Project.Path, entry.status.configFile, "noon enable")
 			}
+			result.Blocked = queueBlocks(result.Dashboard.Jobs, result.Project.Path, entry.status.configFile)
 		}
 		result.Runs, err = RunsWithStatuses(stateDir, entry.status.Path, job, statuses, limit)
 		if err != nil && !NoDatabase(err) {
