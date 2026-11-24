@@ -6,6 +6,12 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Added
 
+- Fire an on_noop hook when a run ends as noop
+
+## [v0.19.0](https://github.com/brettinternet/noon/compare/v0.18.0...v0.19.0) - 2026-11-24
+
+### Added
+
 - **web:** Refine viewer layout for phones and live runs
 - Queue, cancel, pause, and resume from the web viewer
 - Chart recent run durations per job in the web viewer
@@ -15,6 +21,7 @@ Notable changes to noon are documented here. This file is generated from convent
 
 ### Documentation
 
+- Refresh changelog
 - Harden web viewer plan and add run links and duration charts
 - Add web pause/resume and stack to web viewer plan
 - Decide optional web viewer and plan its tasks
