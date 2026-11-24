@@ -44,7 +44,8 @@ noon enable
 
 Foreground runs also ping. Remove the demonstration marker when finished testing.
 Success pings the base URL; failure and timeout ping its `/fail` endpoint.
-Noop, cancelled, skipped, and interrupted runs do not fire these hooks.
+A job with `noop_exit_code` should also set `on_noop` to the same command, or its monitor sees
+each noop as a missed ping. Cancelled, skipped, and interrupted runs fire no hook.
 A failed ping is recorded in hook logs but never changes the job result.
 
 ## Scheduler liveness

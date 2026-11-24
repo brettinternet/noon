@@ -79,6 +79,10 @@
           "then": { "required": ["run"] }
         },
         {
+          "if": { "required": ["on_noop"] },
+          "then": { "required": ["noop_exit_code"] }
+        },
+        {
           "if": { "required": ["agent_args"] },
           "then": {
             "required": ["agent"],
@@ -203,6 +207,7 @@
         },
         "on_success": { "$ref": "#/definitions/hook" },
         "on_failure": { "$ref": "#/definitions/hook" },
+        "on_noop": { "$ref": "#/definitions/hook" },
         "webhook": {
           "type": "object",
           "description": "Signed webhook authentication settings.",

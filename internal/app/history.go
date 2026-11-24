@@ -157,6 +157,8 @@ func mapRunFromStore(state *store.Store, run store.Run) Run {
 			event = "on_success"
 		case "failed", "timed_out":
 			event = "on_failure"
+		case "noop":
+			event = "on_noop"
 		}
 		if event != "" {
 			hook := &RunHook{Event: event, Status: run.HookStatus.String}

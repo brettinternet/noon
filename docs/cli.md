@@ -445,8 +445,8 @@ noon history -s noop             # only no-op polls
 ```
 
 Statuses: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`,
-`interrupted`, `skipped`, `missed`, `expired`. A noop is neither success nor failure and runs no
-hooks. An orphaned run shows as `orphaned` but stays `running` in JSON, with `orphaned: true`.
+`interrupted`, `skipped`, `missed`, `expired`. A noop is neither success nor failure and runs only
+`on_noop`. An orphaned run shows as `orphaned` but stays `running` in JSON, with `orphaned: true`.
 History and logs work after a job is removed.
 
 ## Logs

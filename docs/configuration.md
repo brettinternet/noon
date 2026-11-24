@@ -114,7 +114,7 @@ timezones, or agent resolution; run `noon config check` for those.
 | `version`, `vars_file`, `jobs` | yes | yes | yes | yes |
 | `timezone` | yes | yes | no | yes |
 | `default_agent` | yes | no | no | yes |
-| `state_dir`, `agents`, `on_success`, `on_failure` | yes | no | no | no |
+| `state_dir`, `agents`, `on_success`, `on_failure`, `on_noop` | yes | no | no | no |
 | `serve` | yes | no | no | no |
 
 A `--config` file accepts every key except `serve`. A key in the wrong file is an error naming the
@@ -252,7 +252,7 @@ Each job needs exactly one of `run`, `prompt`, or `prompt_file`. Names match
 | `os` | — | Non-empty list from `darwin`, `linux` |
 | `arch` | — | Non-empty list from `amd64`, `arm64` |
 | `cooldown` | — | Minimum gap between queued requests; incompatible with `requests: each` ([Triggers](triggers.md)) |
-| `on_success`, `on_failure` | user default | Hook command; `[]` disables the default ([Hooks](hooks.md)) |
+| `on_success`, `on_failure`, `on_noop` | user default | Hook command; `[]` disables the default; `on_noop` requires `noop_exit_code` ([Hooks](hooks.md)) |
 | `webhook` | — | `{secret_env: NAME}` ([Webhooks](webhooks.md)) |
 
 `os` and `arch` use exact Go values; `macos`, `x86_64`, and `aarch64` are rejected with a

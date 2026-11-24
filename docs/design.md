@@ -496,7 +496,8 @@ worktrees, and lets one scheduler see every enabled project.
 - Run `status`: `queued`, `running`, `succeeded`, `noop`, `failed`, `timed_out`, `cancelled`,
   `interrupted`, `skipped`, `missed`, `expired`. `noop` is a terminal run status, distinct from
   `skipped`, which means an occurrence never started because of overlap. Noops count as terminal
-  for scheduling and idempotency; they do not count as job results, fire hooks, update
+  for scheduling and idempotency; they do not count as job results, fire hooks other than
+  `on_noop`, update
   `NOON_LAST_SUCCESS_AT`, or become a hook's `previous_status`. Run `trigger`: `manual`, `schedule`,
   `catch_up`, `queued`, `webhook`.
 - `scheduled_at` is the occurrence a scheduled run stands for (the first missed one for `catch_up`
@@ -524,13 +525,13 @@ worktrees, and lets one scheduler see every enabled project.
 
 No plugin system; commands are the integration boundary (decision-4).
 
-- **Hooks** ([doc](hooks.md)): `on_success`/`on_failure` get a versioned JSON summary on stdin and
-  `NOON_*` variables; 30s timeout; 64 KiB output appended after a marker; no hooks for hooks.
+- **Hooks** ([doc](hooks.md)): `on_success`/`on_failure`/`on_noop` get a versioned JSON summary
+  on stdin and `NOON_*` variables; 30s timeout; 64 KiB output appended after a marker; no hooks for hooks.
   `previous_status` and `consecutive_failures` come from one snapshot taken before the run's
   terminal transition, over retained `succeeded`/`failed`/`timed_out` results of the same project
   and job ordered by `finished_at` then ID. Other statuses neither count nor reset; digest changes,
-  pause, and resume don't reset. Noops run no hooks. On lookup error Noon records the job result
-  and skips the hook. Pause and notification policy belong in wrappers, not the core.
+  pause, and resume don't reset; a noop's `on_noop` sees the streak unchanged. On lookup error
+  Noon records the job result and skips the hook. Pause and notification policy belong in wrappers, not the core.
 - **Triggers** ([doc](triggers.md)): `noon run NAME --detach --key ID [--data JSON]`. The event file
   is written before the queued run is committed, so dispatch can't race it. Payloads are files,
   never interpolated. Cooldown is checked after key deduplication and requirements, before due-run

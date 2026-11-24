@@ -35,7 +35,7 @@ func TestServeTemporaryJobs(t *testing.T) {
 			t.Fatal(err)
 		}
 		source := fmt.Sprintf("jobs:\n  watch:\n    schedule: every 1m\n    until: %s\n    run: ['true']\n", serveTestStart.Add(3*time.Minute).Format(time.RFC3339))
-		job, err := config.JobFromSource([]byte(source), "watch", cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, false, cfg.Project, cfg.Timezone, false)
+		job, err := config.JobFromSource([]byte(source), "watch", cfg.Agents, cfg.DefaultAgent, cfg.Hooks, false, cfg.Project, cfg.Timezone, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -128,7 +128,7 @@ func TestServeTemporaryJobs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		parsed, err := config.JobFromSource([]byte("jobs:\n  watch: {schedule: every 1m, prompt: check}\n"), "watch", cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project, cfg.Timezone, false)
+		parsed, err := config.JobFromSource([]byte("jobs:\n  watch: {schedule: every 1m, prompt: check}\n"), "watch", cfg.Agents, cfg.DefaultAgent, config.Hooks{}, false, cfg.Project, cfg.Timezone, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -259,7 +259,7 @@ func TestServeTemporaryJobs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		schedule, err := config.JobFromSource([]byte("jobs:\n  watch: {schedule: every 1m, agent: a, prompt: check}\n"), "watch", cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project, cfg.Timezone, false)
+		schedule, err := config.JobFromSource([]byte("jobs:\n  watch: {schedule: every 1m, agent: a, prompt: check}\n"), "watch", cfg.Agents, cfg.DefaultAgent, config.Hooks{}, false, cfg.Project, cfg.Timezone, false)
 		if err != nil {
 			t.Fatal(err)
 		}

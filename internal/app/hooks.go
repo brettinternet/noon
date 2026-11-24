@@ -50,11 +50,12 @@ func FinishRunWithHook(state *store.Store, run store.Run, project string, job co
 		// Snapshot while this run still owns the running slot, not after FinishRun
 		// permits a subsequent execution to complete.
 		previousStatus, consecutiveFailures, lookupErr = state.PreviousResults(run.ProjectID, run.Job, run.ID)
-		if outcome.Status == "succeeded" {
+		switch outcome.Status {
+		case "succeeded":
 			consecutiveFailures = 0
-		} else {
+		case "failed", "timed_out":
 			consecutiveFailures++
-		}
+		} // A noop neither counts nor resets the streak.
 		if lookupErr == nil {
 			outcome.HookEvent = event
 		}
@@ -148,6 +149,10 @@ func matchingHook(status string, job config.Job) (string, any) {
 	case "failed", "timed_out":
 		if hasHook(job.OnFailure) {
 			return "on_failure", job.OnFailure
+		}
+	case "noop":
+		if hasHook(job.OnNoop) {
+			return "on_noop", job.OnNoop
 		}
 	}
 	return "", nil

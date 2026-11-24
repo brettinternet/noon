@@ -267,7 +267,7 @@ func TestEnvFileDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roundTrip, err := config.JobFromSource(encoded, "tests", config.BuiltInAgents(), "", nil, nil, false, "", "", false)
+	roundTrip, err := config.JobFromSource(encoded, "tests", config.BuiltInAgents(), "", config.Hooks{}, false, "", "", false)
 	if err != nil || roundTrip.Digest != ordered.Digest {
 		t.Fatalf("round trip lost paths: %s %v", encoded, err)
 	}
@@ -449,6 +449,7 @@ func TestLoadJobs(t *testing.T) {
 		}},
 		{name: "invalid user job", user: "jobs: {tests: {schedule: every day, run: hi}}", want: "config.yaml"},
 		{name: "project hook defaults", shared: "on_success: [notify]\njobs: {tests: {run: hi}}", want: "allowed only in user config or --config files"},
+		{name: "project noop hook default", shared: "on_noop: [notify]\njobs: {tests: {run: hi}}", want: "allowed only in user config or --config files"},
 		{name: "name", shared: "jobs:\n  1tests: {run: hi}", want: "noon.yaml:2: jobs.1tests:"},
 		{name: "unknown field", shared: "jobs:\n  tests:\n    run: hi\n    typo: nope", want: "noon.yaml:4: jobs.tests.typo: unknown field"},
 		{name: "two actions", shared: "jobs: {tests: {run: hi, prompt: nope}}", want: "exactly one of run, prompt, or prompt_file is required"},
@@ -528,6 +529,7 @@ func TestLoadJobs(t *testing.T) {
 	}
 	for _, test := range []struct{ manifest, message string }{
 		{"jobs: {tests: {run: 'true', webhook: {}}}", "jobs.tests.webhook.secret_env: required"},
+		{"jobs: {tests: {run: 'true', on_noop: [ping]}}", "jobs.tests.on_noop: requires noop_exit_code"},
 		{"jobs: {tests: {run: 'true', webhook: {secret_env: 'NOT VALID'}}}", "must be a valid environment variable name"},
 	} {
 		root := canonical(t, t.TempDir())
@@ -539,16 +541,16 @@ func TestLoadJobs(t *testing.T) {
 	t.Run("inherited hook defaults and job opt-out", func(t *testing.T) {
 		root := canonical(t, t.TempDir())
 		user := filepath.Join(root, "user")
-		put(t, filepath.Join(user, "noon/config.yaml"), "on_success: [notify, --quiet]\non_failure: 'notify failure'\n")
-		put(t, filepath.Join(root, "noon.yaml"), "jobs:\n  inherited: {run: hi}\n  disabled: {run: hi, on_success: []}\n")
+		put(t, filepath.Join(user, "noon/config.yaml"), "on_success: [notify, --quiet]\non_failure: 'notify failure'\non_noop: [ping]\n")
+		put(t, filepath.Join(root, "noon.yaml"), "jobs:\n  inherited: {run: hi}\n  disabled: {run: hi, on_success: [], on_noop: [], noop_exit_code: 3}\n")
 		cfg, err := config.Load(config.Input{CWD: root, UserConfigDir: user})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(cfg.Jobs["inherited"].OnSuccess, []string{"notify", "--quiet"}) || cfg.Jobs["inherited"].OnFailure != "notify failure" {
+		if !reflect.DeepEqual(cfg.Jobs["inherited"].OnSuccess, []string{"notify", "--quiet"}) || cfg.Jobs["inherited"].OnFailure != "notify failure" || !reflect.DeepEqual(cfg.Jobs["inherited"].OnNoop, []string{"ping"}) {
 			t.Fatalf("inherited hooks: %+v", cfg.Jobs["inherited"])
 		}
-		if hook, ok := cfg.Jobs["disabled"].OnSuccess.([]string); !ok || len(hook) != 0 || cfg.Jobs["disabled"].OnFailure != "notify failure" {
+		if hook, ok := cfg.Jobs["disabled"].OnSuccess.([]string); !ok || len(hook) != 0 || cfg.Jobs["disabled"].OnFailure != "notify failure" || len(cfg.Jobs["disabled"].OnNoop.([]string)) != 0 {
 			t.Fatalf("hook opt-out did not preserve independent inherited hook: %+v", cfg.Jobs["disabled"])
 		}
 	})

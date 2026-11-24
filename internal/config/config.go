@@ -61,9 +61,8 @@ type Config struct {
 	VarsFiles    []VarsFile              `json:"-"`
 	DefaultAgent string                  `json:"default_agent"`
 	Platform     Platform                `json:"-"`
-	OnSuccess    any                     `json:"-"`
-	OnFailure    any                     `json:"-"`
 	Serve        Serve                   `json:"-"`
+	Hooks        `json:"-"`
 }
 
 // Load applies defaults, user settings, project settings, and invocation overrides.
@@ -441,7 +440,7 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 			}
 		}
 	}
-	for _, field := range []string{"on_success", "on_failure"} {
+	for _, field := range hookFields {
 		node, ok := values[field]
 		if !ok {
 			continue
@@ -453,11 +452,7 @@ func (cfg *Config) applyFile(path string, optional bool, kind, userConfigPath st
 		if err != nil {
 			return err
 		}
-		if field == "on_success" {
-			cfg.OnSuccess = command
-		} else {
-			cfg.OnFailure = command
-		}
+		cfg.Hooks.set(field, command)
 	}
 	if node, ok := values["timezone"]; ok {
 		value := node.Value
@@ -585,7 +580,7 @@ func parse(data []byte) (map[string]*yaml.Node, error) {
 			}
 		case "serve":
 			// Listener settings are user-only and validated with source lines in applyFile.
-		case "on_success", "on_failure":
+		case "on_success", "on_failure", "on_noop":
 			// Hook commands retain source-aware diagnostics in applyFile.
 		case "jobs":
 			// Nested job validation retains source lines and YAML paths.

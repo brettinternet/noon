@@ -44,6 +44,14 @@ type TemporaryJob struct {
 	RemovesAt        time.Time  `json:"removes_at"`
 }
 
+// Hooks are lifecycle commands selected by a finished run's status. Each is nil,
+// a /bin/sh string, or an argv list; an empty list opts out of a default.
+type Hooks struct {
+	OnSuccess any
+	OnFailure any
+	OnNoop    any
+}
+
 type Job struct {
 	Temporary          *TemporaryJob
 	Name               string
@@ -55,8 +63,7 @@ type Job struct {
 	Until              *time.Time
 	untilNode          *yaml.Node
 	Run                any
-	OnSuccess          any
-	OnFailure          any
+	Hooks
 	Prompt             *string
 	PromptFile         *string
 	Webhook            *Webhook
@@ -288,7 +295,7 @@ func (cfg *Config) applyJobs(file, kind string, node *yaml.Node) error {
 		if (kind == "local" || kind == "fragment") && exists && !previous.Shared {
 			return jobError(file, jobs[name], path, fmt.Sprintf("also defined in %q; private job names must be unique", previous.Source))
 		}
-		job, err := parseJob(file, path, name, jobs[name], fields, cfg.OnSuccess, cfg.OnFailure, kind == "explicit", kind == "user" || kind == "local" || kind == "fragment")
+		job, err := parseJob(file, path, name, jobs[name], fields, cfg.Hooks, kind == "explicit", kind == "user" || kind == "local" || kind == "fragment")
 		if err != nil {
 			return err
 		}
@@ -503,8 +510,8 @@ func agentNames(profiles map[string]AgentProfile) []string {
 // Inherited hook defaults join the digest only when they come from the same
 // approval-gated explicit file; user-config defaults are the user's own and
 // must not revoke shared-job approvals when they change.
-func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node, defaultSuccess, defaultFailure any, digestDefaults, private bool) (Job, error) {
-	job := Job{Name: name, CWD: ".", Env: map[string]string{}, Timeout: "1h", Requests: "merge", Overlap: "skip", Missed: "run_once", Enabled: true, Source: file, OnSuccess: defaultSuccess, OnFailure: defaultFailure}
+func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.Node, defaults Hooks, digestDefaults, private bool) (Job, error) {
+	job := Job{Name: name, CWD: ".", Env: map[string]string{}, Timeout: "1h", Requests: "merge", Overlap: "skip", Missed: "run_once", Enabled: true, Source: file, Hooks: defaults}
 	execution := make(map[string]any)
 	job.execution = execution
 	actions := 0
@@ -550,16 +557,12 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 				return Job{}, err
 			}
 			job.NoopExitCode, execution[key] = code, code
-		case "on_success", "on_failure":
+		case "on_success", "on_failure", "on_noop":
 			command, err := parseCommand(file, field, value, true)
 			if err != nil {
 				return Job{}, err
 			}
-			if key == "on_success" {
-				job.OnSuccess = command
-			} else {
-				job.OnFailure = command
-			}
+			job.Hooks.set(key, command)
 		case "prompt":
 			actions++
 			text, err := jobString(file, field, value)
@@ -782,6 +785,9 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 	if value := fields["noop_exit_code"]; value != nil && job.Run == nil {
 		return Job{}, jobError(file, value, path+".noop_exit_code", "only valid for run jobs")
 	}
+	if value := fields["on_noop"]; value != nil && fields["noop_exit_code"] == nil {
+		return Job{}, jobError(file, value, path+".on_noop", "requires noop_exit_code")
+	}
 	if value := fields["agent_args"]; value != nil {
 		if job.Run != nil {
 			return Job{}, jobError(file, value, path+".agent_args", "only valid for prompt or prompt_file jobs")
@@ -810,11 +816,10 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 	if job.Requests == "each" && fields["cooldown"] != nil {
 		return Job{}, jobError(file, fields["cooldown"], path+".cooldown", "cannot be used with requests: each")
 	}
-	if hasCommand(job.OnSuccess) && (digestDefaults || fields["on_success"] != nil) {
-		execution["on_success"] = job.OnSuccess
-	}
-	if hasCommand(job.OnFailure) && (digestDefaults || fields["on_failure"] != nil) {
-		execution["on_failure"] = job.OnFailure
+	for _, key := range hookFields {
+		if command := job.Hooks.get(key); hasCommand(command) && (digestDefaults || fields[key] != nil) {
+			execution[key] = command
+		}
 	}
 	if job.Agent != "" && job.Prompt == nil && job.PromptFile == nil {
 		return Job{}, jobError(file, fields["agent"], path+".agent", "valid only for prompt or prompt_file jobs")
@@ -826,4 +831,30 @@ func parseJob(file, path, name string, node *yaml.Node, fields map[string]*yaml.
 	}
 	job.Digest = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 	return job, nil
+}
+
+// hookFields lists hook keys in digest and parse order.
+var hookFields = []string{"on_success", "on_failure", "on_noop"}
+
+func (h *Hooks) set(key string, command any) {
+	switch key {
+	case "on_success":
+		h.OnSuccess = command
+	case "on_failure":
+		h.OnFailure = command
+	case "on_noop":
+		h.OnNoop = command
+	}
+}
+
+func (h Hooks) get(key string) any {
+	switch key {
+	case "on_success":
+		return h.OnSuccess
+	case "on_failure":
+		return h.OnFailure
+	case "on_noop":
+		return h.OnNoop
+	}
+	return nil
 }

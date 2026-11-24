@@ -950,7 +950,7 @@ func (s *Store) CompleteHookWithTiming(runID int64, event, status string, exitCo
 	if !s.hasHooks {
 		return errors.New("lifecycle hooks are unavailable in this state database")
 	}
-	if event != "on_success" && event != "on_failure" {
+	if event != "on_success" && event != "on_failure" && event != "on_noop" {
 		return fmt.Errorf("invalid hook event %q", event)
 	}
 	switch status {

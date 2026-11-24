@@ -283,12 +283,12 @@ func addJob(_ context.Context, cmd *urfave.Command) error {
 		if err != nil {
 			return usageError(err.Error(), "")
 		}
-		rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, nil, nil, false, cfg.Project, "", kind != "shared")
+		rawAddedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, config.Hooks{}, false, cfg.Project, "", kind != "shared")
 		if err != nil || rawAddedJob.Digest != requestedDigest {
 			return editVerificationError("added job digest differs from the requested definition")
 		}
 	}
-	addedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.OnSuccess, cfg.OnFailure, cfg.ConfigFile != nil, cfg.Project, cfg.Timezone, kind != "shared")
+	addedJob, err := config.JobFromSource(after, name, cfg.Agents, cfg.DefaultAgent, cfg.Hooks, cfg.ConfigFile != nil, cfg.Project, cfg.Timezone, kind != "shared")
 	if err != nil {
 		return editVerificationError("added job could not inherit configured hook defaults")
 	}

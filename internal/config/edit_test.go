@@ -72,11 +72,11 @@ func TestEditJobs(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, name := range names {
-				before, err := config.JobFromSource(fixture.source, name, nil, "", nil, nil, false, "", "", false)
+				before, err := config.JobFromSource(fixture.source, name, nil, "", config.Hooks{}, false, "", "", false)
 				if err != nil {
 					t.Fatal(err)
 				}
-				after, err := config.JobFromSource(added, name, nil, "", nil, nil, false, "", "", false)
+				after, err := config.JobFromSource(added, name, nil, "", config.Hooks{}, false, "", "", false)
 				if err != nil {
 					t.Fatal(err)
 				}
