@@ -18,6 +18,9 @@ import (
 )
 
 func addJob(_ context.Context, cmd *urfave.Command) error {
+	if err := unquotedTime(cmd); err != nil {
+		return err
+	}
 	if cmd.Bool("user") && (cmd.Bool("shared") || cmd.Bool("local")) {
 		return usageError("--user add conflicts with --shared and --local", "Use --user to select the user config file")
 	}
@@ -643,6 +646,9 @@ func hasJobInFile(_ config.Input, file, name string) bool {
 func pauseJob(ctx context.Context, cmd *urfave.Command) error  { return pauseResume(ctx, cmd, true) }
 func resumeJob(ctx context.Context, cmd *urfave.Command) error { return pauseResume(ctx, cmd, false) }
 func pauseResume(_ context.Context, cmd *urfave.Command, paused bool) error {
+	if err := unquotedTime(cmd); err != nil {
+		return err
+	}
 	args := cmd.Args().Slice()
 	if cmd.Bool("all") && len(args) != 0 {
 		return usageError("cannot combine a job name with --all", "")

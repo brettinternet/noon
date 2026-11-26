@@ -25,6 +25,9 @@ type runExit int
 func (e runExit) Error() string { return fmt.Sprintf("job exited %d", e) }
 
 func runJob(ctx context.Context, cmd *urfave.Command) error {
+	if err := unquotedTime(cmd); err != nil {
+		return err
+	}
 	queueMode, err := runQueueMode(cmd)
 	if err != nil {
 		return err
